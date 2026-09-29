@@ -1,0 +1,32 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Personal and generated data
+data/
+uploads/
+storage/
+tmp/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+coverage/
+dist/
+build/
+
+# Tooling
+node_modules/
+.cache/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local resume and private documents (examples belong in docs only)
+resume*.pdf
+简历*.pdf

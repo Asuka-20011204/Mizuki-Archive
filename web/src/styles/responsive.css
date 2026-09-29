@@ -1,0 +1,157 @@
+/* 中等屏幕布局：避免侧栏挤压内容。 */
+@media(max-width:1000px) {
+  .sidebar {
+    width:205px;
+    padding-left:14px;
+    padding-right:14px
+  }
+  .workspace {
+    grid-template-columns:205px minmax(0,1fr)
+  }
+  .topbar-meta,.toolbar-hint {
+    display:none
+  }
+  .welcome-decoration {
+    width:115px
+  }
+  .welcome-decoration i {
+    width:100px;
+    height:100px
+  }
+}
+/* 窄屏布局：保持搜索、上传与详情操作可达。 */
+@media(max-width:680px) {
+  .login-screen {
+    display:block
+  }
+  .login-art {
+    min-height:190px;
+    height:27vh
+  }
+  .paper {
+    width:15%;
+    min-width:95px;
+    top:18%
+  }
+  .paper-back {
+    left:34%
+  }
+  .paper-front {
+    left:51%
+  }
+  .art-caption {
+    bottom:10px;
+    font-size:9px
+  }
+  .login-card {
+    width:auto;
+    margin:0 26px;
+    padding:30px 0
+  }
+  .login-card .brand {
+    margin-bottom:28px
+  }
+  .login-card h1 {
+    font-size:35px;
+    margin:15px 0
+  }
+  .login-description {
+    margin-bottom:20px
+  }
+  .login-footnote {
+    margin-top:25px
+  }
+  .workspace {
+    display:block;
+    padding-bottom:70px
+  }
+  .sidebar {
+    position:fixed;
+    z-index:5;
+    top:auto;
+    bottom:0;
+    height:65px;
+    width:100%;
+    padding:7px 10px;
+    background:#fffaf7;
+    border-right:0;
+    border-top:1px solid var(--line)
+  }
+  .sidebar-brand,.sidebar-divider,.sidebar-label,.sidebar-spacer,.sidebar-note,.account {
+    display:none
+  }
+  .sidebar nav {
+    display:flex;
+    justify-content:space-around;
+    overflow:auto;
+    gap:2px
+  }
+  .nav-item {
+    min-width:62px;
+    flex-direction:column;
+    gap:3px;
+    text-align:center;
+    justify-content:center;
+    font-size:10px;
+    padding:5px 4px
+  }
+  .nav-dot {
+    width:7px;
+    height:7px
+  }
+  .topbar {
+    height:58px;
+    padding:0 22px
+  }
+  .content-inner {
+    padding:0 20px 40px
+  }
+  .welcome {
+    min-height:190px
+  }
+  .welcome-decoration {
+    display:none
+  }
+  .welcome h1 {
+    font-size:31px
+  }
+  .section-heading {
+    margin-bottom:22px
+  }
+  .section-heading h2 {
+    font-size:22px
+  }
+  .upload-button {
+    min-width:0;
+    padding:11px;
+    font-size:12px
+  }
+  .toolbar {
+    display:block
+  }
+  .search-box {
+    width:100%
+  }
+  .resource-row {
+    padding:13px 12px;
+    gap:10px
+  }
+  .file-icon {
+    width:37px;
+    height:42px
+  }
+  .file-date {
+    display:none
+  }
+  .detail-panel {
+    padding:75px 27px 80px
+  }
+}
+/* 尊重系统的减少动态效果偏好。 */
+@media(prefers-reduced-motion:reduce) {
+  *,*:before,*:after {
+    scroll-behavior:auto!important;
+    transition:none!important;
+    animation:none!important
+  }
+}

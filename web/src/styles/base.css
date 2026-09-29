@@ -1,0 +1,125 @@
+/* 颜色与字体令牌：后续调整视觉风格优先从这里入手。 */
+:root {
+  font-family:'DM Sans','Microsoft YaHei',sans-serif;
+  color:#302c2b;
+  background:#f9f7f4;
+  font-synthesis:none;
+  text-rendering:optimizeLegibility;
+  -webkit-font-smoothing:antialiased;
+  --ink:#302c2b;
+  --muted:#8c8380;
+  --peach:#d9907b;
+  --line:#e9e3dd;
+  --paper:#fffdfb;
+  --serif:'Noto Serif SC','Songti SC',serif
+}
+/* 全局基础样式与按钮状态：键盘焦点必须保持可见。 */
+* {
+  box-sizing:border-box
+}
+body {
+  margin:0;
+  min-width:320px
+}
+button,input {
+  font:inherit
+}
+button {
+  cursor:pointer
+}
+button:disabled {
+  cursor:not-allowed;
+  opacity:.5
+}
+a {
+  color:inherit;
+  text-decoration:none
+}
+button:focus-visible,input:focus-visible,a:focus-visible {
+  outline:3px solid #c96852;
+  outline-offset:3px
+}
+.visually-hidden {
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;
+  border:0
+}
+.eyebrow {
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.22em;
+  color:#bc8b7f
+}
+.brand {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  font-size:18px;
+  font-weight:700;
+  letter-spacing:-.04em;
+  white-space:nowrap
+}
+.brand-mark {
+  display:grid;
+  place-items:center;
+  width:32px;
+  height:32px;
+  border-radius:11px 11px 13px 4px;
+  background:#dba18e;
+  color:#fff;
+  font-family:var(--serif);
+  font-size:17px;
+  font-weight:500;
+  transform:rotate(-7deg)
+}
+.brand-mark::first-letter {
+  transform:rotate(7deg)
+}
+.primary-button {
+  border:1px solid #bd7867;
+  border-radius:12px;
+  background:#c47b69;
+  color:#fff;
+  font-size:13px;
+  font-weight:700;
+  padding:13px 18px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:24px;
+  box-shadow:0 8px 18px #ae6b5830;
+  transition:transform .2s ease,background .2s ease,box-shadow .2s ease
+}
+.primary-button:hover:not(:disabled) {
+  background:#a95d4e;
+  transform:translateY(-2px);
+  box-shadow:0 12px 23px #ae6b5840
+}
+.secondary-button {
+  border:1px solid #dbb8a9;
+  background:#fff8f3;
+  color:#9f604f;
+  border-radius:10px;
+  padding:11px 16px;
+  font-size:13px;
+  font-weight:700
+}
+.secondary-button:hover {
+  background:#fae9df
+}
+.text-button {
+  border:0;
+  background:none;
+  color:#736560;
+  font-size:12px;
+  padding:6px
+}
+.text-button:hover {
+  text-decoration:underline
+}
