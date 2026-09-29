@@ -44,7 +44,7 @@ func TestMySQLSetFavorite(t *testing.T) {
 		t.Fatalf("重复执行迁移失败: %v", err)
 	}
 	var migrationCount int64
-	if err := database.Table("schema_migrations").Count(&migrationCount).Error; err != nil || migrationCount != 3 {
+	if err := database.Table("schema_migrations").Count(&migrationCount).Error; err != nil || migrationCount != 4 {
 		t.Fatalf("迁移记录数量 = %d, error=%v", migrationCount, err)
 	}
 	transaction := database.Begin()
@@ -62,6 +62,10 @@ func TestMySQLSetFavorite(t *testing.T) {
 	resource := model.Resource{ID: id, Name: "example.txt", OriginalName: "example.txt", Kind: "text", MIME: "text/plain", StorageKey: id, SHA256: strings.Repeat("0", 64), CreatedAt: time.Now().UTC()}
 	if err := store.SaveResource(ctx, resource); err != nil {
 		t.Fatal(err)
+	}
+	loaded, err := store.GetResource(ctx, id)
+	if err != nil || loaded.Tags == nil || len(loaded.Tags) != 0 {
+		t.Fatalf("无标签资料必须返回空数组，得到 %#v, %v", loaded.Tags, err)
 	}
 	for _, favorite := range []bool{true, true, false} {
 		updated, err := store.SetFavorite(ctx, id, favorite)

@@ -65,6 +65,17 @@ V1 的个人资料管理闭环已经落地：单管理员登录/退出、私有�
 - 浏览器验收重点覆盖登录、空状态、搜索/类型筛选、详情焦点/Escape、退出和窄屏布局；本轮标签、预览、名称编辑、删除和文件选择上传仍需按 `docs/local-development.md` 做一次真实数据手工回归。
 - 备份与恢复步骤已写入 [备份恢复演练](docs/backup-restore.md)；必须同时备份 MySQL 和 `data/files`，禁止把 `docker compose down -v` 当作备份。
 
-V1 不包含 Worker、Redis、RabbitMQ、OCR、自动分类或多人协作。下一阶段先设计可观察、可重试的持久任务和单进程 Worker，只有真实处理场景稳定后再评估消息队列。
+V1 不包含 Redis、RabbitMQ、OCR、自动分类或多人协作；V2 已加入持久任务和单进程 Worker。只有真实处理场景稳定后再评估消息队列。
 
 本地资料、会话与数据库数据请自行备份；不要用真实私人文件做公开演示。
+## V2 当前状态
+
+V2 已完成首个处理闭环：在 PDF、TXT 或 Markdown 详情页手动创建 `extract_text` 任务；`cmd/worker` 通过 MySQL 持久任务表领取任务，生成独立 UTF-8 `.txt` 派生文件，详情页显示任务状态和失败摘要，并支持派生文件下载。成功提取的正文会参与资料关键词检索，原件不会被覆盖。
+
+启动 API 后，另开一个仓库根目录终端执行：
+
+```powershell
+go run ./cmd/worker
+```
+
+API 和 Worker 必须使用同一份 `.env`、MySQL 和 `APP_DATA_DIR`。当前仍未实现图片缩略图、OCR、自动处理、Redis、RabbitMQ 和多人协作；图片缩略图作为后续独立处理器，不与文本任务混用。

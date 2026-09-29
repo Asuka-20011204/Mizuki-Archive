@@ -99,13 +99,21 @@ func main() {
 	}
 	resources, err := service.NewResources(store, dataDir)
 	if err != nil {
+
 		log.Fatal("cannot prepare file storage")
+
+	}
+	processingService, err := service.NewProcessing(store, store, dataDir)
+	if err != nil {
+
+		log.Fatal("cannot prepare processing service")
+
 	}
 	auth, err := service.NewAuth(store, required("APP_ADMIN_USERNAME"), []byte(required("APP_ADMIN_PASSWORD_HASH")))
 	if err != nil {
 		log.Fatal("invalid admin password hash")
 	}
-	router, err := controller.New(controller.Config{Resources: resources, Auth: auth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https"})
+	router, err := controller.New(controller.Config{Resources: resources, Processing: processingService, Auth: auth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https"})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}

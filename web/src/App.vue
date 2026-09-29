@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { api, type Resource } from './api'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { api, type ProcessingJob, type Resource } from './api'
 
 // 登录状态、列表筛选和详情面板分别在本视图中管理；服务端始终是权限与资料的权威来源。
 const username = ref('')
@@ -34,11 +34,24 @@ const tagInput = ref('')
 const draftTags = ref<string[]>([])
 const tagSuggestions = ref<string[]>([])
 const nameDraft = ref('')
+const previewText = ref('')
+const previewLoading = ref(false)
+const previewError = ref('')
+const jobs = ref<ProcessingJob[]>([])
+const jobsLoading = ref(false)
+const startingJob = ref(false)
+const jobError = ref('')
 let previousFocus: HTMLElement | null = null
 // 并发列表请求使用单调序号，防止旧筛选的响应覆盖新筛选。
 let listRequestId = 0
 // 并发详情请求使用单调序号，防止快速切换资料时旧响应覆盖新选择。
 let detailRequestId = 0
+// 并发文本预览请求使用独立序号，关闭详情或切换资料时立即使旧内容失效。
+let previewRequestId = 0
+// 任务轮询只保留一个定时器，关闭详情或退出登录时必须清理。
+let jobPollTimer: number | undefined
+// 任务列表请求序号避免切换资料后旧任务状态覆盖当前详情。
+let jobsRequestId = 0
 
 // kinds 同时驱动类型导航与文字标签，新增格式时需与后端允许列表一起更新。
 const kinds = [
@@ -190,9 +203,103 @@ async function upload(event: Event) {
 // closeDetail 关闭详情并使尚未返回的详情请求失效，避免关闭后旧响应重新打开抽屉。
 function closeDetail() {
   detailRequestId++
+  previewRequestId++
+  jobsRequestId++
+  stopJobPolling()
   selected.value = null
+  previewText.value = ''
+  previewLoading.value = false
+  previewError.value = ''
+  jobs.value = []
+  jobError.value = ''
 }
 
+// loadTextPreview 读取文本资料的预览内容；Vue 以纯文本节点渲染，避免 HTML/脚本执行。
+async function loadTextPreview(resource: Resource) {
+  const requestId = ++previewRequestId
+  previewText.value = ''
+  previewError.value = ''
+  if (resource.kind !== 'text' && resource.kind !== 'markdown') {
+    previewLoading.value = false
+    return
+  }
+  previewLoading.value = true
+  try {
+    const content = await api.previewText(resource.id)
+    if (requestId !== previewRequestId || selected.value?.id !== resource.id) return
+    previewText.value = content
+  } catch (reason) {
+    if (requestId !== previewRequestId || selected.value?.id !== resource.id) return
+    previewError.value = reason instanceof Error ? reason.message : '无法加载文本预览'
+  } finally {
+    if (requestId === previewRequestId && selected.value?.id === resource.id) previewLoading.value = false
+  }
+}
+
+// stopJobPolling 清理任务状态轮询，避免关闭详情后继续请求私有接口。
+function stopJobPolling() {
+  if (jobPollTimer !== undefined) {
+    window.clearTimeout(jobPollTimer)
+    jobPollTimer = undefined
+  }
+}
+
+// jobStatusLabel 将后端状态翻译成用户能直接理解的中文提示。
+function jobStatusLabel(status: ProcessingJob['status']) {
+  const labels: Record<ProcessingJob['status'], string> = {
+    pending: '等待处理',
+    processing: '处理中',
+    succeeded: '已完成',
+    failed: '处理失败',
+  }
+  return labels[status]
+}
+
+// scheduleJobPolling 只在任务未结束时安排下一次刷新，避免成功后继续轮询。
+function scheduleJobPolling(resourceId: string) {
+  stopJobPolling()
+  if (!jobs.value.some((job) => job.status === 'pending' || job.status === 'processing')) return
+  jobPollTimer = window.setTimeout(() => {
+    if (selected.value?.id === resourceId) void loadJobs(resourceId)
+  }, 1500)
+}
+
+// loadJobs 读取当前资料的任务历史，并在等待或处理状态下自动刷新详情。
+async function loadJobs(resourceId: string) {
+  const requestId = ++jobsRequestId
+  jobsLoading.value = true
+  jobError.value = ''
+  try {
+    const result = await api.listJobs(resourceId)
+    if (requestId !== jobsRequestId || selected.value?.id !== resourceId) return
+    jobs.value = result.data
+    scheduleJobPolling(resourceId)
+  } catch (reason) {
+    if (requestId === jobsRequestId && selected.value?.id === resourceId) {
+      jobError.value = reason instanceof Error ? reason.message : '无法读取处理记录'
+    }
+  } finally {
+    if (requestId === jobsRequestId) jobsLoading.value = false
+  }
+}
+
+// startTextJob 手动提交文本提取任务；重复点击由后端幂等返回已有任务。
+async function startTextJob() {
+  const resource = selected.value
+  if (!resource || startingJob.value || !['pdf', 'text', 'markdown'].includes(resource.kind)) return
+  startingJob.value = true
+  jobError.value = ''
+  try {
+    const result = await api.createTextJob(resource.id)
+    jobs.value = [result.data, ...jobs.value.filter((job) => job.id !== result.data.id)]
+    notice.value = result.data.status === 'succeeded' ? '已有成功的文本提取结果' : '文本提取任务已提交'
+    scheduleJobPolling(resource.id)
+  } catch (reason) {
+    jobError.value = reason instanceof Error ? reason.message : '无法提交处理任务'
+  } finally {
+    startingJob.value = false
+  }
+}
 // selectResource 从服务端重新获取详情，避免依赖可能已过期的列表快照。
 async function selectResource(resource: Resource) {
   const requestId = ++detailRequestId
@@ -205,7 +312,7 @@ async function selectResource(resource: Resource) {
     nameDraft.value = selected.value.name
     draftTags.value = [...(selected.value.tags || [])]
     tagInput.value = ''
-    await loadTagSuggestions()
+    await Promise.all([loadTagSuggestions(), loadTextPreview(detail), loadJobs(detail.id)])
   } catch (reason) {
     if (requestId !== detailRequestId) return
     error.value = reason instanceof Error ? reason.message : '无法打开资料'
@@ -390,6 +497,8 @@ watch([search, kind, tagFilter, page], (_current, _previous, onCleanup) => {
 })
 
 onMounted(checkSession)
+// onUnmounted 在离开页面时清理任务轮询，避免隐藏页面继续访问 API。
+onUnmounted(stopJobPolling)
 </script>
 
 <template>
@@ -551,7 +660,7 @@ onMounted(checkSession)
 
     <!-- 详情是模态抽屉：焦点限制与关闭后的焦点恢复由脚本统一处理。 -->
     <Transition name="drawer" @after-leave="restoreDetailFocus">
-      <div v-if="selected" class="detail-backdrop" @click.self="selected = null">
+      <div v-if="selected" class="detail-backdrop" @click.self="closeDetail">
         <section
           ref="detailPanel"
           class="detail-panel"
@@ -560,7 +669,7 @@ onMounted(checkSession)
           aria-labelledby="detail-title"
           @keydown="trapDetailFocus"
         >
-          <button ref="closeButton" type="button" class="close-button" aria-label="关闭资料详情" @click="selected = null">×</button>
+          <button ref="closeButton" type="button" class="close-button" aria-label="关闭资料详情" @click="closeDetail">×</button>
           <p class="eyebrow">资料详情</p>
           <div class="detail-icon" :class="selected.kind">{{ selected.kind === 'image' ? '◈' : kindLabel(selected.kind) }}</div>
           <form class="name-editor" aria-labelledby="detail-title" @submit.prevent="saveName">
@@ -573,14 +682,49 @@ onMounted(checkSession)
           <div v-if="selected.kind === 'image'" class="preview-frame">
             <img :src="previewURL(selected.id)" :alt="`预览：${selected.name}`" />
           </div>
-          <iframe
+          <div
             v-else-if="selected.kind === 'text' || selected.kind === 'markdown'"
             class="preview-frame text-preview"
-            :src="previewURL(selected.id)"
-            :title="`文本预览：${selected.name}`"
-            sandbox=""
-          ></iframe>
+            role="region"
+            :aria-label="`文本预览：${selected.name}`"
+          >
+            <p v-if="previewLoading" class="preview-placeholder" role="status">正在加载文本预览…</p>
+            <p v-else-if="previewError" class="preview-placeholder error" role="alert">{{ previewError }}</p>
+            <pre v-else>{{ previewText }}</pre>
+          </div>
           <p v-else class="preview-note">此格式暂不在线预览，请下载原文件查看。</p>
+          <section class="processing-panel" aria-labelledby="processing-title">
+            <div class="processing-heading">
+              <div>
+                <p class="eyebrow">按需处理</p>
+                <h3 id="processing-title">文本提取</h3>
+              </div>
+              <span v-if="jobsLoading" class="processing-loading" role="status">同步中…</span>
+            </div>
+            <p class="processing-help">PDF、TXT 和 Markdown 会生成一份独立的纯文本副本，可下载并参与关键词检索；原文件不会被修改。</p>
+            <button
+              type="button"
+              class="secondary-button processing-trigger"
+              :disabled="startingJob || !['pdf', 'text', 'markdown'].includes(selected.kind)"
+              @click="startTextJob"
+            >
+              {{ startingJob ? '提交中…' : '手动提取文本' }}
+            </button>
+            <p v-if="jobError" class="processing-error" role="alert">{{ jobError }}</p>
+            <ul v-if="jobs.length" class="processing-list" aria-label="处理记录">
+              <li v-for="job in jobs" :key="job.id" class="processing-item">
+                <div>
+                  <strong>{{ jobStatusLabel(job.status) }}</strong>
+                  <span>第 {{ job.attempts }}/{{ job.max_attempts }} 次尝试</span>
+                  <p v-if="job.last_error" class="processing-error">{{ job.last_error }}</p>
+                </div>
+                <a v-if="job.status === 'succeeded' && job.asset" class="text-link" :href="api.derivedDownloadURL(job.asset.id)">
+                  下载提取文本
+                </a>
+              </li>
+            </ul>
+            <p v-else-if="!jobsLoading" class="processing-empty">还没有处理记录，可以按需手动开始。</p>
+          </section>
           <section class="detail-tags" aria-labelledby="detail-tags-title">
             <div class="detail-tags-heading">
               <h3 id="detail-tags-title">标签</h3>
@@ -625,7 +769,7 @@ onMounted(checkSession)
           <button type="button" class="danger-button" :aria-disabled="deleting" @click="deleteResource">
             {{ deleting ? '正在删除…' : '删除资料' }}
           </button>
-          <p class="detail-footnote">预览与处理记录将在后续阶段加入。</p>
+          <p class="detail-footnote">处理结果会保留在原件之外，并可单独下载。</p>
         </section>
       </div>
     </Transition>

@@ -16,44 +16,36 @@ Go 允许每个 `cmd/子目录` 各自作为一个可执行程序；因此根目
 Mizuki Archive/
 ├── cmd/
 │   ├── server/main.go                 # API 程序入口与依赖装配
+│   ├── worker/main.go                 # 单进程持久任务 Worker 入口
 │   └── hash-password/main.go          # 交互式生成密码哈希
-├── internal/                          # 仅供本 Go 模块内部使用
+├── internal/
 │   ├── model/resource.go              # 资料模型与列表筛选条件
+│   ├── model/processing.go            # 任务与派生产物模型
+│   ├── processing/text.go             # PDF/TXT/Markdown 文本处理器
 │   ├── controller/
-│   │   ├── router.go                   # Gin 路由、Origin 校验、统一错误格式
+│   │   ├── router.go                  # Gin 路由、Origin 校验、统一错误格式
 │   │   ├── auth_controller.go         # 登录、会话中间件、退出
-│   │   ├── resource_controller.go     # 上传、查询、详情、标签、名称、预览、删除、下载接口
-│   │   ├── limiter.go                 # 单进程登录失败限流
-│   │   └── http_test.go               # HTTP 流程测试
+│   │   ├── resource_controller.go     # 资料上传、查询、标签、预览、删除和下载
+│   │   └── processing_controller.go   # 任务创建、任务查看和派生文件下载
 │   ├── service/
 │   │   ├── auth.go                    # 密码校验和可撤销会话
 │   │   ├── resource.go                # 文件校验、存储、元数据流程
-│   │   └── resource_test.go           # 业务规则与安全边界测试
+│   │   └── processing.go              # 任务幂等、Worker 执行和派生文件
 │   └── repository/
-│       ├── repository.go              # 持久化接口与未找到错误
-│       ├── mysql_gorm.go              # GORM 的 MySQL 实现
-│       ├── mysql_gorm_integration_test.go # 隔离 MySQL 下的迁移、标签、名称、删除验证
+│       ├── repository.go              # 资料/会话/处理任务持久化接口
+│       ├── mysql_gorm.go              # GORM 的 MySQL 资料实现
+│       ├── processing.go              # GORM 的任务与派生产物实现
 │       ├── migration.go               # 内嵌版本化 SQL 迁移
 │       └── migrations/
-│           ├── 001_init.sql             # 资料与会话表
-│           ├── 002_manual_tags.sql     # 标签与资料关联
-│           └── 003_soft_delete.sql     # 软删除字段与索引
-├── web/
-│   ├── src/main.ts                    # Vue 浏览器入口
-│   ├── src/App.vue                    # 登录、资料库、详情视图与交互
-│   ├── src/api.ts                     # 同源 /api 请求和前端数据类型
-│   ├── src/styles/base.css           # 设计变量、基础组件与焦点样式
-│   ├── src/styles/login.css          # 登录页布局与装饰
-│   ├── src/styles/library.css        # 资料库与详情样式
-│   ├── src/styles/motion.css         # 封面、列表与抽屉的动效层
-│   ├── src/styles/responsive.css     # 屏幕断点与减少动态效果
-│   ├── package.json                   # 前端依赖与 dev/build 命令
-│   └── vite.config.ts                 # 开发时 /api 代理到 Go
-├── docs/                               # 产品、架构、安全、设计、决策和变更记录
-├── compose.yaml                        # 本地 MySQL 容器定义
-├── .env.example                        # 仅示例变量，真实 .env 不入库
-├── go.mod / go.sum                      # Go 模块与依赖校验
-└── README.md                            # 项目入口与本地启动步骤
+│           ├── 001_init.sql           # 资料与会话表
+│           ├── 002_manual_tags.sql    # 标签与资料关联
+│           ├── 003_soft_delete.sql    # 软删除字段与索引
+│           └── 004_processing_jobs.sql # 持久任务与派生产物
+├── web/                               # Vue 3 + TypeScript View
+├── docs/                              # 产品、架构、安全、设计和变更记录
+├── compose.yaml                       # 本地 MySQL 容器定义
+├── .env.example                       # 仅示例变量，真实 .env 不入库
+└── go.mod / go.sum                    # Go 模块与依赖校验
 ```
 
 `web/node_modules/`、`web/dist/`、`data/`、`.env` 和 Docker 的数据库卷是依赖或运行时产物，不是需要阅读或提交的业务源码。
@@ -83,3 +75,16 @@ Mizuki Archive/
 | 本地启动配置 | `cmd/server/main.go`、`.env.example`、`compose.yaml` | `README.md` |
 
 不建议在 `main()` 中写业务逻辑，也不应在 Controller 中直接写 GORM 查询。中文注释重点解释安全边界、失败补偿和架构取舍；简单赋值不逐行复述。
+
+## V2 处理请求路径
+
+```text
+详情页 → api.ts → processing_controller.go
+                  → service/processing.go → repository/processing.go → MySQL processing_jobs
+                                                                            ↓
+cmd/worker → service/processing.go → processing/text.go → data/files 原件
+                                             ↓
+                                     data/derived 派生文本 + derived_assets 检索索引
+```
+
+`cmd/server` 与 `cmd/worker` 是两个独立的 Go 程序入口，但共享 Model、Service、Repository 和迁移；它们必须指向同一个 MySQL 数据库和 `APP_DATA_DIR`。

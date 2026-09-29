@@ -12,3 +12,6 @@ var manualTagsMigration string
 
 //go:embed migrations/003_soft_delete.sql
 var softDeleteMigration string
+
+//go:embed migrations/004_processing_jobs.sql
+var processingJobsMigration string

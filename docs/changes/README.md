@@ -16,3 +16,5 @@
 - [2026-09-29 · 下一阶段手动标签设计](2026-09-29-next-tag-design.md)
 - [2026-09-29 · V1 资料管理闭环](2026-09-29-v1-resource-management.md)
 - [2026-09-29 · V2 持久任务与单进程 Worker 设计](2026-09-29-v2-processing-design.md)
+
+- [2026-09-29 · V2 文本处理任务闭环](2026-09-29-v2-text-processing.md)

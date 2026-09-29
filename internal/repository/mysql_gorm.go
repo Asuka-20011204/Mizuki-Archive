@@ -89,7 +89,9 @@ func (store *MySQL) GetResource(ctx context.Context, id string) (model.Resource,
 	if err != nil {
 		return model.Resource{}, err
 	}
-	resource.Tags = tags[id]
+	if loadedTags, ok := tags[id]; ok {
+		resource.Tags = loadedTags
+	}
 	return resource, nil
 }
 
@@ -204,7 +206,7 @@ func (store *MySQL) ListResources(ctx context.Context, query model.ListQuery) ([
 	// 筛选值始终作为参数绑定；稳定排序避免同一时间上传的资料翻页漂移。
 	database := store.db.WithContext(ctx).Table("resources")
 	if query.Search != "" {
-		database = database.Where("LOCATE(?, name) > 0", query.Search)
+		database = database.Where("LOCATE(?, name) > 0 OR LOCATE(?, original_name) > 0 OR EXISTS (SELECT 1 FROM derived_assets da WHERE da.resource_id = resources.id AND da.kind = ? AND LOCATE(?, da.content_text) > 0)", query.Search, query.Search, model.DerivedAssetText, query.Search)
 	}
 	if query.Kind != "" {
 		database = database.Where("kind = ?", query.Kind)
@@ -224,7 +226,9 @@ func (store *MySQL) ListResources(ctx context.Context, query model.ListQuery) ([
 	}
 	for _, row := range rows {
 		resource := resourceFromRow(row)
-		resource.Tags = resourceTags[resource.ID]
+		if loadedTags, ok := resourceTags[resource.ID]; ok {
+			resource.Tags = loadedTags
+		}
 		resources = append(resources, resource)
 	}
 	return resources, nil
@@ -303,6 +307,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 1, name: "initial_schema", sql: initialMigration},
 		{version: 2, name: "manual_tags", sql: manualTagsMigration},
 		{version: 3, name: "soft_delete", sql: softDeleteMigration},
+		{version: 4, name: "processing_jobs", sql: processingJobsMigration},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int

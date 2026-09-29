@@ -13,6 +13,7 @@ import (
 // Config 由 cmd/server 组装；Controller 不自行创建数据库或文件服务。
 type Config struct {
 	Resources    *service.Resources
+	Processing   *service.Processing
 	Auth         *service.Auth
 	Origin       string
 	SecureCookie bool
@@ -52,6 +53,12 @@ func New(config Config) (*gin.Engine, error) {
 	private.DELETE("/resources/:id", handler.delete)
 	private.GET("/resources/:id/preview", handler.preview)
 	private.GET("/resources/:id/download", handler.download)
+	if config.Processing != nil {
+		private.POST("/resources/:id/jobs", handler.createProcessingJob)
+		private.GET("/resources/:id/jobs", handler.listProcessingJobs)
+		private.GET("/jobs/:id", handler.getProcessingJob)
+		private.GET("/derived-assets/:id/download", handler.downloadDerived)
+	}
 	return engine, nil
 }
 
