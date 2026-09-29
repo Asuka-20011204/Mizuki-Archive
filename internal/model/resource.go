@@ -6,6 +6,7 @@ import "time"
 // Resource 描述资料元数据。原始文件保存在受控目录，JSON 不暴露内部存储键。
 type Resource struct {
 	ID           string    `json:"id"`
+	OwnerID      string    `json:"-"`
 	Name         string    `json:"name"`
 	OriginalName string    `json:"original_name"`
 	Kind         string    `json:"kind"`

@@ -161,7 +161,7 @@ func (service *Processing) GetJob(ctx context.Context, id string) (model.Process
 	}
 	var cached model.ProcessingJob
 	if service.cache != nil {
-		if hit, cacheErr := service.cache.Get(ctx, "owner:job:"+id, &cached); cacheErr == nil && hit {
+		if hit, cacheErr := service.cache.Get(ctx, userCachePrefix(ctx)+"job:"+id, &cached); cacheErr == nil && hit {
 			if _, resourceErr := service.store.GetResource(ctx, cached.ResourceID); resourceErr != nil {
 				return model.ProcessingJob{}, resourceErr
 			}
@@ -176,7 +176,7 @@ func (service *Processing) GetJob(ctx context.Context, id string) (model.Process
 		return model.ProcessingJob{}, err
 	}
 	if service.cache != nil {
-		_ = service.cache.Set(ctx, "owner:job:"+id, job, 3*time.Second)
+		_ = service.cache.Set(ctx, userCachePrefix(ctx)+"job:"+id, job, 3*time.Second)
 	}
 	return job, nil
 }
@@ -189,7 +189,7 @@ func (service *Processing) ListJobs(ctx context.Context, resourceID string) ([]m
 	if _, err := service.store.GetResource(ctx, resourceID); err != nil {
 		return nil, err
 	}
-	key := "owner:resource-jobs:" + resourceID
+	key := userCachePrefix(ctx) + "resource-jobs:" + resourceID
 	if service.cache != nil {
 		var cached []model.ProcessingJob
 		if hit, err := service.cache.Get(ctx, key, &cached); err == nil && hit {
@@ -295,11 +295,13 @@ func (service *Processing) RunOutboxOnce(ctx context.Context, publisher JobPubli
 
 // runClaimedJob 执行已经持有租约的任务，并把资料处理错误转换为安全的业务状态。
 func (service *Processing) runClaimedJob(ctx context.Context, job model.ProcessingJob) error {
-	defer service.invalidateJobCaches(ctx, job)
 	resource, err := service.store.GetResource(ctx, job.ResourceID)
 	if err != nil {
 		return service.failPermanent(ctx, job, "来源资料不存在或已删除")
 	}
+	// Worker 通过资源元数据取得归属，只用于失效对应用户缓存，不接受消息中的用户字段。
+	cacheContext := repository.WithUserID(ctx, resource.OwnerID)
+	defer service.invalidateJobCaches(cacheContext, job)
 	if resource.SHA256 != job.SourceSHA256 || resource.StorageKey != resource.ID {
 		return service.failPermanent(ctx, job, "来源资料已变化，任务结果已作废")
 	}
@@ -325,8 +327,9 @@ func (service *Processing) invalidateJobCaches(ctx context.Context, job model.Pr
 	if service.cache == nil {
 		return
 	}
-	_ = service.cache.Delete(ctx, "owner:job:"+job.ID, "owner:resource-jobs:"+job.ResourceID)
-	_ = service.cache.DeleteByPrefix(ctx, "owner:resource-list:")
+	prefix := userCachePrefix(ctx)
+	_ = service.cache.Delete(ctx, prefix+"job:"+job.ID, prefix+"resource-jobs:"+job.ResourceID)
+	_ = service.cache.DeleteByPrefix(ctx, prefix+"resource-list:")
 }
 
 // RepairOutbox 在发布者循环中补写老任务或丢失投递确认后的事件；已完成和仍有有效租约的任务不补。

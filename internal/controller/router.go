@@ -18,6 +18,7 @@ type Config struct {
 	Resources    *service.Resources
 	Processing   *service.Processing
 	Auth         *service.Auth
+	EmailAuth    *service.EmailAuth
 	Origin       string
 	SecureCookie bool
 	RateLimiter  cache.RateLimiter
@@ -25,8 +26,9 @@ type Config struct {
 }
 
 type Controller struct {
-	config  Config
-	limiter *loginLimiter
+	config       Config
+	limiter      *loginLimiter
+	emailLimiter *requestLimiter
 }
 
 // New 注册公开路由和需要会话的私有路由，是 HTTP 层的入口。
@@ -39,7 +41,7 @@ func New(config Config) (*gin.Engine, error) {
 		return nil, err
 	}
 	engine.Use(gin.Recovery())
-	handler := &Controller{config: config, limiter: newLoginLimiter()}
+	handler := &Controller{config: config, limiter: newLoginLimiter(), emailLimiter: newRequestLimiter()}
 	engine.Use(handler.headersAndOrigin)
 	// 健康检查回调只报告进程存活，不查询数据库，也不返回私有资料或配置细节。
 	engine.GET("/healthz", func(ctx *gin.Context) { ctx.Status(http.StatusNoContent) })
@@ -57,10 +59,23 @@ func New(config Config) (*gin.Engine, error) {
 		}
 		ctx.Status(http.StatusNoContent)
 	})
+	// 前端先读取能力而不是猜测环境配置；未配置 SMTP 时不会展示不可用的邮箱入口。
+	engine.GET("/api/auth/capabilities", func(ctx *gin.Context) {
+		ctx.JSON(http.StatusOK, gin.H{"email_verification": config.EmailAuth != nil})
+	})
 	engine.POST("/api/login", handler.login)
+	if config.EmailAuth != nil {
+		// 邮箱路由只有在 SMTP 和验证码密钥完整配置时出现，避免展示半成品注册入口。
+		engine.POST("/api/email/register/request", handler.requestEmailRegistrationCode)
+		engine.POST("/api/email/register", handler.registerWithEmailCode)
+		engine.POST("/api/email/login/request", handler.requestEmailLoginCode)
+		engine.POST("/api/email/login", handler.loginWithEmailCode)
+	}
 	private := engine.Group("/api", handler.requireSession)
 	// 身份回调只在会话中间件通过后返回服务端用户名，不信任浏览器提交的身份。
-	private.GET("/me", func(ctx *gin.Context) { ctx.JSON(http.StatusOK, gin.H{"username": config.Auth.Username()}) })
+	private.GET("/me", func(ctx *gin.Context) {
+		ctx.JSON(http.StatusOK, gin.H{"username": config.Auth.LabelForContext(ctx.Request.Context())})
+	})
 	private.POST("/logout", handler.logout)
 	private.POST("/resources", handler.upload)
 	private.GET("/resources", handler.list)

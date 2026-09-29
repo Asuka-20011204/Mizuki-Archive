@@ -42,6 +42,11 @@ export interface ProcessingJob {
   created_at: string
   asset?: DerivedAsset
 }
+
+// AuthCapabilities 描述服务端当前公开的登录能力，避免前端展示未配置完成的注册入口。
+export interface AuthCapabilities {
+  email_verification: boolean
+}
 // ApiError 只描述前端需要的安全错误消息，不依赖服务端内部异常细节。
 interface ApiError {
   error?: { code: string; message: string }
@@ -71,6 +76,8 @@ async function requestText(path: string, options?: RequestInit): Promise<string>
 }
 
 export const api = {
+  // authCapabilities 读取运行时认证能力；能力开关由服务端配置决定，浏览器不自行猜测。
+  authCapabilities: () => request<AuthCapabilities>('/auth/capabilities'),
   // me 由服务端会话确认当前身份，不读取浏览器可伪造的本地用户名。
   me: () => request<{ username: string }>('/me'),
   // login 使用 JSON 提交凭据；会话 Cookie 由浏览器按同源策略保存。
@@ -79,6 +86,34 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
+    }),
+  // requestEmailRegistrationCode 只请求验证码，不把邮箱是否存在的判断交给浏览器。
+  requestEmailRegistrationCode: (email: string) =>
+    request<{ message: string }>('/email/register/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    }),
+  // registerWithEmailCode 完成一次性验证码注册并接收服务端会话 Cookie。
+  registerWithEmailCode: (email: string, code: string) =>
+    request<{ username: string }>('/email/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code }),
+    }),
+  // requestEmailLoginCode 向已注册邮箱请求短时验证码。
+  requestEmailLoginCode: (email: string) =>
+    request<{ message: string }>('/email/login/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    }),
+  // loginWithEmailCode 用一次性验证码建立与密码登录相同的服务端会话。
+  loginWithEmailCode: (email: string, code: string) =>
+    request<{ username: string }>('/email/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code }),
     }),
   // logout 请求服务端撤销会话，单纯隐藏页面不足以完成退出。
   logout: () => request<void>('/logout', { method: 'POST' }),

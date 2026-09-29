@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"gorm.io/gorm/logger"
 	"mizuki-archive/internal/cache"
 	"mizuki-archive/internal/controller"
+	"mizuki-archive/internal/notification"
 	"mizuki-archive/internal/repository"
 	"mizuki-archive/internal/service"
 )
@@ -99,6 +101,15 @@ func main() {
 	if err := store.Migrate(startup); err != nil {
 		log.Fatal("database schema initialization failed")
 	}
+	adminUsername := required("APP_ADMIN_USERNAME")
+	adminPasswordHash := []byte(required("APP_ADMIN_PASSWORD_HASH"))
+	adminUser, err := store.EnsureAdminUser(startup, adminUsername, adminPasswordHash)
+	if err != nil {
+		log.Fatal("cannot migrate admin identity")
+	}
+	if err := store.FinalizeOwnership(startup, adminUser.ID); err != nil {
+		log.Fatal("cannot finalize data ownership")
+	}
 	var sharedCache cache.Cache
 	var redisClient *cache.Redis
 	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
@@ -134,15 +145,20 @@ func main() {
 		}
 		store.EnableOutbox()
 	}
-	auth, err := service.NewAuth(store, required("APP_ADMIN_USERNAME"), []byte(required("APP_ADMIN_PASSWORD_HASH")))
+	auth, err := service.NewAuth(store, adminUsername, adminPasswordHash)
 	if err != nil {
 		log.Fatal("invalid admin password hash")
 	}
+	auth.SetUserID(adminUser.ID)
 	var sharedLimiter cache.RateLimiter
 	if sharedCache != nil {
 		sharedLimiter = sharedCache
 	}
-	router, err := controller.New(controller.Config{Resources: resources, Processing: processingService, Auth: auth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", RateLimiter: sharedLimiter, Ready: connection.PingContext})
+	emailAuth, err := buildEmailAuth(store, auth)
+	if err != nil {
+		log.Fatal(err)
+	}
+	router, err := controller.New(controller.Config{Resources: resources, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", RateLimiter: sharedLimiter, Ready: connection.PingContext})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}
@@ -164,4 +180,31 @@ func main() {
 	if err := server.Shutdown(shutdown); err != nil {
 		log.Printf("HTTP shutdown: %v", err)
 	}
+}
+
+// buildEmailAuth 仅在完整配置 SMTP 和验证码密钥时启用邮箱功能，避免暴露无法工作的注册入口。
+func buildEmailAuth(store *repository.MySQL, auth *service.Auth) (*service.EmailAuth, error) {
+	host, portValue, username, password, from := os.Getenv("SMTP_HOST"), os.Getenv("SMTP_PORT"), os.Getenv("SMTP_USERNAME"), os.Getenv("SMTP_PASSWORD"), os.Getenv("SMTP_FROM")
+	secret := os.Getenv("EMAIL_CODE_SECRET")
+	configured := host != "" || portValue != "" || username != "" || password != "" || from != "" || secret != ""
+	if !configured {
+		return nil, nil
+	}
+	if host == "" || portValue == "" || username == "" || password == "" || from == "" || len(secret) < 32 {
+		return nil, errors.New("SMTP_HOST、SMTP_PORT、SMTP_USERNAME、SMTP_PASSWORD、SMTP_FROM 和 EMAIL_CODE_SECRET 必须完整配置")
+	}
+	port, err := strconv.Atoi(portValue)
+	if err != nil {
+		return nil, errors.New("SMTP_PORT 必须是有效端口")
+	}
+	sender, err := notification.NewSMTP(host, port, username, password, from)
+	if err != nil {
+		return nil, fmt.Errorf("invalid SMTP configuration: %w", err)
+	}
+	emailAuth, err := service.NewEmailAuth(store, store, auth, sender, []byte(secret))
+	if err != nil {
+		return nil, fmt.Errorf("invalid email authentication configuration: %w", err)
+	}
+	log.Printf("email verification enabled; SMTP host=%s port=%d", host, port)
+	return emailAuth, nil
 }

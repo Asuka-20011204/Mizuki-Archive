@@ -21,3 +21,12 @@ var processingOutboxMigration string
 
 //go:embed migrations/006_processing_capacity.sql
 var processingCapacityMigration string
+
+//go:embed migrations/007_multi_user_identity.sql
+var multiUserIdentityMigration string
+
+//go:embed migrations/008_multi_user_compatibility.sql
+var multiUserCompatibilityMigration string
+
+//go:embed migrations/009_multi_user_identity_indexes.sql
+var multiUserIdentityIndexesMigration string

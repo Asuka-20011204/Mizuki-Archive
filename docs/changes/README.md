@@ -2,6 +2,10 @@
 
 每轮较大修改新增一条 `YYYY-MM-DD-主题.md`，记录目的、范围、设计取舍、真实验证结果、遗留风险与下一步。状态变化继续补充原记录；独立的新一轮另开文件。架构上的长期决定同时写入 `docs/decisions/`。
 
+- [2026-09-29 · 多用户身份与邮箱验证码基础](2026-09-29-email-verification-foundation.md)
+- [2026-09-29 · 多用户目标与认证能力探测](2026-09-29-multi-user-target-and-capabilities.md)
+- [2026-09-29 · 前台产品介绍与资料库视觉增强](2026-09-29-public-product-frontend.md)
+
 - [2026-09-29 · V7 固定负载与 Worker 轮询优化](2026-09-29-v7-fixed-workload.md)
 - [2026-09-29 · 产品功能 TODO 梳理](2026-09-29-product-todos.md)
 

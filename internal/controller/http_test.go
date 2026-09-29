@@ -194,6 +194,38 @@ func TestReadinessDistinguishesDatabaseFailure(t *testing.T) {
 	}
 }
 
+// TestAuthCapabilitiesReflectConfiguration 验证前端能力探测不会把未配置的邮箱入口误报为可用。
+func TestAuthCapabilitiesReflectConfiguration(t *testing.T) {
+	server, _, _ := testServer(t)
+	withoutEmail := httptest.NewRecorder()
+	server.ServeHTTP(withoutEmail, httptest.NewRequest(http.MethodGet, "/api/auth/capabilities", nil))
+	if withoutEmail.Code != http.StatusOK || withoutEmail.Body.String() != `{"email_verification":false}` {
+		t.Fatalf("without email capability = %d %s", withoutEmail.Code, withoutEmail.Body.String())
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("correct horse battery staple"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resourceService, err := service.NewResources(&memoryStore{resources: map[string]model.Resource{}, sessions: map[string]time.Time{}}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	authService, err := service.NewAuth(&memoryStore{resources: map[string]model.Resource{}, sessions: map[string]time.Time{}}, "owner", passwordHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withEmail, err := New(Config{Resources: resourceService, Auth: authService, EmailAuth: &service.EmailAuth{}, Origin: "http://localhost:5173"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withEmailResponse := httptest.NewRecorder()
+	withEmail.ServeHTTP(withEmailResponse, httptest.NewRequest(http.MethodGet, "/api/auth/capabilities", nil))
+	if withEmailResponse.Code != http.StatusOK || withEmailResponse.Body.String() != `{"email_verification":true}` {
+		t.Fatalf("with email capability = %d %s", withEmailResponse.Code, withEmailResponse.Body.String())
+	}
+}
+
 // login 用正确测试凭据获取 HttpOnly Cookie，供后续私有接口复用。
 func login(t *testing.T, server http.Handler) *http.Cookie {
 	t.Helper()

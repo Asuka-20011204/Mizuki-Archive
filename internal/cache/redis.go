@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"mizuki-archive/internal/repository"
 )
 
 // Redis 将 Redis 故障降级交给 Service；自身只负责连接、序列化和原子操作。
@@ -86,7 +87,7 @@ func (cache *Redis) DeleteByPrefix(ctx context.Context, prefix string) error {
 
 // RecordRecent 只记录资源 ID 和时间戳，避免把资料正文或路径放进 Sorted Set。
 func (cache *Redis) RecordRecent(ctx context.Context, resourceID string, accessedAt time.Time, limit int64) error {
-	key := cache.key("owner:recent-resources")
+	key := cache.recentKey(ctx)
 	pipe := cache.client.TxPipeline()
 	pipe.ZAdd(ctx, key, redis.Z{Score: float64(accessedAt.UnixMilli()), Member: resourceID})
 	if limit > 0 {
@@ -99,12 +100,12 @@ func (cache *Redis) RecordRecent(ctx context.Context, resourceID string, accesse
 
 // RemoveRecent 在资料软删除后清除最近访问痕迹；Redis 不可用时由数据到期兜底。
 func (cache *Redis) RemoveRecent(ctx context.Context, resourceID string) error {
-	return cache.client.ZRem(ctx, cache.key("owner:recent-resources"), resourceID).Err()
+	return cache.client.ZRem(ctx, cache.recentKey(ctx), resourceID).Err()
 }
 
 // RecentIDs 按最近访问顺序返回资源 ID，资料详情仍由 MySQL 权限查询决定。
 func (cache *Redis) RecentIDs(ctx context.Context, limit int64) ([]string, error) {
-	values, err := cache.client.ZRevRange(ctx, cache.key("owner:recent-resources"), 0, limit-1).Result()
+	values, err := cache.client.ZRevRange(ctx, cache.recentKey(ctx), 0, limit-1).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +130,15 @@ func (cache *Redis) Close() error { return cache.client.Close() }
 
 // key 统一追加命名空间，避免不同版本或不同应用共享 Redis 时相互覆盖。
 func (cache *Redis) key(value string) string { return cache.prefix + strings.TrimPrefix(value, ":") }
+
+// recentKey 为每个会话用户使用独立 Sorted Set；缺少用户上下文时只允许内部调用使用 system 命名空间。
+func (cache *Redis) recentKey(ctx context.Context) string {
+	namespace := "system"
+	if userID, ok := repository.UserIDFromContext(ctx); ok {
+		namespace = "user:" + userID
+	}
+	return cache.key(namespace + ":recent-resources")
+}
 
 // hashSubject 避免把 IP、会话标识等限流输入直接暴露为 Redis key。
 func hashSubject(value string) string {

@@ -14,6 +14,7 @@ var ErrNoPendingJob = errors.New("no pending processing job")
 var ErrJobLeaseLost = errors.New("processing job lease lost")
 var ErrProcessingJobExists = errors.New("processing job already exists")
 var ErrProcessingQueueFull = errors.New("processing queue is full")
+var ErrUserExists = errors.New("user already exists")
 
 // Store 包含首期资料和会话的持久化操作，测试可用内存实现替换 MySQL。
 type Store interface {
@@ -28,6 +29,37 @@ type Store interface {
 	SaveSession(context.Context, string, time.Time) error
 	HasSession(context.Context, string) (bool, error)
 	DeleteSession(context.Context, string) error
+}
+
+// IdentityStore 提供多用户身份和按用户归属的会话持久化；MySQL 实现必须保证唯一约束与原子绑定。
+type IdentityStore interface {
+	EnsureAdminUser(context.Context, string, []byte) (model.User, error)
+	CreateUser(context.Context, string) (model.User, error)
+	GetUserByEmail(context.Context, string) (model.User, error)
+	GetUserByID(context.Context, string) (model.User, error)
+	SaveUserSession(context.Context, string, string, time.Time) error
+	GetSessionUser(context.Context, string) (string, bool, error)
+	FinalizeOwnership(context.Context, string) error
+}
+
+type userIDContextKey struct{}
+
+// WithUserID 把已由服务端会话确认的用户 ID 放入请求上下文，Controller 不接受客户端提交的所有者字段。
+func WithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userIDContextKey{}, userID)
+}
+
+// UserIDFromContext 读取服务端注入的用户 ID；缺失表示 Worker 或兼容旧测试上下文。
+func UserIDFromContext(ctx context.Context) (string, bool) {
+	userID, ok := ctx.Value(userIDContextKey{}).(string)
+	return userID, ok && userID != ""
+}
+
+// EmailChallengeStore 负责邮箱验证码原子状态，账号创建由 IdentityStore 完成。
+type EmailChallengeStore interface {
+	ReserveEmailChallenge(context.Context, model.EmailChallenge, time.Time) (bool, error)
+	ConsumeEmailChallenge(context.Context, string, string, string, time.Time) (bool, error)
+	DeleteEmailChallenge(context.Context, string, string, string) error
 }
 
 // ProcessingStore 提供持久任务和派生产物的数据库边界，Worker 与 HTTP Service 共用它。

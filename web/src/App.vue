@@ -6,6 +6,13 @@ import { api, type ProcessingJob, type Resource } from './api'
 const username = ref('')
 const loginName = ref('')
 const password = ref('')
+const emailAddress = ref('')
+const verificationCode = ref('')
+type EmailAuthMode = 'login' | 'register' | 'password'
+const emailAuthMode = ref<EmailAuthMode>('password')
+const emailVerificationAvailable = ref(false)
+const requestingCode = ref(false)
+const codeRequested = ref(false)
 // 各操作分别记录忙碌状态：上传不应让搜索和退出按钮无故禁用。
 const loadingSession = ref(true)
 const loggingIn = ref(false)
@@ -184,6 +191,14 @@ async function loadTagSuggestions(searchValue = '') {
 
 // checkSession 在首屏询问服务端会话状态，决定展示登录页还是资料库。
 async function checkSession() {
+  // 认证能力和会话都以服务端为准；SMTP 未配置时强制回退到兼容密码入口。
+  try {
+    emailVerificationAvailable.value = (await api.authCapabilities()).email_verification
+    if (emailVerificationAvailable.value) emailAuthMode.value = 'login'
+  } catch {
+    emailVerificationAvailable.value = false
+    emailAuthMode.value = 'password'
+  }
   // 页面刷新后先确认 HttpOnly Cookie 是否仍有效；不能从本地存储推断登录身份。
   try {
     username.value = (await api.me()).username
@@ -212,6 +227,52 @@ async function login() {
   } finally {
     loggingIn.value = false
   }
+}
+
+// requestEmailCode 发送邮箱验证码；服务端会统一处理未知邮箱，前端不据此判断账号是否存在。
+async function requestEmailCode() {
+  requestingCode.value = true
+  error.value = ''
+  try {
+    if (emailAuthMode.value === 'register') {
+      await api.requestEmailRegistrationCode(emailAddress.value)
+    } else {
+      await api.requestEmailLoginCode(emailAddress.value)
+    }
+    codeRequested.value = true
+    notice.value = '如果邮箱符合当前流程且邮件服务可用，验证码会发送到邮箱。'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '验证码请求失败'
+  } finally {
+    requestingCode.value = false
+  }
+}
+
+// loginWithEmail 使用一次性邮箱验证码注册或登录，并沿用密码登录后的私有资料加载流程。
+async function loginWithEmail() {
+  loggingIn.value = true
+  error.value = ''
+  try {
+    const result = emailAuthMode.value === 'register'
+      ? await api.registerWithEmailCode(emailAddress.value, verificationCode.value)
+      : await api.loginWithEmailCode(emailAddress.value, verificationCode.value)
+    username.value = result.username
+    verificationCode.value = ''
+    await Promise.all([loadResources(), loadTagSuggestions(), loadRecent()])
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '邮箱登录失败'
+  } finally {
+    loggingIn.value = false
+  }
+}
+
+// switchEmailAuthMode 清理上一种流程的验证码状态，避免把注册验证码误提交到登录接口。
+function switchEmailAuthMode(mode: EmailAuthMode) {
+  emailAuthMode.value = mode
+  verificationCode.value = ''
+  codeRequested.value = false
+  error.value = ''
+  notice.value = ''
 }
 
 // logout 先让服务端撤销会话，再清理页面上的个人资料状态。
@@ -643,7 +704,7 @@ onUnmounted(() => {
               <p class="eyebrow">A QUIET SYSTEM FOR WHAT MATTERS</p>
               <h1 id="public-title" tabindex="-1">把分散的资料，<em>整理成自己的秩序。</em></h1>
               <p class="public-lede">Mizuki Archive 是一个为个人而生的数字资料空间。收进来、找得到、继续处理，让文件不再只是被保存，而是随时可以被重新使用。</p>
-              <div class="public-actions"><a class="public-cta" href="#login" @click.prevent="showPublicView('login')">打开我的资料库 <span aria-hidden="true">↗</span></a><span class="public-action-note">单人使用 · 登录后可见</span></div>
+              <div class="public-actions"><a class="public-cta" href="#login" @click.prevent="showPublicView('login')">打开我的资料库 <span aria-hidden="true">↗</span></a><span class="public-action-note">独立空间 · 登录后可见</span></div>
               <div class="public-proof" aria-label="产品能力概览"><span><strong>01</strong> 收纳</span><span><strong>02</strong> 检索</span><span><strong>03</strong> 处理</span></div>
             </div>
             <div class="hero-stage" aria-hidden="true">
@@ -670,7 +731,7 @@ onUnmounted(() => {
         <section v-else-if="publicView === 'privacy'" key="privacy" class="public-view-stage public-privacy-view" aria-labelledby="privacy-title">
           <div class="privacy-heading"><p class="eyebrow">PRIVACY, WITHOUT THE FINE PRINT</p><h1 id="privacy-title" tabindex="-1">你的资料，<br /><em>不该成为<br />公开内容。</em></h1><p>这里说明当前版本实际如何使用和保存资料，也坦诚说明尚未解决的边界。</p><span class="privacy-version">隐私说明 · 2026-09-29</span></div>
           <div class="privacy-content">
-            <p class="privacy-lead">当前前台只提供已有账号登录，访客只能浏览公开介绍，<strong>不能自行注册、上传或查看库内文件。</strong>多用户隔离尚未完成上线验收，请勿将本版本当作可接收他人敏感资料的公共服务。</p>
+            <p class="privacy-lead">每个账号拥有独立资料空间，访客只能浏览公开介绍。<strong>注册、上传和查看文件都必须经过服务端会话授权。</strong>系统不会因为知道资源 ID 就允许跨账号读取。</p>
             <div class="privacy-points">
               <article><span>01 / COLLECT</span><div><h2>上传了什么</h2><p>登录后保存原始文件、名称、类型、标签等元数据；按需处理时会保存提取文本或缩略图，登录会使用会话 Cookie。</p></div></article>
               <article><span>02 / ACCESS</span><div><h2>谁能访问</h2><p>资源列表、预览、下载和处理接口要求有效登录会话；文件不作为公开静态目录提供。请勿上传无权保存的他人敏感资料。</p></div></article>
@@ -690,7 +751,35 @@ onUnmounted(() => {
         </section>
 
         <section v-else key="login" class="public-view-stage public-login-view" aria-labelledby="login-heading">
-          <section class="login-card" aria-labelledby="login-heading"><div class="login-card-intro"><span class="login-card-kicker">YOUR PRIVATE INDEX</span><span class="login-card-count">MIZUKI / 01</span></div><div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div><p class="eyebrow">PRIVATE ARCHIVE</p><h1 id="login-heading" tabindex="-1">欢迎回来</h1><p class="login-description">从这里继续整理、查找和取回你的资料。</p><form class="login-form" @submit.prevent="login"><label for="username">管理员账号</label><input id="username" v-model="loginName" autocomplete="username" required placeholder="输入账号" /><label for="password">密码</label><input id="password" v-model="password" type="password" autocomplete="current-password" required placeholder="输入密码" /><p v-if="error" class="form-error" role="alert">{{ error }}</p><button class="primary-button" type="submit" :disabled="loggingIn">{{ loggingIn ? '正在进入…' : '进入资料库' }} <span aria-hidden="true">↗</span></button></form><p class="login-footnote">私人资料库 · 请勿在共享设备上保持登录</p></section>
+          <section class="login-card" aria-labelledby="login-heading">
+            <div class="login-card-intro"><span class="login-card-kicker">YOUR PRIVATE INDEX</span><span class="login-card-count">MIZUKI / 01</span></div>
+            <div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div>
+            <p class="eyebrow">PRIVATE ARCHIVE</p>
+            <h1 id="login-heading" tabindex="-1">欢迎回来</h1>
+            <p class="login-description">每个账号都有自己的资料空间，登录后才能访问。</p>
+            <div class="auth-mode-tabs" role="tablist" aria-label="身份验证方式">
+              <template v-if="emailVerificationAvailable">
+                <button type="button" :class="{ active: emailAuthMode === 'login' }" role="tab" :aria-selected="emailAuthMode === 'login'" @click="switchEmailAuthMode('login')">邮箱登录</button>
+                <button type="button" :class="{ active: emailAuthMode === 'register' }" role="tab" :aria-selected="emailAuthMode === 'register'" @click="switchEmailAuthMode('register')">邮箱注册</button>
+              </template>
+              <button type="button" :class="{ active: emailAuthMode === 'password' }" role="tab" :aria-selected="emailAuthMode === 'password'" @click="switchEmailAuthMode('password')">密码登录</button>
+            </div>
+            <form v-if="emailAuthMode === 'password'" class="login-form" @submit.prevent="login">
+              <label for="username">兼容账号</label><input id="username" v-model="loginName" autocomplete="username" required placeholder="输入管理员账号" />
+              <label for="password">密码</label><input id="password" v-model="password" type="password" autocomplete="current-password" required placeholder="输入密码" />
+              <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+              <button class="primary-button" type="submit" :disabled="loggingIn">{{ loggingIn ? '正在进入…' : '进入资料库' }} <span aria-hidden="true">↗</span></button>
+            </form>
+            <form v-else-if="emailVerificationAvailable" class="login-form" @submit.prevent="loginWithEmail">
+              <label for="email">邮箱</label><input id="email" v-model="emailAddress" type="email" autocomplete="email" required placeholder="name@example.com" />
+              <div class="code-field"><label for="verification-code">验证码</label><button type="button" class="code-button" :disabled="requestingCode || !emailAddress" @click="requestEmailCode">{{ requestingCode ? '发送中…' : codeRequested ? '重新获取' : '获取验证码' }}</button></div>
+              <input id="verification-code" v-model="verificationCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="输入 6 位验证码" />
+              <p class="form-hint">{{ emailAuthMode === 'register' ? '验证成功后会创建独立的私有资料空间。' : '验证码短时有效，且只能使用一次。' }}</p>
+              <p v-if="error" class="form-error" role="alert">{{ error }}</p><p v-if="notice" class="form-notice" role="status">{{ notice }}</p>
+              <button class="primary-button" type="submit" :disabled="loggingIn">{{ loggingIn ? '验证中…' : emailAuthMode === 'register' ? '注册并进入' : '验证并进入' }} <span aria-hidden="true">↗</span></button>
+            </form>
+            <p class="login-footnote">资料按账号隔离 · 请勿在共享设备上保持登录</p>
+          </section>
           <button class="view-back-link" type="button" @click="showPublicView('home')">← 返回首页</button>
         </section>
       </Transition>

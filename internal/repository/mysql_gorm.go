@@ -29,6 +29,7 @@ func (store *MySQL) EnableOutbox() { store.outboxEnabled = true }
 // resourceRow 只负责 GORM 字段映射，不把数据库标签渗入 model.Resource。
 type resourceRow struct {
 	ID           string     `gorm:"column:id;primaryKey"`
+	UserID       string     `gorm:"column:user_id"`
 	Name         string     `gorm:"column:name"`
 	OriginalName string     `gorm:"column:original_name"`
 	Kind         string     `gorm:"column:kind"`
@@ -43,6 +44,7 @@ type resourceRow struct {
 
 type sessionRow struct {
 	TokenHash string    `gorm:"column:token_hash;primaryKey"`
+	UserID    string    `gorm:"column:user_id"`
 	ExpiresAt time.Time `gorm:"column:expires_at"`
 }
 
@@ -56,7 +58,15 @@ type tagRow struct {
 
 // resourceFromRow 将数据库行转换为业务模型，隔离 GORM 字段与对外 JSON 结构。
 func resourceFromRow(row resourceRow) model.Resource {
-	return model.Resource{ID: row.ID, Name: row.Name, OriginalName: row.OriginalName, Kind: row.Kind, MIME: row.MIME, Size: row.Size, SHA256: row.SHA256, StorageKey: row.StorageKey, Favorite: row.Favorite, Tags: []string{}, CreatedAt: row.CreatedAt}
+	return model.Resource{ID: row.ID, OwnerID: row.UserID, Name: row.Name, OriginalName: row.OriginalName, Kind: row.Kind, MIME: row.MIME, Size: row.Size, SHA256: row.SHA256, StorageKey: row.StorageKey, Favorite: row.Favorite, Tags: []string{}, CreatedAt: row.CreatedAt}
+}
+
+// scopeResources 把 HTTP 请求限制到服务端会话注入的用户；Worker 或迁移上下文不附加用户条件。
+func scopeResources(query *gorm.DB, ctx context.Context) *gorm.DB {
+	if userID, ok := UserIDFromContext(ctx); ok {
+		return query.Where("user_id = ?", userID)
+	}
+	return query
 }
 
 // newTagID 生成不含业务含义的标签 ID，避免把标签名直接当成主键或路径的一部分。
@@ -70,7 +80,8 @@ func newTagID() (string, error) {
 
 // SaveResource 登记已落盘文件的元数据；调用方负责数据库失败时的文件补偿清理。
 func (store *MySQL) SaveResource(ctx context.Context, resource model.Resource) error {
-	row := resourceRow{ID: resource.ID, Name: resource.Name, OriginalName: resource.OriginalName, Kind: resource.Kind, MIME: resource.MIME, Size: resource.Size, SHA256: resource.SHA256, StorageKey: resource.StorageKey, Favorite: resource.Favorite, CreatedAt: resource.CreatedAt}
+	userID, _ := UserIDFromContext(ctx)
+	row := resourceRow{ID: resource.ID, UserID: userID, Name: resource.Name, OriginalName: resource.OriginalName, Kind: resource.Kind, MIME: resource.MIME, Size: resource.Size, SHA256: resource.SHA256, StorageKey: resource.StorageKey, Favorite: resource.Favorite, CreatedAt: resource.CreatedAt}
 	if err := store.db.WithContext(ctx).Table("resources").Create(&row).Error; err != nil {
 		return fmt.Errorf("insert resource: %w", err)
 	}
@@ -81,7 +92,7 @@ func (store *MySQL) SaveResource(ctx context.Context, resource model.Resource) e
 func (store *MySQL) GetResource(ctx context.Context, id string) (model.Resource, error) {
 	// “不存在”统一转换为领域可识别的错误，其余数据库错误保持原始因果链。
 	var row resourceRow
-	err := store.db.WithContext(ctx).Table("resources").Where("id = ? AND deleted_at IS NULL", id).Take(&row).Error
+	err := scopeResources(store.db.WithContext(ctx).Table("resources"), ctx).Where("id = ? AND deleted_at IS NULL", id).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return model.Resource{}, ErrNotFound
 	}
@@ -101,7 +112,7 @@ func (store *MySQL) GetResource(ctx context.Context, id string) (model.Resource,
 
 // SetFavorite 显式写入目标状态并读取最终元数据；重复设置同值也应成功，不依赖受影响行数判断存在性。
 func (store *MySQL) SetFavorite(ctx context.Context, id string, favorite bool) (model.Resource, error) {
-	if err := store.db.WithContext(ctx).Table("resources").Where("id = ? AND deleted_at IS NULL", id).Update("favorite", favorite).Error; err != nil {
+	if err := scopeResources(store.db.WithContext(ctx).Table("resources"), ctx).Where("id = ? AND deleted_at IS NULL", id).Update("favorite", favorite).Error; err != nil {
 		return model.Resource{}, fmt.Errorf("set resource favorite: %w", err)
 	}
 	// 同值更新在 MySQL 中可能报告零受影响行；读取既区分资料不存在，也返回最新元数据。
@@ -111,7 +122,7 @@ func (store *MySQL) SetFavorite(ctx context.Context, id string, favorite bool) (
 
 // UpdateResourceName 修改展示名但保留原始文件名，便于用户整理资料而不改变磁盘文件和下载来源。
 func (store *MySQL) UpdateResourceName(ctx context.Context, id, name string) (model.Resource, error) {
-	if err := store.db.WithContext(ctx).Table("resources").Where("id = ? AND deleted_at IS NULL", id).Update("name", name).Error; err != nil {
+	if err := scopeResources(store.db.WithContext(ctx).Table("resources"), ctx).Where("id = ? AND deleted_at IS NULL", id).Update("name", name).Error; err != nil {
 		return model.Resource{}, fmt.Errorf("update resource name: %w", err)
 	}
 	return store.GetResource(ctx, id)
@@ -121,7 +132,7 @@ func (store *MySQL) UpdateResourceName(ctx context.Context, id, name string) (mo
 func (store *MySQL) DeleteResource(ctx context.Context, id string) (model.Resource, error) {
 	var resource resourceRow
 	err := store.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		if err := transaction.Table("resources").Where("id = ?", id).Take(&resource).Error; err != nil {
+		if err := scopeResources(transaction.Table("resources"), ctx).Where("id = ?", id).Take(&resource).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrNotFound
 			}
@@ -129,7 +140,7 @@ func (store *MySQL) DeleteResource(ctx context.Context, id string) (model.Resour
 		}
 		if resource.DeletedAt == nil {
 			deletedAt := time.Now().UTC()
-			if err := transaction.Table("resources").Where("id = ? AND deleted_at IS NULL", id).Update("deleted_at", deletedAt).Error; err != nil {
+			if err := scopeResources(transaction.Table("resources"), ctx).Where("id = ? AND deleted_at IS NULL", id).Update("deleted_at", deletedAt).Error; err != nil {
 				return fmt.Errorf("mark resource deleted: %w", err)
 			}
 		}
@@ -148,7 +159,7 @@ func (store *MySQL) DeleteResource(ctx context.Context, id string) (model.Resour
 func (store *MySQL) ReplaceResourceTags(ctx context.Context, id string, names []string) (model.Resource, error) {
 	var resource resourceRow
 	transactionErr := store.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		if err := transaction.Table("resources").Where("id = ? AND deleted_at IS NULL", id).Take(&resource).Error; err != nil {
+		if err := scopeResources(transaction.Table("resources"), ctx).Where("id = ? AND deleted_at IS NULL", id).Take(&resource).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrNotFound
 			}
@@ -192,6 +203,9 @@ func (store *MySQL) ListTags(ctx context.Context, search string) ([]string, erro
 	var rows []tagRow
 	database := store.db.WithContext(ctx).Table("tags")
 	database = database.Where("EXISTS (SELECT 1 FROM resource_tags rt JOIN resources r ON r.id = rt.resource_id WHERE rt.tag_id = tags.id AND r.deleted_at IS NULL)")
+	if userID, ok := UserIDFromContext(ctx); ok {
+		database = database.Where("EXISTS (SELECT 1 FROM resource_tags rt2 JOIN resources r2 ON r2.id = rt2.resource_id WHERE rt2.tag_id = tags.id AND r2.user_id = ? AND r2.deleted_at IS NULL)", userID)
+	}
 	if search != "" {
 		database = database.Where("normalized_name LIKE CONCAT('%', ?, '%')", search)
 	}
@@ -208,7 +222,7 @@ func (store *MySQL) ListTags(ctx context.Context, search string) ([]string, erro
 // ListResources 在 MySQL 中按名称、类型筛选并稳定分页；不在内存中扫描全部资料。
 func (store *MySQL) ListResources(ctx context.Context, query model.ListQuery) ([]model.Resource, error) {
 	// 筛选值始终作为参数绑定；稳定排序避免同一时间上传的资料翻页漂移。
-	database := store.db.WithContext(ctx).Table("resources")
+	database := scopeResources(store.db.WithContext(ctx).Table("resources"), ctx)
 	if query.Search != "" {
 		database = database.Where("LOCATE(?, name) > 0 OR LOCATE(?, original_name) > 0 OR EXISTS (SELECT 1 FROM derived_assets da WHERE da.resource_id = resources.id AND da.kind = ? AND LOCATE(?, da.content_text) > 0)", query.Search, query.Search, model.DerivedAssetText, query.Search)
 	}
@@ -307,6 +321,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		version uint
 		name    string
 		sql     string
+		prepare func(*gorm.DB) error
 	}{
 		{version: 1, name: "initial_schema", sql: initialMigration},
 		{version: 2, name: "manual_tags", sql: manualTagsMigration},
@@ -314,6 +329,9 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 4, name: "processing_jobs", sql: processingJobsMigration},
 		{version: 5, name: "processing_outbox", sql: processingOutboxMigration},
 		{version: 6, name: "processing_capacity", sql: processingCapacityMigration},
+		{version: 7, name: "multi_user_identity", sql: multiUserIdentityMigration},
+		{version: 8, name: "multi_user_compatibility", sql: multiUserCompatibilityMigration},
+		{version: 9, name: "multi_user_identity_indexes", sql: multiUserIdentityIndexesMigration, prepare: ensureMultiUserIdentityIndexes},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int
@@ -331,6 +349,11 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 			}
 			if applied > 0 {
 				continue
+			}
+			if migration.prepare != nil {
+				if err := migration.prepare(connection); err != nil {
+					return fmt.Errorf("prepare migration %d: %w", migration.version, err)
+				}
 			}
 			for _, statement := range strings.Split(migration.sql, ";") {
 				statement = strings.TrimSpace(statement)
@@ -352,4 +375,29 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		}
 		return nil
 	})
+}
+
+// ensureMultiUserIdentityIndexes 在迁移锁内按索引名检查并补建用户范围查询所需索引，允许中断后安全重试。
+func ensureMultiUserIdentityIndexes(connection *gorm.DB) error {
+	indexes := []struct {
+		table string
+		name  string
+		sql   string
+	}{
+		{table: "sessions", name: "idx_sessions_user", sql: "ALTER TABLE `sessions` ADD INDEX `idx_sessions_user` (`user_id`)"},
+		{table: "resources", name: "idx_resources_user_created", sql: "ALTER TABLE `resources` ADD INDEX `idx_resources_user_created` (`user_id`, `created_at`, `id`)"},
+	}
+	for _, index := range indexes {
+		var count int64
+		if err := connection.Raw(`SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?`, index.table, index.name).Scan(&count).Error; err != nil {
+			return fmt.Errorf("check index %s: %w", index.name, err)
+		}
+		if count > 0 {
+			continue
+		}
+		if err := connection.Exec(index.sql).Error; err != nil {
+			return fmt.Errorf("create index %s: %w", index.name, err)
+		}
+	}
+	return nil
 }

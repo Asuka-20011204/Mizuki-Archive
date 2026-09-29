@@ -20,11 +20,13 @@ Mizuki Archive/
 │   ├── worker/main.go                 # 单进程持久任务 Worker 入口
 │   └── hash-password/main.go          # 交互式生成密码哈希
 ├── internal/
-│   ├── model/resource.go              # 资料模型与列表筛选条件
+│   ├── model/resource.go              # 资料模型、用户归属与列表筛选条件
+│   ├── model/user.go                  # 多用户身份模型
 │   ├── model/processing.go            # 任务与派生产物模型
 │   ├── processing/text.go             # PDF/TXT/Markdown 文本处理器
 │   ├── processing/thumbnail.go        # PNG/JPEG/WebP 缩略图处理器与像素边界
 │   ├── cache/redis.go                 # Redis 短缓存、最近访问和共享限流
+│   ├── notification/smtp.go           # 强制 TLS 的验证码邮件发送适配器（尚未接入登录）
 │   ├── queue/rabbitmq.go              # 持久消息、发布确认和消费 ACK
 │   ├── controller/
 │   │   ├── router.go                  # Gin 路由、Origin 校验、统一错误格式
@@ -32,7 +34,8 @@ Mizuki Archive/
 │   │   ├── resource_controller.go     # 资料上传、查询、标签、预览、删除和下载
 │   │   └── processing_controller.go   # 任务创建、任务查看和派生文件下载
 │   ├── service/
-│   │   ├── auth.go                    # 密码校验和可撤销会话
+│   │   ├── auth.go                    # 兼容密码校验、用户会话和身份上下文
+│   │   ├── email_auth.go              # 邮箱验证码注册/登录
 │   │   ├── resource.go                # 文件校验、存储、元数据流程
 │   │   └── processing.go              # 任务幂等、Worker 执行和派生文件
 │   └── repository/
@@ -41,13 +44,17 @@ Mizuki Archive/
 │       ├── processing.go              # GORM 的任务与派生产物实现
 │       ├── outbox.go                  # 事务 Outbox 及孤儿任务补偿
 │       ├── migration.go               # 内嵌版本化 SQL 迁移
+│       ├── email.go                   # 用户、验证码与会话归属持久化
 │       └── migrations/
 │           ├── 001_init.sql           # 资料与会话表
 │           ├── 002_manual_tags.sql    # 标签与资料关联
 │           ├── 003_soft_delete.sql    # 软删除字段与索引
 │           ├── 004_processing_jobs.sql # 持久任务与派生产物
 │           ├── 005_processing_outbox.sql # 事件表与旧任务回填
-│           └── 006_processing_capacity.sql # 全局任务容量锁
+│           ├── 006_processing_capacity.sql # 全局任务容量锁
+│           ├── 007_multi_user_identity.sql # 用户、验证码、资料/会话归属
+│           ├── 008_multi_user_compatibility.sql # 兼容已应用旧版本迁移
+│           └── 009_multi_user_identity_indexes.sql # 可重试的用户范围索引迁移
 ├── web/                               # Vue 3 + TypeScript View
 ├── docs/                              # 产品、架构、安全、设计和变更记录
 ├── compose.yaml                       # MySQL 与可选 RabbitMQ/Redis 容器
@@ -64,10 +71,10 @@ Mizuki Archive/
 
 ```text
 浏览器 App.vue → api.ts → Gin router.go
-                          ├── auth_controller.go → service/auth.go → repository/mysql_gorm.go → MySQL sessions
+                          ├── auth_controller.go → service/auth.go/email_auth.go → repository/email.go → MySQL users/sessions
                           └── resource_controller.go → service/resource.go
                                                         ├── 本地 data/files（文件原件）
-                                                        └── repository/mysql_gorm.go → MySQL resources
+                                                        └── repository/mysql_gorm.go → MySQL resources（按会话 user_id 过滤）
 ```
 
 **以上传为例：** `web/src/App.vue` 接受文件，`web/src/api.ts` 发送 `POST /api/resources`；`router.go` 的私有路由先检查会话，`resource_controller.go` 解析 multipart 和 HTTP 错误，`service/resource.go` 校验格式/大小、流式落盘、生成 ID 和哈希，再通过 `repository/mysql_gorm.go` 写入资料元数据。数据库写入失败时 Service 尝试删除已移动的文件。由于文件系统和 MySQL 不是同一个事务，异常崩溃后的孤儿文件巡检仍是后续工作；备份与恢复必须同时覆盖两者，具体步骤见 [备份恢复演练](backup-restore.md)。

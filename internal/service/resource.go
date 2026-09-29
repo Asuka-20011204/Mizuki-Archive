@@ -248,7 +248,7 @@ func (resources *Resources) ListTags(ctx context.Context, search string) ([]stri
 		}
 		search = normalized
 	}
-	key := "owner:tags:" + search
+	key := userCachePrefix(ctx) + "tags:" + search
 	if resources.cache != nil {
 		var cached []string
 		if hit, err := resources.cache.Get(ctx, key, &cached); err == nil && hit {
@@ -359,9 +359,10 @@ func (resources *Resources) invalidateResourceCaches(ctx context.Context, id str
 	if resources.cache == nil {
 		return
 	}
-	_ = resources.cache.Delete(ctx, "owner:resource:"+id)
-	_ = resources.cache.DeleteByPrefix(ctx, "owner:resource-list:")
-	_ = resources.cache.DeleteByPrefix(ctx, "owner:tags:")
+	prefix := userCachePrefix(ctx)
+	_ = resources.cache.Delete(ctx, prefix+"resource:"+id)
+	_ = resources.cache.DeleteByPrefix(ctx, prefix+"resource-list:")
+	_ = resources.cache.DeleteByPrefix(ctx, prefix+"tags:")
 }
 
 // Open 仅按受控存储键打开原件；数据库记录异常时返回文件不可用。

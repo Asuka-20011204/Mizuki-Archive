@@ -124,6 +124,16 @@
 .login-form input:focus { border-color: #91aeba; background: #fff; box-shadow: 0 3px 20px #78909c1f; }
 .login-form .primary-button { justify-content: space-between; margin-top: 14px; padding: 14px 22px; }
 .form-error { margin: 4px 0 0; color: #9d3030; font-size: 13px; line-height: 1.5; }
+.auth-mode-tabs { display: flex; gap: 4px; margin: 20px 0 10px; border-bottom: 1px solid #dfe8e4; }
+.auth-mode-tabs button { border: 0; border-bottom: 2px solid transparent; background: transparent; color: #738683; padding: 9px 10px 10px; font-size: 12px; font-weight: 650; cursor: pointer; }
+.auth-mode-tabs button:hover, .auth-mode-tabs button.active { border-bottom-color: #a77966; color: #7f5547; }
+.code-field { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
+.code-field label { flex: 1; }
+.code-button { border: 1px solid #b9cbc8; border-radius: 8px; background: #fff; color: #527077; padding: 8px 10px; font-size: 11px; font-weight: 650; cursor: pointer; }
+.code-button:hover:not(:disabled) { border-color: #a77966; color: #8e5d4d; }
+.code-button:disabled { cursor: not-allowed; opacity: .5; }
+.form-hint, .form-notice { margin: 3px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.form-notice { color: #527077; }
 .login-footnote { margin: 13px 0 0; color: var(--muted); font-size: 12px; }
 .public-footer { display: flex; justify-content: space-between; margin-top: 34px; color: #94a19f; font: 10px Consolas, monospace; letter-spacing: .06em; }
 

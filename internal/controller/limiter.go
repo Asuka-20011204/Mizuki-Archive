@@ -12,9 +12,20 @@ type loginLimiter struct {
 	attempts map[string][]time.Time
 }
 
+// requestLimiter 在单进程内限制验证码等高成本请求；共享 Redis 不可用时仍能保护当前实例。
+type requestLimiter struct {
+	mutex    sync.Mutex
+	requests map[string][]time.Time
+}
+
 // newLoginLimiter 目前只保护单进程登录入口；多实例部署前必须改为共享限流状态。
 func newLoginLimiter() *loginLimiter {
 	return &loginLimiter{attempts: map[string][]time.Time{}}
+}
+
+// newRequestLimiter 创建按地址和接口分别计数的本地固定窗口限流器。
+func newRequestLimiter() *requestLimiter {
+	return &requestLimiter{requests: map[string][]time.Time{}}
 }
 
 // clientAddress 从网络地址提取客户端 IP；不信任可由请求方伪造的转发头。
@@ -61,4 +72,40 @@ func (limiter *loginLimiter) succeeded(address string) {
 	limiter.mutex.Lock()
 	defer limiter.mutex.Unlock()
 	delete(limiter.attempts, address)
+}
+
+// allowedRequests 清理过期请求并判断当前键是否还能发起高成本请求。
+func (limiter *requestLimiter) allowedRequests(key string, limit int, window time.Duration) bool {
+	limiter.mutex.Lock()
+	defer limiter.mutex.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-window)
+	for existingKey, requests := range limiter.requests {
+		active := requests[:0]
+		for _, requestedAt := range requests {
+			if requestedAt.After(cutoff) {
+				active = append(active, requestedAt)
+			}
+		}
+		if len(active) == 0 {
+			delete(limiter.requests, existingKey)
+			continue
+		}
+		limiter.requests[existingKey] = active
+	}
+	if _, exists := limiter.requests[key]; !exists && len(limiter.requests) >= 10000 {
+		return false
+	}
+	active := limiter.requests[key][:0]
+	for _, requestedAt := range limiter.requests[key] {
+		if requestedAt.After(cutoff) {
+			active = append(active, requestedAt)
+		}
+	}
+	if len(active) >= limit {
+		limiter.requests[key] = active
+		return false
+	}
+	limiter.requests[key] = append(active, now)
+	return true
 }

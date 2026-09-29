@@ -65,10 +65,26 @@ func newProcessingID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
+// scopeProcessingJobs 把 HTTP 读取限制到资源所属用户；后台 Worker 不携带用户上下文，仍可领取内部任务。
+func scopeProcessingJobs(query *gorm.DB, ctx context.Context) *gorm.DB {
+	if userID, ok := UserIDFromContext(ctx); ok {
+		return query.Where("EXISTS (SELECT 1 FROM resources scoped_resource WHERE scoped_resource.id = processing_jobs.resource_id AND scoped_resource.user_id = ?)", userID)
+	}
+	return query
+}
+
+// scopeDerivedAssets 把派生产物查询通过任务和资源归属链限制到当前用户。
+func scopeDerivedAssets(query *gorm.DB, ctx context.Context) *gorm.DB {
+	if userID, ok := UserIDFromContext(ctx); ok {
+		return query.Where("EXISTS (SELECT 1 FROM processing_jobs scoped_job JOIN resources scoped_resource ON scoped_resource.id = scoped_job.resource_id WHERE scoped_job.id = derived_assets.job_id AND scoped_resource.user_id = ?)", userID)
+	}
+	return query
+}
+
 // FindReusableProcessingJob 查找同一原件的未完成或已成功任务，实现重复点击的幂等行为。
 func (store *MySQL) FindReusableProcessingJob(ctx context.Context, resourceID, jobType, sourceSHA256 string) (model.ProcessingJob, error) {
 	var row processingJobRow
-	err := store.db.WithContext(ctx).Table("processing_jobs").Where("resource_id = ? AND type = ? AND source_sha256 = ? AND status IN ?", resourceID, jobType, sourceSHA256, []string{model.ProcessingStatusPending, model.ProcessingStatusProcessing, model.ProcessingStatusSucceeded}).Order("CASE status WHEN 'succeeded' THEN 0 WHEN 'processing' THEN 1 ELSE 2 END").Order("created_at DESC").Take(&row).Error
+	err := scopeProcessingJobs(store.db.WithContext(ctx).Table("processing_jobs"), ctx).Where("resource_id = ? AND type = ? AND source_sha256 = ? AND status IN ?", resourceID, jobType, sourceSHA256, []string{model.ProcessingStatusPending, model.ProcessingStatusProcessing, model.ProcessingStatusSucceeded}).Order("CASE status WHEN 'succeeded' THEN 0 WHEN 'processing' THEN 1 ELSE 2 END").Order("created_at DESC").Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return model.ProcessingJob{}, ErrNotFound
 	}
@@ -190,7 +206,7 @@ func checkProcessingCapacity(tx *gorm.DB, job model.ProcessingJob, limit int) er
 // GetProcessingJob 获取单个任务并在成功时附带派生产物元数据。
 func (store *MySQL) GetProcessingJob(ctx context.Context, id string) (model.ProcessingJob, error) {
 	var row processingJobRow
-	err := store.db.WithContext(ctx).Table("processing_jobs").Where("id = ?", id).Take(&row).Error
+	err := scopeProcessingJobs(store.db.WithContext(ctx).Table("processing_jobs"), ctx).Where("id = ?", id).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return model.ProcessingJob{}, ErrNotFound
 	}
@@ -211,7 +227,7 @@ func (store *MySQL) GetProcessingJob(ctx context.Context, id string) (model.Proc
 // ListProcessingJobs 按创建时间倒序返回资料的任务历史，成功任务附带下载元数据。
 func (store *MySQL) ListProcessingJobs(ctx context.Context, resourceID string) ([]model.ProcessingJob, error) {
 	var rows []processingJobRow
-	if err := store.db.WithContext(ctx).Table("processing_jobs").Where("resource_id = ?", resourceID).Order("created_at DESC").Limit(20).Find(&rows).Error; err != nil {
+	if err := scopeProcessingJobs(store.db.WithContext(ctx).Table("processing_jobs"), ctx).Where("resource_id = ?", resourceID).Order("created_at DESC").Limit(20).Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list processing jobs: %w", err)
 	}
 	jobs := make([]model.ProcessingJob, 0, len(rows))
@@ -399,7 +415,7 @@ func (store *MySQL) FailProcessingJob(ctx context.Context, jobID, leaseToken, me
 // GetDerivedAsset 获取受权限保护的派生文件元数据，不返回数据库中的文本索引正文。
 func (store *MySQL) GetDerivedAsset(ctx context.Context, id string) (model.DerivedAsset, error) {
 	var row derivedAssetRow
-	err := store.db.WithContext(ctx).Table("derived_assets").Where("id = ?", id).Take(&row).Error
+	err := scopeDerivedAssets(store.db.WithContext(ctx).Table("derived_assets"), ctx).Where("id = ?", id).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return model.DerivedAsset{}, ErrNotFound
 	}
@@ -412,7 +428,7 @@ func (store *MySQL) GetDerivedAsset(ctx context.Context, id string) (model.Deriv
 // loadAssetForJob 查询一个任务的成功派生产物，缺失时返回持久化错误而不是伪造成功结果。
 func (store *MySQL) loadAssetForJob(ctx context.Context, jobID string) (model.DerivedAsset, error) {
 	var row derivedAssetRow
-	err := store.db.WithContext(ctx).Table("derived_assets").Where("job_id = ?", jobID).Order("created_at DESC").Take(&row).Error
+	err := scopeDerivedAssets(store.db.WithContext(ctx).Table("derived_assets"), ctx).Where("job_id = ?", jobID).Order("created_at DESC").Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return model.DerivedAsset{}, errors.New("derived asset missing for succeeded job")
 	}

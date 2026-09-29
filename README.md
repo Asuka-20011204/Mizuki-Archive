@@ -6,7 +6,7 @@
 
 ## 产品主线
 
-**管 → 找 → 处理**：上传资料并记录元信息；按关键词、类型、标签找到资料；按需生成预览、提取文本并查看处理历史。首位用户是项目作者本人，面向资料积累较多的学生、开发者和创作者，不预设多人协作或百万 QPS。
+**管 → 找 → 处理**：上传资料并记录元信息；按关键词、类型、标签找到资料；按需生成预览、提取文本并查看处理历史。它是“个人数字信息管理”领域的多用户系统：首位用户是项目作者本人，但每个注册用户都有独立资料空间；高并发、高可用是工程演进目标，不把本地压测结果冒充公网容量。
 
 具体场景、边界与验收标准见 [产品定义](docs/product.md)。
 
@@ -30,6 +30,8 @@
 - [界面方向](docs/design.md)：以 Sakurairo 的封面、白色层次与动效为主要视觉参考，不直接复制主题代码和素材。
 - [架构决策](docs/decisions/0001-product-and-stack.md)：已确定项与待验证项。
 - [变更记录](docs/changes/README.md)：各轮实际修改、验证状态与遗留事项；后续重大修改逐轮记录。
+
+当前身份模型支持多个独立用户：邮箱验证码注册后，资料、会话、任务和 Redis 最近访问均按服务端用户归属隔离；旧 `APP_ADMIN_USERNAME`/`APP_ADMIN_PASSWORD_HASH` 仅作为迁移期兼容登录。邮箱功能需要完整 SMTP 配置，手机号短信尚未接入。
 
 ## 本地启动（Windows PowerShell）
 
@@ -59,14 +61,14 @@
 
 ## V1 状态与验证
 
-V1 的个人资料管理闭环已经落地：单管理员登录/退出、私有资料上传、名称编辑、手动标签与标签筛选、收藏、关键词/类型筛选、分页、详情、安全预览、下载和删除。允许 PDF、PNG/JPEG/WebP、Markdown 和 TXT，单文件上限 50 MiB；PDF 登录后以内联方式预览，Markdown/TXT 预览限制为 1 MiB 并以安全文本方式返回。删除先软删除数据库记录并解除标签，再清理原件；原件清理失败时资料保持隐藏，后续由孤儿文件巡检处理。
+V1 的资料管理闭环已经落地：兼容管理员密码登录/退出、私有资料上传、名称编辑、手动标签与标签筛选、收藏、关键词/类型筛选、分页、详情、安全预览、下载和删除。当前身份演进已加入多用户邮箱验证码注册/登录基础，资料、会话、任务和缓存按用户隔离；邮箱入口仅在 SMTP 完整配置时展示。允许 PDF、PNG/JPEG/WebP、Markdown 和 TXT，单文件上限 50 MiB；PDF 登录后以内联方式预览，Markdown/TXT 预览限制为 1 MiB 并以安全文本方式返回。删除先软删除数据库记录并解除标签，再清理原件；原件清理失败时资料保持隐藏，后续由孤儿文件巡检处理。
 
 - `go test ./...`、`go vet ./...`、`gofmt -l .`：通过；隔离 MySQL 8.4 测试库已验证 4 个迁移、重复迁移、收藏、标签替换/筛选、名称更新、软删除和列表隐藏。
 - `cd web; npm run build`：通过，包含 `vue-tsc --noEmit` 和 Vite 生产构建。
 - 浏览器验收已覆盖登录、空状态、浏览器文件选择上传、搜索/类型筛选、标签、收藏、详情焦点/Escape、文本/图片预览、原件与派生产物下载、名称编辑、删除、退出和窄屏布局；操作系统原生文件对话框的视觉行为不作为验收条件。
 - 已按 [备份恢复演练](docs/backup-restore.md) 完成一次隔离恢复：数据库 6 条资源、6 条任务、4 条派生产物，10 个文件的 SHA-256 和字节数全部匹配；隔离资源删除验证后已清理恢复库和目录。禁止把 `docker compose down -v` 当作备份。
 
-V1 不包含 Redis、RabbitMQ、OCR、自动分类或多人协作；V2 已加入持久任务和单进程 Worker。V3/V4 已验收可选 RabbitMQ 异步任务和 Redis 缓存/最近查看；默认使用数据库任务模式，不依赖可选组件完成基本资料操作。
+V1 不包含 OCR、自动分类或跨用户共享协作；V2 已加入持久任务和单进程 Worker。V3/V4 已验收可选 RabbitMQ 异步任务和 Redis 缓存/最近查看；默认使用数据库任务模式，不依赖可选组件完成基本资料操作。面向多实例 API、独立 Worker、共享 Redis/RabbitMQ 和 MySQL 高可用的生产部署仍需继续验证。
 
 本地资料、会话与数据库数据请自行备份；不要用真实私人文件做公开演示。
 ## V2 当前状态
@@ -79,4 +81,4 @@ V2 已完成处理闭环：在 PDF、TXT 或 Markdown 详情页手动创建 `ext
 go run ./cmd/worker
 ```
 
-API 和 Worker 必须使用同一份 `.env`、MySQL 和 `APP_DATA_DIR`。使用 V3 RabbitMQ 模式时，还需在 `.env` 设置独立消息队列凭据，并运行 `docker compose --profile v3 up -d rabbitmq`；V4 Redis 同理需配置密码与 URL，运行 `docker compose --profile v4 up -d redis`。V5 增加有界 Worker Pool 与全局待处理任务上限，满额返回 429；配置和边界见 [本地启动](docs/local-development.md)，验证见 [V5 记录](docs/changes/2026-09-29-v5-concurrency.md)。缺少密码时可选容器拒绝启动。OCR、自动处理与多人协作尚未实现。
+API 和 Worker 必须使用同一份 `.env`、MySQL 和 `APP_DATA_DIR`。使用 V3 RabbitMQ 模式时，还需在 `.env` 设置独立消息队列凭据，并运行 `docker compose --profile v3 up -d rabbitmq`；V4 Redis 同理需配置密码与 URL，运行 `docker compose --profile v4 up -d redis`。V5 增加有界 Worker Pool 与全局待处理任务上限，满额返回 429；配置和边界见 [本地启动](docs/local-development.md)，验证见 [V5 记录](docs/changes/2026-09-29-v5-concurrency.md)。缺少密码时可选容器拒绝启动。OCR、自动分类与跨用户共享协作尚未实现。
