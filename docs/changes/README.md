@@ -4,6 +4,8 @@
 
 - [2026-09-29 · 多用户产品目标与高可用边界更正](2026-09-29-multi-user-product-goal-clarification.md)
 
+- [2026-09-29 · V11 多 API/Worker 本机扩展基础](2026-09-29-v11-multi-api-proxy-foundation.md)
+- [2026-09-29 · V10 邮箱验证码部署接线](2026-09-29-v10-email-deployment-wiring.md)
 - [2026-09-29 · 多用户身份与邮箱验证码基础](2026-09-29-email-verification-foundation.md)
 - [2026-09-29 · 多用户目标与认证能力探测](2026-09-29-multi-user-target-and-capabilities.md)
 - [2026-09-29 · 多用户产品定位纠偏与隔离验收更新](2026-09-29-multi-user-scope-correction.md)

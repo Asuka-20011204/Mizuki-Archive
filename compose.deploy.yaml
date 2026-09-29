@@ -20,15 +20,22 @@ services:
   api:
     build: .
     image: mizuki-archive-api:local
-    environment: &app_environment
-      APP_ORIGIN: ${DEPLOY_APP_ORIGIN:-http://localhost:18080}
-      APP_LISTEN_ADDR: :8080
-      APP_DATA_DIR: /srv/data/files
-      APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:?set APP_ADMIN_USERNAME}
-      APP_ADMIN_PASSWORD_HASH: ${APP_ADMIN_PASSWORD_HASH:?set APP_ADMIN_PASSWORD_HASH}
-      MYSQL_DSN: ${MYSQL_USER:?set MYSQL_USER}:${MYSQL_PASSWORD:?set MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE:?set MYSQL_DATABASE}?parseTime=true
-      PROCESSING_DELIVERY_MODE: database
-      PROCESSING_MAX_OUTSTANDING: ${PROCESSING_MAX_OUTSTANDING:-100}
+    environment:
+      <<: &app_environment
+        APP_ORIGIN: ${DEPLOY_APP_ORIGIN:-http://localhost:18080}
+        APP_LISTEN_ADDR: :8080
+        APP_DATA_DIR: /srv/data/files
+        APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:?set APP_ADMIN_USERNAME}
+        APP_ADMIN_PASSWORD_HASH: ${APP_ADMIN_PASSWORD_HASH:?set APP_ADMIN_PASSWORD_HASH}
+        MYSQL_DSN: ${MYSQL_USER:?set MYSQL_USER}:${MYSQL_PASSWORD:?set MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE:?set MYSQL_DATABASE}?parseTime=true
+        PROCESSING_DELIVERY_MODE: database
+        PROCESSING_MAX_OUTSTANDING: ${PROCESSING_MAX_OUTSTANDING:-100}
+      SMTP_HOST: ${SMTP_HOST-}
+      SMTP_PORT: ${SMTP_PORT-}
+      SMTP_USERNAME: ${SMTP_USERNAME-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD-}
+      SMTP_FROM: ${SMTP_FROM-}
+      EMAIL_CODE_SECRET: ${EMAIL_CODE_SECRET-}
     volumes:
       - archive_data:/srv/data
     depends_on:

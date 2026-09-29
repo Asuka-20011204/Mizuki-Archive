@@ -4,7 +4,7 @@
 
 ## 1. 准备
 
-准备独立于 Git 仓库的部署变量文件，例如 `..\mizuki-deploy.env`，权限限制在自己；不要用真实个人资料做演示。至少设置 `MYSQL_DATABASE`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD_HASH`。不同组件的密码应不同，数据库密码此版需符合 Go MySQL DSN 的格式；本地演练建议随机字母数字。用 `go run ./cmd/hash-password` 交互式生成管理员哈希，不要把明文放进环境文件。哈希中的 `$` 在 env 文件里需用**单引号**包围，不能提交 Git。
+准备独立于 Git 仓库的部署变量文件，例如 `..\mizuki-deploy.env`，权限限制在自己；不要用真实个人资料做演示。至少设置 `MYSQL_DATABASE`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD_HASH`。不同组件的密码应不同，数据库密码此版需符合 Go MySQL DSN 的格式；本地演练建议随机字母数字。用 `go run ./cmd/hash-password` 交互式生成管理员哈希，不要把明文放进环境文件。哈希中的 `$` 在 env 文件里需用**单引号**包围，不能提交 Git。若要在部署编排中启用邮箱注册/登录，再额外设置 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM` 和至少 32 字节的 `EMAIL_CODE_SECRET`；不完整配置会让 API 启动失败。
 
 从仓库根目录执行：
 
@@ -19,7 +19,7 @@ Invoke-WebRequest http://localhost:18080/readyz
 
 两条探针均返回 204 才检查浏览器 `http://localhost:18080/`；登录名默认由 `APP_ADMIN_USERNAME` 指定，密码是生成哈希时输入的原始明文。`/healthz` 仅检查进程；`/readyz` 额外限时检测 MySQL，不将数据库错误返回给客户端。修改 `DEPLOY_WEB_PORT` 时同时设置匹配的 `DEPLOY_APP_ORIGIN`（如 `http://localhost:18081`），否则写请求会因 Origin 不匹配被拒绝。
 
-镜像中 Go 程序和 Nginx 均以非 root 身份运行；API/Worker 只读根文件系统，仅 `/srv/data` 命名卷和 `/tmp` 可写，并限制内存、进程数及容器权限。数据库仅为此项目创建数据库用户（不使用 root 连接应用），但 API 与 Worker 启动时执行版本迁移，**该用户仍有本数据库内的建表权限**；生产环境需进一步拆出迁移角色、TLS、入口层限流、镜像漏洞扫描和密钥管理。不要将本机绑定改成公网地址直接公开。
+镜像中 Go 程序和 Nginx 均以非 root 身份运行；API/Worker 只读根文件系统，仅 `/srv/data` 命名卷和 `/tmp` 可写，并限制内存、进程数及容器权限。SMTP 配置只注入 API 服务，Worker 不接收邮箱用户名、密码或验证码密钥。数据库仅为此项目创建数据库用户（不使用 root 连接应用），但 API 与 Worker 启动时执行版本迁移，**该用户仍有本数据库内的建表权限**；生产环境需进一步拆出迁移角色、TLS、入口层限流、镜像漏洞扫描和密钥管理。不要将本机绑定改成公网地址直接公开。
 
 ## 2. 停机、备份
 
@@ -59,6 +59,24 @@ Invoke-WebRequest http://localhost:18081/readyz
 ```
 
 生产容器已移除 `CAP_CHOWN`，因此不能用 `docker compose exec -u 0 api chown` 修改恢复文件。只在核对 Docker 卷项目标签后让临时维护容器处理隔离卷所有权；勿挂载正式卷执行这一步。
+
+## 多 API/Worker 本机演练
+
+独立部署编排保持 API 无状态，并将原件目录挂载到共享 `archive_data` 卷，因此可以在同一台机器上演练多个 API 和 Worker：
+
+```powershell
+docker compose --env-file $config -f compose.deploy.yaml up --build --scale api=2 --scale worker=2 -d
+docker compose --env-file $config -f compose.deploy.yaml ps
+Invoke-WebRequest http://localhost:18080/readyz
+```
+
+Web 容器通过 Docker 内置 DNS 定期解析 `api` 服务名；GET/HEAD 等读请求遇到连接错误或 502/503/504 时允许切换副本。写请求不配置 `non_idempotent` 自动重试，避免登录、上传、验证码发送或任务创建因代理重试产生重复副作用。这个演练只能证明单机多进程共享 MySQL、文件卷和会话的基础，不等于 MySQL、Redis、RabbitMQ、文件存储和入口层已经具备跨节点高可用。
+
+停止多副本演练仍使用：
+
+```powershell
+docker compose --env-file $config -f compose.deploy.yaml down
+```
 
 对比资料条数、元数据、每份文件的 SHA-256、下载字节和派生文件/关键词检索；失败时不要删原备份。演练结束后确认目标项目名，再执行 `docker compose -p mizuki-v6-restore --env-file $config -f compose.deploy.yaml down -v` **仅删除隔离恢复的卷**。绝不可对原部署项目使用 `down -v`。删除演练环境变量：`Remove-Item Env:DEPLOY_WEB_PORT,Env:DEPLOY_APP_ORIGIN -ErrorAction SilentlyContinue`。
 
