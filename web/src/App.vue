@@ -640,8 +640,8 @@ onUnmounted(() => {
           <div class="toolbar">
             <label class="search-box">
               <span aria-hidden="true">⌕</span>
-              <span class="visually-hidden">搜索文件名</span>
-              <input ref="searchInput" v-model="search" type="search" placeholder="搜索文件名…" maxlength="100" />
+              <span class="visually-hidden">搜索名称或已提取正文</span>
+              <input ref="searchInput" v-model="search" type="search" placeholder="搜索名称或已提取正文…" maxlength="100" />
             </label>
             <span class="toolbar-hint">支持 PDF、图片、Markdown 与文本 · 单文件 ≤ 50 MB</span>
           </div>
