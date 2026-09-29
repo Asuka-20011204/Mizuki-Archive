@@ -62,8 +62,9 @@ Mizuki Archive/
 ├── compose.yaml                       # MySQL 与可选 RabbitMQ/Redis 容器
 ├── compose.deploy.yaml                # V6 独立单机编排：Web/API/Worker/MySQL
 ├── Dockerfile                         # Go API、Worker 与 migrate 的非 root 镜像
-├── web/Dockerfile、web/nginx.conf      # Vue 静态构建和同源反向代理
+├── web/Dockerfile、web/nginx.conf      # Vue 静态构建、同源反向代理和入口限流
 ├── .env.example                       # 仅示例变量，真实 .env 不入库
+├── scripts/generate-mailpit-cert.ps1   # 生成仓库外的本地 SMTP 测试证书
 └── go.mod / go.sum                    # Go 模块与依赖校验
 ```
 
@@ -93,6 +94,7 @@ Mizuki Archive/
 | 数据库字段/查询 | `internal/model/resource.go`、`internal/repository/mysql_gorm.go`、`migrations/` | 迁移/回滚设计、`docs/architecture.md`、`docs/backup-restore.md` |
 | 本地启动配置 | `cmd/server/main.go`、`.env.example`、`compose.yaml` | `README.md` |
 | 独立 Docker 部署/恢复 | `compose.deploy.yaml`、`Dockerfile`、`web/nginx.conf` | `docs/deployment.md`、`docs/security.md` |
+| 邮箱本地验收 | `compose.yaml` 的 `mailpit` profile、`internal/notification/smtp.go` | `docs/local-development.md`、`docs/roadmap.md` |
 | V7 固定负载复现 | `internal/service/processing_benchmark_integration_test.go`、`internal/controller/performance_integration_test.go` | `docs/changes/2026-09-29-v7-fixed-workload.md` |
 
 不建议在 `main()` 中写业务逻辑，也不应在 Controller 中直接写 GORM 查询。中文注释重点解释安全边界、失败补偿和架构取舍；简单赋值不逐行复述。

@@ -52,6 +52,31 @@ services:
       timeout: 5s
       retries: 10
 
+  mailpit:
+    profiles: ["email"]
+    image: axllent/mailpit:v1.21
+    # 证书由 scripts/generate-mailpit-cert.ps1 生成到仓库外，再以只读方式挂载。
+    command:
+      - "--smtp-auth-accept-any"
+      - "--smtp-tls-cert"
+      - "/certs/mailpit.crt"
+      - "--smtp-tls-key"
+      - "/certs/mailpit.key"
+      - "--smtp-require-starttls"
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    volumes:
+      - type: bind
+        source: ${MAILPIT_TLS_DIR:-../mizuki-mailpit-tls}
+        target: /certs
+        read_only: true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8025/api/v1/info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   mysql_data:
   rabbitmq_data:

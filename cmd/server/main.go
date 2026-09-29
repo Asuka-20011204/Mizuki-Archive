@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -181,7 +182,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	router, err := controller.New(controller.Config{Resources: resources, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", RateLimiter: sharedLimiter, Ready: connection.PingContext})
+	router, err := controller.New(controller.Config{Resources: resources, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}
@@ -210,6 +211,11 @@ func autoMigrateEnabled() bool {
 	return !strings.EqualFold(strings.TrimSpace(os.Getenv("APP_AUTO_MIGRATE")), "false")
 }
 
+// trustProxyHeadersEnabled 只为受控 Docker 入口打开代理地址读取，直连 API 默认不信任客户端转发头。
+func trustProxyHeadersEnabled() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("APP_TRUST_PROXY_HEADERS")), "true")
+}
+
 // buildEmailAuth 仅在完整配置 SMTP 和验证码密钥时启用邮箱功能，避免暴露无法工作的注册入口。
 func buildEmailAuth(store *repository.MySQL, auth *service.Auth) (*service.EmailAuth, error) {
 	host, portValue, username, password, from := os.Getenv("SMTP_HOST"), os.Getenv("SMTP_PORT"), os.Getenv("SMTP_USERNAME"), os.Getenv("SMTP_PASSWORD"), os.Getenv("SMTP_FROM")
@@ -225,7 +231,17 @@ func buildEmailAuth(store *repository.MySQL, auth *service.Auth) (*service.Email
 	if err != nil {
 		return nil, errors.New("SMTP_PORT 必须是有效端口")
 	}
-	sender, err := notification.NewSMTP(host, port, username, password, from)
+	var sender *notification.SMTP
+	caPath := strings.TrimSpace(os.Getenv("SMTP_CA_FILE"))
+	if caPath != "" {
+		caBytes, readErr := os.ReadFile(filepath.Clean(caPath))
+		if readErr != nil {
+			return nil, fmt.Errorf("read SMTP_CA_FILE: %w", readErr)
+		}
+		sender, err = notification.NewSMTPWithRootCA(host, port, username, password, from, caBytes)
+	} else {
+		sender, err = notification.NewSMTP(host, port, username, password, from)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("invalid SMTP configuration: %w", err)
 	}

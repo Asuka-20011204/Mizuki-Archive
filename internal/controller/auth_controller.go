@@ -21,7 +21,7 @@ type emailCodeInput struct {
 func (handler *Controller) login(ctx *gin.Context) {
 	// 登录体积和尝试次数都有上限，避免账号入口成为内存耗尽或暴力猜测入口。
 	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, 8<<10)
-	address := clientAddress(ctx.Request.RemoteAddr)
+	address := clientAddress(ctx.Request, handler.config.TrustProxyHeaders)
 	if !handler.limiter.allowed(address) {
 		failure(ctx, http.StatusTooManyRequests, "try_later", "尝试次数过多，请稍后再试")
 		return
@@ -142,7 +142,7 @@ func (handler *Controller) requestEmailLoginCode(ctx *gin.Context) {
 
 // allowEmailCodeRequest 在解析请求体前限制单 IP 的验证码发送频率，防止 SMTP 成本被恶意消耗。
 func (handler *Controller) allowEmailCodeRequest(ctx *gin.Context, purpose string) bool {
-	address := clientAddress(ctx.Request.RemoteAddr)
+	address := clientAddress(ctx.Request, handler.config.TrustProxyHeaders)
 	key := purpose + ":" + address
 	if handler.config.RateLimiter != nil {
 		allowed, err := handler.config.RateLimiter.Allow(ctx.Request.Context(), "email-code-request:"+key, 5, 15*time.Minute)
@@ -185,7 +185,7 @@ func (handler *Controller) loginWithEmailCode(ctx *gin.Context) {
 
 // allowEmailCodeAttempt 限制验证码核验次数，覆盖多实例 Redis 和单进程降级两条路径。
 func (handler *Controller) allowEmailCodeAttempt(ctx *gin.Context, purpose, email string) bool {
-	address := clientAddress(ctx.Request.RemoteAddr)
+	address := clientAddress(ctx.Request, handler.config.TrustProxyHeaders)
 	if !handler.allowEmailCodeBucket(ctx, "attempt-ip:"+purpose+":"+address, 20) {
 		failure(ctx, http.StatusTooManyRequests, "try_later", "验证码尝试过于频繁，请稍后再试")
 		return false

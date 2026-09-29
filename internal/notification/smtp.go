@@ -4,6 +4,7 @@ package notification
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -33,6 +34,26 @@ func NewSMTP(host string, port int, username, password, from string) (*SMTP, err
 		return nil, errors.New("invalid SMTP configuration")
 	}
 	return &SMTP{host: host, port: port, username: username, password: password, from: from}, nil
+}
+
+// NewSMTPWithRootCA 创建使用额外根证书池的 SMTP 发送器；默认系统证书链仍由 NewSMTP 负责。
+func NewSMTPWithRootCA(host string, port int, username, password, from string, rootCAPEM []byte) (*SMTP, error) {
+	sender, err := NewSMTP(host, port, username, password, from)
+	if err != nil {
+		return nil, err
+	}
+	if len(rootCAPEM) == 0 {
+		return nil, errors.New("SMTP root CA is empty")
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(rootCAPEM) {
+		return nil, errors.New("invalid SMTP root CA")
+	}
+	sender.tlsConfig = &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12, RootCAs: pool}
+	return sender, nil
 }
 
 // validMailbox 只接受单个裸邮箱地址，阻断显示名和 CRLF 注入邮件头。

@@ -19,7 +19,7 @@ Invoke-WebRequest http://localhost:18080/readyz
 
 两条探针均返回 204 才检查浏览器 `http://localhost:18080/`；登录名默认由 `APP_ADMIN_USERNAME` 指定，密码是生成哈希时输入的原始明文。`/healthz` 仅检查进程；`/readyz` 额外限时检测 MySQL，不将数据库错误返回给客户端。修改 `DEPLOY_WEB_PORT` 时同时设置匹配的 `DEPLOY_APP_ORIGIN`（如 `http://localhost:18081`），否则写请求会因 Origin 不匹配被拒绝。
 
-镜像中 Go 程序和 Nginx 均以非 root 身份运行；API/Worker 只读根文件系统，仅 `/srv/data` 命名卷和 `/tmp` 可写，并限制内存、进程数及容器权限。启动时由 `db-access-bootstrap` 创建独立迁移账号并收窄运行账号为 `SELECT/INSERT/UPDATE/DELETE`，一次性 `migrate` 容器使用迁移账号执行 DDL 和管理员归属初始化，API/Worker 不再自动迁移。SMTP 配置只注入 API 服务，Worker 不接收邮箱用户名、密码或验证码密钥。生产环境仍需补齐 TLS、入口层限流、密钥托管和镜像漏洞扫描；不要将本机绑定改成公网地址直接公开。
+镜像中 Go 程序和 Nginx 均以非 root 身份运行；API/Worker 只读根文件系统，仅 `/srv/data` 命名卷和 `/tmp` 可写，并限制内存、进程数及容器权限。启动时由 `db-access-bootstrap` 创建独立迁移账号并收窄运行账号为 `SELECT/INSERT/UPDATE/DELETE`，一次性 `migrate` 容器使用迁移账号执行 DDL 和管理员归属初始化，API/Worker 不再自动迁移。Nginx 已对认证和 API 入口增加边缘限流，并覆盖 `X-Real-IP`；API 只有在此受控编排中才开启 `APP_TRUST_PROXY_HEADERS=true`。SMTP 配置只注入 API，Worker 不接收邮箱用户名、密码或验证码密钥。生产环境仍需补齐 TLS、密钥托管和镜像漏洞扫描；不要将本机绑定改成公网地址直接公开。
 
 ## 2. 停机、备份
 

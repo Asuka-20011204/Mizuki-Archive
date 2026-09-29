@@ -2,6 +2,8 @@ package controller
 
 import (
 	"net"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,11 +30,17 @@ func newRequestLimiter() *requestLimiter {
 	return &requestLimiter{requests: map[string][]time.Time{}}
 }
 
-// clientAddress 从网络地址提取客户端 IP；不信任可由请求方伪造的转发头。
-func clientAddress(remote string) string {
-	address, _, err := net.SplitHostPort(remote)
+// clientAddress 从请求提取客户端 IP；只有在受控反向代理模式下才读取代理覆盖的 X-Real-IP。
+func clientAddress(request *http.Request, trustProxyHeaders bool) string {
+	if trustProxyHeaders {
+		forwarded := strings.TrimSpace(request.Header.Get("X-Real-IP"))
+		if net.ParseIP(forwarded) != nil {
+			return forwarded
+		}
+	}
+	address, _, err := net.SplitHostPort(request.RemoteAddr)
 	if err != nil {
-		return remote
+		return request.RemoteAddr
 	}
 	return address
 }

@@ -39,6 +39,24 @@ go run ./cmd/server
 
 先准备支持 STARTTLS（587）或隐式 TLS（465）的 SMTP 服务，在 `.env` 完整填写 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM` 和至少 32 字节的随机 `EMAIL_CODE_SECRET`，然后重启 API。只配置一部分会让服务启动失败，避免前端显示不可用入口；不配置则保留兼容密码登录。验证码不会写入日志或数据库明文。重启后可先执行 `Invoke-WebRequest http://127.0.0.1:8080/api/auth/capabilities`，确认响应中的 `email_verification` 为 `true`；浏览器登录页会显示“邮箱登录/邮箱注册”入口，验证码只能消费一次，退出后原会话立即失效。若 SMTP 暂未准备好，使用兼容密码登录，不要在日志或页面中手工填写验证码。
 
+开发阶段没有外部 SMTP 时，可以使用仓库提供的 Mailpit 捕获环境。该 profile 只接受测试凭据，并使用仓库外的本机自签名证书强制 STARTTLS；证书只用于环回验收，不能复制到生产：
+
+```powershell
+.\scripts\generate-mailpit-cert.ps1
+$env:MAILPIT_TLS_DIR = (Resolve-Path '..\mizuki-mailpit-tls').Path
+docker compose --profile email up -d mailpit
+$env:SMTP_HOST = '127.0.0.1'
+$env:SMTP_PORT = '1025'
+$env:SMTP_USERNAME = 'dev'
+$env:SMTP_PASSWORD = 'dev'
+$env:SMTP_FROM = 'archive@example.test'
+$env:SMTP_CA_FILE = (Resolve-Path '..\mizuki-mailpit-tls\mailpit.crt').Path
+$env:EMAIL_CODE_SECRET = 'replace-with-at-least-32-random-bytes'
+go run ./cmd/server
+```
+
+登录页请求验证码后，在 `http://localhost:8025/` 打开 Mailpit 邮件，复制 6 位验证码回浏览器完成注册或登录。Mailpit 只用于本机捕获，不代表真实外部邮箱投递；真实 SMTP 仍须使用 587/465 和 TLS 配置。
+
 ## 3. 启动 Vue 并登录
 
 第三个终端执行：

@@ -43,6 +43,13 @@ func TestNewSMTPRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+// TestNewSMTPWithRootCARejectsInvalidCertificate 防止自定义 SMTP 根证书配置被静默接受为无效信任链。
+func TestNewSMTPWithRootCARejectsInvalidCertificate(t *testing.T) {
+	if _, err := NewSMTPWithRootCA("mail.example.com", 587, "user", "secret", "user@example.com", []byte("not-a-certificate")); err == nil {
+		t.Fatal("expected invalid root CA error")
+	}
+}
+
 // TestSMTPSendCodeRejectsUnsafeInput 验证收件地址与验证码不会进入未校验的邮件头。
 func TestSMTPSendCodeRejectsUnsafeInput(t *testing.T) {
 	sender, err := NewSMTP("mail.example.com", 587, "user", "secret", "user@example.com")

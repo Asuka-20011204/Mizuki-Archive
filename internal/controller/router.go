@@ -21,8 +21,10 @@ type Config struct {
 	EmailAuth    *service.EmailAuth
 	Origin       string
 	SecureCookie bool
-	RateLimiter  cache.RateLimiter
-	Ready        func(context.Context) error
+	// TrustProxyHeaders 仅应在 API 不直接暴露、且前置代理会覆盖 X-Real-IP 时开启。
+	TrustProxyHeaders bool
+	RateLimiter       cache.RateLimiter
+	Ready             func(context.Context) error
 }
 
 type Controller struct {
@@ -110,7 +112,7 @@ func (handler *Controller) headersAndOrigin(ctx *gin.Context) {
 		return
 	}
 	if handler.config.RateLimiter != nil && ctx.Request.Method == http.MethodPost && ctx.Request.URL.Path != "/api/login" {
-		allowed, err := handler.config.RateLimiter.Allow(ctx.Request.Context(), clientAddress(ctx.Request.RemoteAddr)+":"+ctx.Request.URL.Path, 60, time.Minute)
+		allowed, err := handler.config.RateLimiter.Allow(ctx.Request.Context(), clientAddress(ctx.Request, handler.config.TrustProxyHeaders)+":"+ctx.Request.URL.Path, 60, time.Minute)
 		if err == nil && !allowed {
 			failure(ctx, http.StatusTooManyRequests, "rate_limited", "请求过于频繁，请稍后再试")
 			ctx.Abort()
