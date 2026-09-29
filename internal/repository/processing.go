@@ -48,7 +48,7 @@ type derivedAssetRow struct {
 
 // processingJobFromRow 将任务数据库行转换为可供 Controller 和 Worker 使用的模型。
 func processingJobFromRow(row processingJobRow) model.ProcessingJob {
-	return model.ProcessingJob{ID: row.ID, ResourceID: row.ResourceID, Type: row.Type, SourceSHA256: row.SourceSHA256, Status: row.Status, Attempts: row.Attempts, MaxAttempts: row.MaxAttempts, AvailableAt: row.AvailableAt, LeaseUntil: row.LeaseUntil, LastError: row.LastError, StartedAt: row.StartedAt, FinishedAt: row.FinishedAt, CreatedAt: row.CreatedAt}
+	return model.ProcessingJob{ID: row.ID, ResourceID: row.ResourceID, Type: row.Type, SourceSHA256: row.SourceSHA256, Status: row.Status, Attempts: row.Attempts, MaxAttempts: row.MaxAttempts, AvailableAt: row.AvailableAt, LeaseUntil: row.LeaseUntil, LeaseToken: row.LeaseToken, LastError: row.LastError, StartedAt: row.StartedAt, FinishedAt: row.FinishedAt, CreatedAt: row.CreatedAt}
 }
 
 // derivedAssetFromRow 将派生文件数据库行转换为对外模型，并保留内容列只供仓储检索使用。

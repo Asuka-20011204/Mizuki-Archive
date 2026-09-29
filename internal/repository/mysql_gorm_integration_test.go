@@ -26,7 +26,9 @@ func TestMySQLSetFavorite(t *testing.T) {
 	if err != nil || !strings.HasPrefix(config.DBName, "mizuki_test_") {
 		t.Fatal("测试 DSN 必须指向 mizuki_test_ 前缀的独立数据库")
 	}
-	database, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	config.ParseTime = true
+	config.Loc = time.UTC
+	database, err := gorm.Open(mysql.Open(config.FormatDSN()), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("连接测试数据库失败: %v", err)
 	}

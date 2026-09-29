@@ -22,6 +22,7 @@ Mizuki Archive/
 │   ├── model/resource.go              # 资料模型与列表筛选条件
 │   ├── model/processing.go            # 任务与派生产物模型
 │   ├── processing/text.go             # PDF/TXT/Markdown 文本处理器
+│   ├── processing/thumbnail.go        # PNG/JPEG/WebP 缩略图处理器与像素边界
 │   ├── controller/
 │   │   ├── router.go                  # Gin 路由、Origin 校验、统一错误格式
 │   │   ├── auth_controller.go         # 登录、会话中间件、退出
@@ -82,9 +83,9 @@ Mizuki Archive/
 详情页 → api.ts → processing_controller.go
                   → service/processing.go → repository/processing.go → MySQL processing_jobs
                                                                             ↓
-cmd/worker → service/processing.go → processing/text.go → data/files 原件
+cmd/worker → service/processing.go → processing/text.go / thumbnail.go → data/files 原件
                                              ↓
-                                     data/derived 派生文本 + derived_assets 检索索引
+                                     data/derived 派生文本/缩略图 + derived_assets 检索索引
 ```
 
 `cmd/server` 与 `cmd/worker` 是两个独立的 Go 程序入口，但共享 Model、Service、Repository 和迁移；它们必须指向同一个 MySQL 数据库和 `APP_DATA_DIR`。

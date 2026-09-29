@@ -5,6 +5,8 @@ import "time"
 const (
 	// ProcessingTypeExtractText 表示从 PDF、TXT 或 Markdown 生成可检索的纯文本副本。
 	ProcessingTypeExtractText = "extract_text"
+	// ProcessingTypeGenerateThumbnail 表示从图片生成受控尺寸的 PNG 缩略图。
+	ProcessingTypeGenerateThumbnail = "generate_thumbnail"
 
 	// ProcessingStatusPending 表示任务已创建但尚未被 Worker 领取。
 	ProcessingStatusPending = "pending"
@@ -17,6 +19,8 @@ const (
 
 	// DerivedAssetText 表示由原件提取出的 UTF-8 纯文本派生文件。
 	DerivedAssetText = "extracted_text"
+	// DerivedAssetThumbnail 表示由图片原件生成的 PNG 缩略图派生文件。
+	DerivedAssetThumbnail = "thumbnail"
 )
 
 // ProcessingJob 描述一次手动触发的资料处理任务和当前状态。

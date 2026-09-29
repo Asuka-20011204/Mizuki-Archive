@@ -55,17 +55,30 @@ func NewProcessing(store repository.Store, jobs repository.ProcessingStore, data
 
 // CreateTextJob 手动为一份 PDF、TXT 或 Markdown 创建幂等文本提取任务。
 func (service *Processing) CreateTextJob(ctx context.Context, resourceID string) (model.ProcessingJob, error) {
+	return service.createJob(ctx, resourceID, model.ProcessingTypeExtractText)
+}
+
+// CreateThumbnailJob 手动为一份图片创建幂等缩略图任务，原图不会被覆盖。
+func (service *Processing) CreateThumbnailJob(ctx context.Context, resourceID string) (model.ProcessingJob, error) {
+	return service.createJob(ctx, resourceID, model.ProcessingTypeGenerateThumbnail)
+}
+
+// createJob 统一处理任务类型白名单、资源格式校验和重复点击幂等性。
+func (service *Processing) createJob(ctx context.Context, resourceID, jobType string) (model.ProcessingJob, error) {
 	if !validResourceID(resourceID) {
 		return model.ProcessingJob{}, repository.ErrNotFound
+	}
+	if jobType != model.ProcessingTypeExtractText && jobType != model.ProcessingTypeGenerateThumbnail {
+		return model.ProcessingJob{}, ErrProcessingType
 	}
 	resource, err := service.store.GetResource(ctx, resourceID)
 	if err != nil {
 		return model.ProcessingJob{}, err
 	}
-	if !isTextProcessable(resource.Kind) {
+	if !isProcessable(resource.Kind, jobType) {
 		return model.ProcessingJob{}, ErrProcessingResource
 	}
-	existing, err := service.jobs.FindReusableProcessingJob(ctx, resource.ID, model.ProcessingTypeExtractText, resource.SHA256)
+	existing, err := service.jobs.FindReusableProcessingJob(ctx, resource.ID, jobType, resource.SHA256)
 	if err == nil {
 		return existing, nil
 	}
@@ -77,7 +90,7 @@ func (service *Processing) CreateTextJob(ctx context.Context, resourceID string)
 		return model.ProcessingJob{}, err
 	}
 	now := time.Now().UTC()
-	job := model.ProcessingJob{ID: id, ResourceID: resource.ID, Type: model.ProcessingTypeExtractText, SourceSHA256: resource.SHA256, Status: model.ProcessingStatusPending, MaxAttempts: ProcessingMaxAttempts, AvailableAt: now, CreatedAt: now}
+	job := model.ProcessingJob{ID: id, ResourceID: resource.ID, Type: jobType, SourceSHA256: resource.SHA256, Status: model.ProcessingStatusPending, MaxAttempts: ProcessingMaxAttempts, AvailableAt: now, CreatedAt: now}
 	if err := service.jobs.CreateProcessingJob(ctx, job); err != nil {
 		return model.ProcessingJob{}, err
 	}
@@ -155,11 +168,11 @@ func (service *Processing) RunOnce(ctx context.Context) (bool, error) {
 	}
 	workContext, cancel := context.WithTimeout(ctx, ProcessingExecutionTimeout)
 	defer cancel()
-	content, err := processing.ExtractText(workContext, resource, filepath.Join(service.dataDir, resource.StorageKey))
+	content, assetKind, assetName, assetMIME, contentText, err := service.processJob(workContext, resource, job)
 	if err != nil {
-		return true, service.failPermanent(ctx, job, processingErrorMessage(err))
+		return true, service.failPermanent(ctx, job, processingErrorMessage(job.Type, err))
 	}
-	asset, temporaryPath, err := service.writeDerivedAsset(resource, job, content)
+	asset, temporaryPath, err := service.writeDerivedAsset(resource, job, content, assetKind, assetName, assetMIME, contentText)
 	if err != nil {
 		return true, err
 	}
@@ -198,8 +211,23 @@ func waitForProcessingTick(ctx context.Context, interval time.Duration) error {
 	}
 }
 
-// writeDerivedAsset 原子写入派生文本并计算哈希；数据库提交前保留临时文件名以便失败清理。
-func (service *Processing) writeDerivedAsset(resource model.Resource, job model.ProcessingJob, content []byte) (model.DerivedAsset, string, error) {
+// processJob 根据任务类型调用对应处理器，并返回派生产物的业务元数据。
+func (service *Processing) processJob(ctx context.Context, resource model.Resource, job model.ProcessingJob) ([]byte, string, string, string, string, error) {
+	sourcePath := filepath.Join(service.dataDir, resource.StorageKey)
+	switch job.Type {
+	case model.ProcessingTypeExtractText:
+		content, err := processing.ExtractText(ctx, resource, sourcePath)
+		return content, model.DerivedAssetText, resource.Name + ".extracted.txt", "text/plain; charset=utf-8", string(content), err
+	case model.ProcessingTypeGenerateThumbnail:
+		content, err := processing.GenerateThumbnail(ctx, resource, sourcePath)
+		return content, model.DerivedAssetThumbnail, resource.Name + ".thumbnail.png", "image/png", "", err
+	default:
+		return nil, "", "", "", "", ErrProcessingType
+	}
+}
+
+// writeDerivedAsset 原子写入派生文件并计算哈希；数据库提交前保留临时文件名以便失败清理。
+func (service *Processing) writeDerivedAsset(resource model.Resource, job model.ProcessingJob, content []byte, assetKind, assetName, assetMIME, contentText string) (model.DerivedAsset, string, error) {
 	derivedDir := filepath.Join(service.dataDir, "derived")
 	temporary, err := os.CreateTemp(derivedDir, "pending-*")
 	if err != nil {
@@ -230,7 +258,7 @@ func (service *Processing) writeDerivedAsset(resource model.Resource, job model.
 		return model.DerivedAsset{}, "", fmt.Errorf("commit derived asset: %w", err)
 	}
 	digest := sha256.Sum256(content)
-	asset := model.DerivedAsset{ID: assetID, JobID: job.ID, ResourceID: resource.ID, Kind: model.DerivedAssetText, Name: resource.Name + ".extracted.txt", StorageKey: assetID, MIME: "text/plain; charset=utf-8", Size: int64(len(content)), SHA256: hex.EncodeToString(digest[:]), ContentText: string(content), CreatedAt: time.Now().UTC()}
+	asset := model.DerivedAsset{ID: assetID, JobID: job.ID, ResourceID: resource.ID, Kind: assetKind, Name: assetName, StorageKey: assetID, MIME: assetMIME, Size: int64(len(content)), SHA256: hex.EncodeToString(digest[:]), ContentText: contentText, CreatedAt: time.Now().UTC()}
 	return asset, finalPath, nil
 }
 
@@ -239,9 +267,16 @@ func (service *Processing) failPermanent(ctx context.Context, job model.Processi
 	return service.jobs.FailProcessingJob(ctx, job.ID, job.LeaseToken, message, nil)
 }
 
-// isTextProcessable 定义 V2 首个处理器允许的输入类型，图片缩略图留到后续独立处理器。
-func isTextProcessable(kind string) bool {
-	return kind == "pdf" || kind == "text" || kind == "markdown"
+// isProcessable 定义每种处理器允许的输入类型，避免任务请求绕过资料格式边界。
+func isProcessable(kind, jobType string) bool {
+	switch jobType {
+	case model.ProcessingTypeExtractText:
+		return kind == "pdf" || kind == "text" || kind == "markdown"
+	case model.ProcessingTypeGenerateThumbnail:
+		return kind == "image"
+	default:
+		return false
+	}
 }
 
 // newProcessingID 生成不含资料名和路径信息的任务或派生产物 ID。
@@ -254,14 +289,23 @@ func newProcessingID() (string, error) {
 }
 
 // processingErrorMessage 把底层解析错误映射为不暴露本地路径的提示。
-func processingErrorMessage(err error) string {
+func processingErrorMessage(jobType string, err error) string {
 	switch {
 	case errors.Is(err, processing.ErrUnsupportedType):
+		if jobType == model.ProcessingTypeGenerateThumbnail {
+			return "当前资料格式不支持缩略图生成"
+		}
 		return "当前资料格式不支持文本提取"
 	case errors.Is(err, processing.ErrOutputTooLarge):
 		return "提取结果超过 10 MB 限制"
 	case errors.Is(err, processing.ErrInvalidText):
 		return "提取结果不是合法 UTF-8 文本"
+	case errors.Is(err, processing.ErrImageTooLarge):
+		return "图片尺寸超过缩略图处理限制"
+	case errors.Is(err, processing.ErrInvalidImage):
+		return "图片内容无法识别"
+	case errors.Is(err, ErrProcessingType):
+		return "当前处理类型未开放"
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return "任务执行被取消或超时"
 	default:

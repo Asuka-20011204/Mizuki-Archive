@@ -34,16 +34,28 @@ func (handler *Controller) createProcessingJob(ctx *gin.Context) {
 		failure(ctx, http.StatusBadRequest, "invalid_job", "任务请求格式无效")
 		return
 	}
-	if *input.Type != model.ProcessingTypeExtractText {
-		failure(ctx, http.StatusBadRequest, "unsupported_job", "当前只支持文本提取任务")
+	var (
+		job model.ProcessingJob
+		err error
+	)
+	switch *input.Type {
+	case model.ProcessingTypeExtractText:
+		job, err = handler.config.Processing.CreateTextJob(ctx.Request.Context(), ctx.Param("id"))
+	case model.ProcessingTypeGenerateThumbnail:
+		job, err = handler.config.Processing.CreateThumbnailJob(ctx.Request.Context(), ctx.Param("id"))
+	default:
+		failure(ctx, http.StatusBadRequest, "unsupported_job", "当前处理类型未开放")
 		return
 	}
-	job, err := handler.config.Processing.CreateTextJob(ctx.Request.Context(), ctx.Param("id"))
 	switch {
 	case errors.Is(err, repository.ErrNotFound):
 		failure(ctx, http.StatusNotFound, "not_found", "资料不存在")
 	case errors.Is(err, service.ErrProcessingResource):
-		failure(ctx, http.StatusUnprocessableEntity, "unsupported_resource", "当前资料格式不能执行文本提取")
+		if *input.Type == model.ProcessingTypeGenerateThumbnail {
+			failure(ctx, http.StatusUnprocessableEntity, "unsupported_resource", "当前资料格式不能生成缩略图")
+		} else {
+			failure(ctx, http.StatusUnprocessableEntity, "unsupported_resource", "当前资料格式不能执行文本提取")
+		}
 	case err != nil:
 		failure(ctx, http.StatusInternalServerError, "internal", "无法创建处理任务")
 	default:
@@ -79,8 +91,13 @@ func (handler *Controller) getProcessingJob(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"data": job})
 }
 
-// downloadDerived 下载受权限保护的派生文本，不把数据库中的检索正文直接拼进响应。
+// downloadDerived 下载受权限保护的派生产物，不把数据库中的检索正文直接拼进响应。
 func (handler *Controller) downloadDerived(ctx *gin.Context) {
+	handler.serveDerived(ctx, "attachment")
+}
+
+// previewDerived 以内联方式展示缩略图；只有服务端生成的派生产物可以被打开。
+func (handler *Controller) previewDerived(ctx *gin.Context) {
 	asset, err := handler.config.Processing.GetAsset(ctx.Request.Context(), ctx.Param("id"))
 	if errors.Is(err, repository.ErrNotFound) {
 		failure(ctx, http.StatusNotFound, "not_found", "派生产物不存在")
@@ -90,6 +107,29 @@ func (handler *Controller) downloadDerived(ctx *gin.Context) {
 		failure(ctx, http.StatusInternalServerError, "internal", "无法读取派生产物")
 		return
 	}
+	if asset.Kind != model.DerivedAssetThumbnail {
+		failure(ctx, http.StatusNotFound, "not_found", "该派生产物不支持在线预览")
+		return
+	}
+	handler.serveDerivedFile(ctx, asset, "inline")
+}
+
+// serveDerived 负责读取派生产物元数据并选择下载或在线展示的响应方式。
+func (handler *Controller) serveDerived(ctx *gin.Context, disposition string) {
+	asset, err := handler.config.Processing.GetAsset(ctx.Request.Context(), ctx.Param("id"))
+	if errors.Is(err, repository.ErrNotFound) {
+		failure(ctx, http.StatusNotFound, "not_found", "派生产物不存在")
+		return
+	}
+	if err != nil {
+		failure(ctx, http.StatusInternalServerError, "internal", "无法读取派生产物")
+		return
+	}
+	handler.serveDerivedFile(ctx, asset, disposition)
+}
+
+// serveDerivedFile 统一设置文件响应头，避免下载与预览路径出现权限或文件处理差异。
+func (handler *Controller) serveDerivedFile(ctx *gin.Context, asset model.DerivedAsset, disposition string) {
 	file, err := handler.config.Processing.OpenAsset(asset)
 	if err != nil {
 		failure(ctx, http.StatusInternalServerError, "internal", "派生产物文件不可用")
@@ -97,6 +137,6 @@ func (handler *Controller) downloadDerived(ctx *gin.Context) {
 	}
 	defer file.Close()
 	ctx.Header("Content-Type", asset.MIME)
-	ctx.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": asset.Name}))
+	ctx.Header("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": asset.Name}))
 	http.ServeContent(ctx.Writer, ctx.Request, asset.Name, asset.CreatedAt, file)
 }

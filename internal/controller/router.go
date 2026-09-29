@@ -58,6 +58,7 @@ func New(config Config) (*gin.Engine, error) {
 		private.GET("/resources/:id/jobs", handler.listProcessingJobs)
 		private.GET("/jobs/:id", handler.getProcessingJob)
 		private.GET("/derived-assets/:id/download", handler.downloadDerived)
+		private.GET("/derived-assets/:id/preview", handler.previewDerived)
 	}
 	return engine, nil
 }

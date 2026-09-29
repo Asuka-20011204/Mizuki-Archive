@@ -1,7 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
@@ -165,6 +169,61 @@ func TestRunOnceExtractsTextAndStoresDerivedAsset(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(dataDir, "derived", completed.Asset.ID))
 	if err != nil || string(content) != "# hello\nkeyword" {
 		t.Fatalf("asset content=%q error=%v", content, err)
+	}
+}
+
+// TestRunOnceGeneratesThumbnailAndStoresDerivedAsset 验证图片任务沿用同一租约流程生成 PNG 派生产物。
+func TestRunOnceGeneratesThumbnailAndStoresDerivedAsset(t *testing.T) {
+	dataDir := t.TempDir()
+	resourceID := "ffffffffffffffffffffffffffffffff"
+	resource := model.Resource{ID: resourceID, Kind: "image", Name: "cover.png", StorageKey: resourceID, SHA256: "image-hash"}
+	imageFile, err := os.Create(filepath.Join(dataDir, resourceID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := image.NewRGBA(image.Rect(0, 0, 1200, 600))
+	for y := 0; y < source.Bounds().Dy(); y++ {
+		for x := 0; x < source.Bounds().Dx(); x++ {
+			source.SetRGBA(x, y, color.RGBA{R: 40, G: uint8(x % 255), B: uint8(y % 255), A: 255})
+		}
+	}
+	if err := png.Encode(imageFile, source); err != nil {
+		_ = imageFile.Close()
+		t.Fatal(err)
+	}
+	if err := imageFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	resourceStore := newFakeStore()
+	resourceStore.resources[resourceID] = resource
+	jobs := &processingFakeStore{jobs: map[string]model.ProcessingJob{}, assets: map[string]model.DerivedAsset{}, resources: resourceStore.resources}
+	job := model.ProcessingJob{ID: "11111111111111111111111111111111", ResourceID: resourceID, Type: model.ProcessingTypeGenerateThumbnail, SourceSHA256: resource.SHA256, Status: model.ProcessingStatusPending, MaxAttempts: 3, AvailableAt: time.Now().UTC(), CreatedAt: time.Now().UTC()}
+	jobs.jobs[job.ID] = job
+	processor, err := NewProcessing(resourceStore, jobs, dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := processor.RunOnce(context.Background()); err != nil || !claimed {
+		t.Fatalf("claimed=%t error=%v", claimed, err)
+	}
+	completed, err := jobs.GetProcessingJob(context.Background(), job.ID)
+	if err != nil || completed.Status != model.ProcessingStatusSucceeded || completed.Asset == nil {
+		t.Fatalf("completed=%#v error=%v", completed, err)
+	}
+	if completed.Asset.Kind != model.DerivedAssetThumbnail || completed.Asset.MIME != "image/png" {
+		t.Fatalf("asset=%#v", completed.Asset)
+	}
+	content, err := os.ReadFile(filepath.Join(dataDir, "derived", completed.Asset.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, _, err := image.Decode(bytes.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Bounds().Dx() != 640 || decoded.Bounds().Dy() != 320 {
+		t.Fatalf("thumbnail size = %v", decoded.Bounds())
 	}
 }
 

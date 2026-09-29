@@ -123,12 +123,21 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'extract_text' }),
     }),
+  // createThumbnailJob 手动创建幂等的图片缩略图任务，原图不会被覆盖。
+  createThumbnailJob: (id: string) =>
+    request<{ data: ProcessingJob }>(`/resources/${encodeURIComponent(id)}/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'generate_thumbnail' }),
+    }),
   // listJobs 读取资料最近的处理记录，用于详情面板展示状态和派生产物。
   listJobs: (id: string) => request<{ data: ProcessingJob[] }>(`/resources/${encodeURIComponent(id)}/jobs`),
   // getJob 读取单个任务的最新状态，支持前端轮询而不重新加载整份资料。
   getJob: (id: string) => request<{ data: ProcessingJob }>(`/jobs/${encodeURIComponent(id)}`),
   // derivedDownloadURL 生成同源下载地址，权限仍由服务端会话和派生产物 ID 控制。
   derivedDownloadURL: (id: string) => `/api/derived-assets/${encodeURIComponent(id)}/download`,
+  // derivedPreviewURL 生成同源缩略图预览地址，服务端仍会校验会话和派生产物权限。
+  derivedPreviewURL: (id: string) => `/api/derived-assets/${encodeURIComponent(id)}/preview`,
   // upload 用 FormData 交给浏览器设置 multipart 边界，不能手写 Content-Type。
   upload: (file: File) => {
     const body = new FormData()

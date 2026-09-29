@@ -66,18 +66,18 @@ V1 不依赖消息队列或缓存；V2 可先用数据库持久任务与受控 W
 
 ## 暂不定稿
 
-- V1 的依赖、路由、3 个迁移版本、标签/名称/预览/删除接口和目录导览已落地；隔离 MySQL 已验证迁移与资料元数据链路。文件系统与数据库仍不是同一事务，恢复演练与孤儿文件巡检必须持续保留。
-- PDF 页数/文本提取、缩略图、转换 Markdown 的支持矩阵以选定工具的能力和安全评估为准。
+- V1 的依赖、路由、4 个迁移版本、标签/名称/预览/删除接口和目录导览已落地；隔离 MySQL 和文件目录恢复演练已验证迁移、资料元数据、原件与派生产物哈希链路。文件系统与数据库仍不是同一事务，孤儿文件巡检必须持续保留。
+- 当前已支持 PDF/TXT/Markdown 文本提取和 PNG/JPEG/WebP 图片缩略图；PDF 在线预览、OCR、转换 Markdown 的支持矩阵仍以选定工具的能力和安全评估为准。
 - 对象存储、Kubernetes、跨用户隔离、全文检索只有在场景与数据证明需要时才进入设计。
 
 ## V2 已实现的处理闭环
 
-V2 首个处理器只处理 PDF、TXT 和 Markdown：
+V2 通过同一持久任务模型提供两类手动处理器：
 
-1. 详情页通过 `POST /api/resources/:id/jobs` 手动创建 `extract_text` 任务，Service 校验资料仍可见、类型允许并记录来源 SHA-256。
+1. 详情页通过 `POST /api/resources/:id/jobs` 手动创建 `extract_text` 或 `generate_thumbnail` 任务，Service 校验资料仍可见、类型允许并记录来源 SHA-256。
 2. `cmd/worker` 从 `processing_jobs` 领取 `pending` 或租约过期任务；MySQL 事务使用行锁和 `SKIP LOCKED`，租约令牌防止旧 Worker 覆盖新结果。
-3. `internal/processing/text.go` 将 TXT/Markdown 原文或 PDF 文本转为 UTF-8，输入/输出均受边界限制；解析失败保存固定中文摘要，不回显本地路径。
+3. `internal/processing/text.go` 将 TXT/Markdown 原文或 PDF 文本转为 UTF-8；`internal/processing/thumbnail.go` 在解码前检查图片边长和像素总量，再生成最大 640×640 的 PNG；处理失败保存固定中文摘要，不回显本地路径。
 4. 结果先写入 `data/derived` 临时文件并原子移动，再在事务中写入 `derived_assets` 和成功状态；原件始终只读。
-5. `derived_assets.content_text` 作为受控检索索引参与资料名称、原始名称和派生正文的关键词检索；下载接口只返回文件，不把正文拼入 JSON。
+5. `derived_assets.content_text` 作为受控检索索引参与资料名称、原始名称和派生正文的关键词检索；文本和缩略图均可下载，缩略图另提供受权限保护的内联预览，不把正文拼入 JSON。
 
-V2 当前不做图片缩略图、OCR、AI 摘要、自动任务和消息队列。图片缩略图应在后续独立处理器中增加像素边界、方向处理和资源耗尽测试，不能复用文本任务类型。
+V2 当前不做 OCR、AI 摘要、自动任务和消息队列。图片缩略图不复用文本任务类型，独立记录 `generate_thumbnail` 任务和 `thumbnail` 派生产物。
