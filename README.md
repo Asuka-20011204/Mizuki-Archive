@@ -34,21 +34,17 @@
 
 前置：Go 1.25、Node.js、Docker Desktop/MySQL 8.4。请先确认 Docker Desktop 正在运行；首次启动的完整操作与故障排查见 [本地启动与实测](docs/local-development.md)。
 
-1. 复制 `.env.example` 为本地 `.env`，只用于 Docker Compose；把 `MYSQL_DATABASE`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD` 改为你自己的值。`.env` 已被 Git 忽略。**不要把真实密码或哈希写进仓库。**
+1. 复制 `.env.example` 为本地 `.env`，供 Docker Compose 和 Go API 共用；把数据库密码和管理员配置改为你自己的值。当前 Docker 主机端口为 `3307`（容器内部仍为 `3306`）；如需调整，修改 `.env` 中的 `MYSQL_HOST_PORT`。`.env` 已被 Git 忽略。**不要把真实密码或哈希写进仓库。**
 2. 在仓库根目录运行 `docker compose up -d mysql`。检查 `docker compose ps`，等待数据库健康。
-3. 在同一个 PowerShell 会话设置 API 配置，再运行服务：
+3. 首次使用时生成管理员密码哈希，将输出用单引号包住后复制到 `.env` 的 `APP_ADMIN_PASSWORD_HASH`（bcrypt 哈希包含 `$`，不能裸写）；然后直接启动 API：
 
    ```powershell
-   $env:APP_ORIGIN = 'http://localhost:5173'
-   $env:APP_LISTEN_ADDR = '127.0.0.1:8080'
-   $env:APP_DATA_DIR = './data/files'
-   $env:APP_ADMIN_USERNAME = 'owner'
-   $env:APP_ADMIN_PASSWORD_HASH = (go run ./cmd/hash-password)
-   $env:MYSQL_DSN = 'archive:在此填入本机数据库密码@tcp(127.0.0.1:3306)/archive'
+   go run ./cmd/hash-password
+   # 将上一步输出的 bcrypt 哈希粘贴到 .env 的 APP_ADMIN_PASSWORD_HASH
    go run ./cmd/server
    ```
 
-   密码哈希命令在交互终端中隐藏输入；`MYSQL_DSN` 的用户名、数据库名和密码须与本地 `.env` 一致。若使用特殊字符，请确认 DSN 格式能正确解析。服务启动时应用当前幂等初始迁移。生产环境必须使用 HTTPS、独立凭据和受控备份。
+   `go run ./cmd/server` 会自动读取根目录 `.env`；系统环境变量优先于文件中的同名值。示例中的 `3307` 必须与 `.env` 的 `MYSQL_HOST_PORT` 保持一致。密码哈希命令在交互终端中隐藏输入；`.env` 中包含 `$` 的密码或哈希应使用单引号包住。服务启动时应用当前幂等初始迁移。生产环境必须使用 HTTPS、独立凭据和受控备份。
 
 4. 另开 PowerShell：
 

@@ -9,4 +9,6 @@
 - [2026-09-29 · 浏览器实测与本地启动说明](2026-09-29-interaction-and-local-dev.md)
 - [2026-09-29 · Sakurairo 视觉改版](2026-09-29-sakurairo-visual-redesign.md)
 - [2026-09-29 · 全函数中文注释审查](2026-09-29-function-comment-audit.md)
+- [2026-09-29 · 本地 Docker MySQL 改用 3307 主机端口](2026-09-29-local-mysql-port.md)
+- [2026-09-29 · Go API 自动读取本地 .env](2026-09-29-dotenv-loading.md)
 - [2026-09-29 · 资料收藏编辑闭环](2026-09-29-favorite-resource.md)

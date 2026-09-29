@@ -1,6 +1,6 @@
 # 本地启动与浏览器实测（Windows PowerShell）
 
-以下命令从项目的仓库根目录开始。准备 **三个 PowerShell 终端**：数据库命令、Go API、Vue 开发服务器；每次新开终端先切换到仓库根目录。不要把密码、哈希或个人文件提交到 Git；示例值要改成本机独有值。
+以下命令从项目的仓库根目录开始。准备 **三个 PowerShell 终端**：数据库命令、Go API、Vue 开发服务器；每次新开终端先切换到仓库根目录。Go API 会自动读取根目录 `.env`，系统环境变量优先于文件中的同名值。不要把密码、哈希或个人文件提交到 Git；示例值要改成本机独有值。
 
 ## 1. 准备 MySQL
 
@@ -13,25 +13,19 @@ docker compose up -d mysql
 docker compose ps
 ```
 
-将 `.env` 中的 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD` 换成不同的强随机密码；默认数据库名和普通用户名都是 `archive`。等待 `docker compose ps` 显示 `healthy`。**不要运行 `docker compose down -v`**，它会删除数据库卷。`.env` 已忽略，但提交前仍要检查暂存区。
+将 `.env` 中的 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD` 换成不同的强随机密码；默认数据库名和普通用户名都是 `archive`，Docker 主机端口为 `3307`（容器内部端口仍为 `3306`）。如需调整主机端口，修改 `MYSQL_HOST_PORT`，并同步修改 API 的 `MYSQL_DSN`。等待 `docker compose ps` 显示 `healthy`。**不要运行 `docker compose down -v`**，它会删除数据库卷。`.env` 已忽略，但提交前仍要检查暂存区。
 
 ## 2. 启动 Go API
 
-在仓库根目录的第二个终端，先执行 `go run ./cmd/hash-password`。输入你选择的管理员明文密码（至少 12 字节；终端不回显），复制输出的 bcrypt 哈希。浏览器登录时使用的是**原来的明文密码**，不是这段哈希。
+在仓库根目录的第二个终端执行 `go run ./cmd/hash-password`。输入你选择的管理员明文密码（至少 12 字节；终端不回显），将输出的 bcrypt 哈希用单引号包住后粘贴到 `.env` 的 `APP_ADMIN_PASSWORD_HASH`，例如 `APP_ADMIN_PASSWORD_HASH='$2a$10$...'`。bcrypt 哈希包含 `$`，不能裸写。浏览器登录时使用的是**原来的明文密码**，不是这段哈希。
 
-然后在**同一个终端**设置环境变量并启动服务：
+然后直接启动服务：
 
 ```powershell
-$env:APP_ORIGIN = 'http://localhost:5173'
-$env:APP_LISTEN_ADDR = '127.0.0.1:8080'
-$env:APP_DATA_DIR = './data/files'
-$env:APP_ADMIN_USERNAME = 'owner'
-$env:APP_ADMIN_PASSWORD_HASH = '在此粘贴刚生成的 bcrypt 哈希'
-$env:MYSQL_DSN = 'archive:在此填写.env中的MYSQL_PASSWORD@tcp(127.0.0.1:3306)/archive'
 go run ./cmd/server
 ```
 
-`MYSQL_DSN` 中的密码需与 `.env` 一致；特殊字符可能需要按 Go MySQL DSN 格式处理，初学时可用随机字母数字密码。API 显示 `archive API listening on 127.0.0.1:8080` 后，在新终端用 `Invoke-WebRequest http://127.0.0.1:8080/healthz` 可检查状态码 `204`。不要在截图或公开日志中展示配置值。
+`.env` 中的 `MYSQL_DSN` 端口必须与 `MYSQL_HOST_PORT` 一致，密码也需与数据库初始化时使用的密码一致；特殊字符可能需要按 Go MySQL DSN 格式处理，初学时可用随机字母数字密码。若要使用其他配置文件，可在启动前设置 `$env:MIZUKI_ENV_FILE`；默认 `.env` 缺失时服务仍会回退到系统环境变量。API 显示 `archive API listening on 127.0.0.1:8080` 后，在新终端用 `Invoke-WebRequest http://127.0.0.1:8080/healthz` 可检查状态码 `204`。不要在截图或公开日志中展示配置值。
 
 ## 3. 启动 Vue 并登录
 

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/url"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/joho/godotenv"
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -19,6 +22,22 @@ import (
 	"mizuki-archive/internal/repository"
 	"mizuki-archive/internal/service"
 )
+
+// loadEnvironment 读取可选的 .env 文件；系统环境变量保持更高优先级，便于生产环境覆盖本地配置。
+func loadEnvironment() error {
+	path, explicit := os.LookupEnv("MIZUKI_ENV_FILE")
+	if !explicit || path == "" {
+		path = ".env"
+		explicit = false
+	}
+	if err := godotenv.Load(path); err != nil {
+		if !explicit && errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
 
 // required 读取必需环境变量；缺失时立即中止启动，避免服务带着不完整配置运行。
 func required(name string) string {
@@ -32,6 +51,9 @@ func required(name string) string {
 // main 是 API 服务的启动入口：读取配置、接入 MySQL、装配 MVC 依赖并优雅停机。
 // 前端入口在 web/src/main.ts；生成管理员密码哈希的独立命令在 cmd/hash-password。
 func main() {
+	if err := loadEnvironment(); err != nil {
+		log.Fatalf("cannot load environment file: %v", err)
+	}
 	address := os.Getenv("APP_LISTEN_ADDR")
 	if address == "" {
 		address = "127.0.0.1:8080"
