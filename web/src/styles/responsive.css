@@ -1,157 +1,48 @@
-/* 中等屏幕布局：避免侧栏挤压内容。 */
-@media(max-width:1000px) {
-  .sidebar {
-    width:205px;
-    padding-left:14px;
-    padding-right:14px
-  }
-  .workspace {
-    grid-template-columns:205px minmax(0,1fr)
-  }
-  .topbar-meta,.toolbar-hint {
-    display:none
-  }
-  .welcome-decoration {
-    width:115px
-  }
-  .welcome-decoration i {
-    width:100px;
-    height:100px
-  }
+@media (max-width: 900px) {
+  .login-art { min-height: 360px; }
+  .login-art-content { gap: 36px; }
+  .site-header-inner { padding: 0 18px; }
+  .welcome { min-height: 300px; padding: 42px 52px; }
+  .toolbar-hint { display: none; }
 }
-/* 窄屏布局：保持搜索、上传与详情操作可达。 */
-@media(max-width:680px) {
-  .login-screen {
-    display:block
-  }
-  .login-art {
-    min-height:190px;
-    height:27vh
-  }
-  .paper {
-    width:15%;
-    min-width:95px;
-    top:18%
-  }
-  .paper-back {
-    left:34%
-  }
-  .paper-front {
-    left:51%
-  }
-  .art-caption {
-    bottom:10px;
-    font-size:9px
-  }
-  .login-card {
-    width:auto;
-    margin:0 26px;
-    padding:30px 0
-  }
-  .login-card .brand {
-    margin-bottom:28px
-  }
-  .login-card h1 {
-    font-size:35px;
-    margin:15px 0
-  }
-  .login-description {
-    margin-bottom:20px
-  }
-  .login-footnote {
-    margin-top:25px
-  }
-  .workspace {
-    display:block;
-    padding-bottom:70px
-  }
-  .sidebar {
-    position:fixed;
-    z-index:5;
-    top:auto;
-    bottom:0;
-    height:65px;
-    width:100%;
-    padding:7px 10px;
-    background:#fffaf7;
-    border-right:0;
-    border-top:1px solid var(--line)
-  }
-  .sidebar-brand,.sidebar-divider,.sidebar-label,.sidebar-spacer,.sidebar-note,.account {
-    display:none
-  }
-  .sidebar nav {
-    display:flex;
-    justify-content:space-around;
-    overflow:auto;
-    gap:2px
-  }
-  .nav-item {
-    min-width:62px;
-    flex-direction:column;
-    gap:3px;
-    text-align:center;
-    justify-content:center;
-    font-size:10px;
-    padding:5px 4px
-  }
-  .nav-dot {
-    width:7px;
-    height:7px
-  }
-  .topbar {
-    height:58px;
-    padding:0 22px
-  }
-  .content-inner {
-    padding:0 20px 40px
-  }
-  .welcome {
-    min-height:190px
-  }
-  .welcome-decoration {
-    display:none
-  }
-  .welcome h1 {
-    font-size:31px
-  }
-  .section-heading {
-    margin-bottom:22px
-  }
-  .section-heading h2 {
-    font-size:22px
-  }
-  .upload-button {
-    min-width:0;
-    padding:11px;
-    font-size:12px
-  }
-  .toolbar {
-    display:block
-  }
-  .search-box {
-    width:100%
-  }
-  .resource-row {
-    padding:13px 12px;
-    gap:10px
-  }
-  .file-icon {
-    width:37px;
-    height:42px
-  }
-  .file-date {
-    display:none
-  }
-  .detail-panel {
-    padding:75px 27px 80px
-  }
+
+@media (max-width: 680px) {
+  .login-art { min-height: 270px; }
+  .login-art-index { top: 22px; left: 22px; }
+  .login-art-foot { right: 22px; bottom: 20px; font-size: 9px; }
+  .login-art-content { width: calc(100% - 42px); gap: 15px; }
+  .login-art-symbol { font-size: 100px; }
+  .login-art-content p { font-size: clamp(23px, 6.5vw, 31px); }
+  .login-card { margin: -35px 0 48px; padding: 29px 27px 35px; }
+  .login-card .brand { margin-bottom: 38px; }
+  .login-footnote { margin-top: 28px; }
+  .site-header { margin-top: 12px; padding: 0 12px; }
+  .site-header-inner { min-height: 58px; gap: 10px; padding: 0 15px; }
+  .site-header .brand { gap: 8px; font-size: 14px; }
+  .site-header-label, .account-name, .avatar { display: none; }
+  .account { margin-left: auto; }
+  .content-inner { padding: 0 12px 70px; }
+  .welcome { min-height: 288px; margin-top: 16px; padding: 38px 26px 50px; }
+  .welcome::after { width: 300px; top: -35%; right: -45%; }
+  .welcome h1 { font-size: clamp(29px, 8vw, 38px); }
+  .welcome > p:last-child { font-size: 12px; }
+  .filter-nav { gap: 0; max-width: calc(100% - 18px); margin: -22px 9px 0; padding: 4px; }
+  .nav-item { padding: 9px 8px; font-size: 12px; }
+  .nav-label { display: none; }
+  .nav-short { display: inline; }
+  .library-section { padding-top: 42px; }
+  .section-heading h2 { font-size: 21px; }
+  .upload-button { padding: 11px 15px; white-space: nowrap; }
+  .toolbar { margin: 24px 0 20px; }
+  .search-box { width: 100%; }
+  .resource-list { padding: 5px 8px; }
+  .resource-row { gap: 12px; padding-right: 4px; padding-left: 4px; }
+  .file-date { display: none; }
+  .row-arrow { margin-left: 0; }
+  .detail-panel { border-radius: 0; padding: 80px 24px 40px; }
+  .close-button { right: 24px; }
 }
-/* 尊重系统的减少动态效果偏好。 */
-@media(prefers-reduced-motion:reduce) {
-  *,*:before,*:after {
-    scroll-behavior:auto!important;
-    transition:none!important;
-    animation:none!important
-  }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }

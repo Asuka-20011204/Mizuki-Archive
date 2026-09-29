@@ -26,7 +26,7 @@
 - [开发与 Git 规范](docs/development.md)：中文提交、分支、质量门禁、文档同步。
 - [本地启动与实测](docs/local-development.md)：按终端分步启动 MySQL、Go、Vue，并在浏览器登录验收。
 - [安全基线](docs/security.md)：私有文件、上传、鉴权、任务安全。
-- [界面方向](docs/design.md)：白色、内容优先的独立视觉语言；不复制 Sakurairo 主题代码和素材。
+- [界面方向](docs/design.md)：以 Sakurairo 的封面、白色层次与动效为主要视觉参考，不直接复制主题代码和素材。
 - [架构决策](docs/decisions/0001-product-and-stack.md)：已确定项与待验证项。
 - [变更记录](docs/changes/README.md)：各轮实际修改、验证状态与遗留事项；后续重大修改逐轮记录。
 

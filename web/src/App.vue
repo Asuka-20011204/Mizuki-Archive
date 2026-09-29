@@ -215,16 +215,18 @@ onMounted(checkSession)
 
   <main v-else-if="!username" class="login-screen">
     <div class="login-art" aria-hidden="true">
-      <div class="sun-disc"></div>
-      <div class="paper paper-back"></div>
-      <div class="paper paper-front"><span>the quiet collection</span></div>
-      <p class="art-caption">Every little thing, somewhere to belong.</p>
+      <span class="login-art-index">MIZUKI / 01</span>
+      <div class="login-art-content">
+        <span class="login-art-symbol">M.</span>
+        <p>让重要的资料，<br />拥有自己的位置。</p>
+      </div>
+      <span class="login-art-foot">A PRIVATE SPACE FOR WHAT MATTERS</span>
     </div>
     <section class="login-card" aria-labelledby="login-title">
       <div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div>
-      <p class="eyebrow">YOUR PRIVATE DIGITAL SHELF</p>
-      <h1 id="login-title">把散落的资料，<br /><em>重新安放。</em></h1>
-      <p class="login-description">从一个文件开始，整理值得留下的每一份信息。</p>
+      <p class="eyebrow">PRIVATE ARCHIVE</p>
+      <h1 id="login-title">欢迎回来</h1>
+      <p class="login-description">从这里继续整理、查找和取回你的资料。</p>
       <form class="login-form" @submit.prevent="login">
         <label for="username">管理员账号</label>
         <input id="username" v-model="loginName" autocomplete="username" required placeholder="输入账号" />
@@ -242,63 +244,46 @@ onMounted(checkSession)
           {{ loggingIn ? '正在进入…' : '进入资料库' }} <span aria-hidden="true">↗</span>
         </button>
       </form>
-      <p class="login-footnote">仅你可见 · 安静而有序的个人空间</p>
+      <p class="login-footnote">私人资料库 · 请勿在共享设备上保持登录</p>
     </section>
   </main>
 
   <div v-else class="workspace">
-    <aside class="sidebar" aria-label="资料导航">
-      <div class="brand sidebar-brand">
-        <span class="brand-mark">水</span><span>Mizuki Archive</span>
+    <header class="site-header">
+      <div class="site-header-inner">
+        <div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div>
+        <span class="site-header-label">个人资料库</span>
+        <div class="account">
+          <span class="avatar" aria-hidden="true">{{ username.slice(0, 1).toUpperCase() }}</span>
+          <span class="account-name">{{ username }}</span>
+          <button type="button" class="text-button mobile-logout" @click="logout">退出</button>
+        </div>
       </div>
-      <div class="sidebar-divider"></div>
-      <p class="sidebar-label">LIBRARY / 资料库</p>
-      <nav aria-label="资料类型">
-        <button
-          v-for="item in kinds"
-          :key="item.value"
-          type="button"
-          class="nav-item"
-          :class="{ active: kind === item.value }"
-          :aria-current="kind === item.value ? 'page' : undefined"
-          @click="chooseKind(item.value)"
-        >
-          <span class="nav-dot" :class="item.value || 'all'"></span>{{ item.label }}
-        </button>
-      </nav>
-      <div class="sidebar-spacer"></div>
-      <div class="sidebar-note">
-        <span class="note-sparkle">✳</span>
-        <p>慢慢收集，<br />也慢慢找到。</p>
-      </div>
-      <div class="account">
-        <span class="avatar">{{ username.slice(0, 1).toUpperCase() }}</span>
-        <span class="account-name">{{ username }}</span>
-        <button type="button" class="text-button" @click="logout">退出</button>
-      </div>
-    </aside>
+    </header>
 
     <main class="content">
-      <header class="topbar">
-        <span class="breadcrumb">我的空间 <span aria-hidden="true">/</span> {{ sectionName }}</span>
-        <span class="topbar-meta">PRIVATE ARCHIVE · 个人资料库</span>
-      </header>
       <div class="content-inner">
         <section class="welcome" aria-labelledby="page-title">
-          <div>
-            <p class="eyebrow">A PLACE TO KEEP THINGS CLOSE</p>
-            <h1 id="page-title">留下一份<span>秩序感。</span></h1>
-            <p>重要的资料，都在这里。</p>
-          </div>
-          <div class="welcome-decoration" aria-hidden="true">
-            <span>アーカイブ</span><i></i>
-          </div>
+          <p class="eyebrow">MIZUKI · PERSONAL ARCHIVE</p>
+          <h1 id="page-title">每一份资料，<br />都有自己的位置。</h1>
+          <p>从这里整理、查找和取回你的文件。你的内容只在登录后可见。</p>
         </section>
+
+        <nav class="filter-nav" aria-label="按资料类型筛选">
+          <button
+            v-for="item in kinds"
+            :key="item.value"
+            type="button"
+            class="nav-item"
+            :class="{ active: kind === item.value }"
+            :aria-pressed="kind === item.value"
+            @click="chooseKind(item.value)"
+          ><span class="nav-label">{{ item.label }}</span><span class="nav-short">{{ item.short }}</span></button>
+        </nav>
 
         <section class="library-section" aria-labelledby="library-title">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">COLLECTION / 01</p>
               <h2 id="library-title">{{ sectionName }}</h2>
             </div>
             <button class="primary-button upload-button" type="button" :disabled="uploading" @click="fileInput?.click()">
@@ -325,7 +310,7 @@ onMounted(checkSession)
 
           <div v-if="searching && resources.length === 0" class="empty-state" role="status">正在查找资料…</div>
           <div v-else-if="resources.length === 0 && !error" class="empty-state">
-            <div class="empty-illustration" aria-hidden="true"><span>✳</span></div>
+            <div class="empty-illustration" aria-hidden="true"><span>＋</span></div>
             <h3>{{ search || kind ? '没有找到匹配的资料' : '这里还没有资料' }}</h3>
             <p>{{ search || kind ? '试试其他关键词，或切换资料类型。' : '上传第一份文件，让你的个人资料库从这里开始。' }}</p>
             <button v-if="!search && !kind" class="secondary-button" type="button" @click="fileInput?.click()">
@@ -370,7 +355,7 @@ onMounted(checkSession)
         @keydown="trapDetailFocus"
       >
         <button ref="closeButton" type="button" class="close-button" aria-label="关闭资料详情" @click="selected = null">×</button>
-        <p class="eyebrow">RESOURCE / DETAIL</p>
+        <p class="eyebrow">资料详情</p>
         <div class="detail-icon" :class="selected.kind">{{ selected.kind === 'image' ? '◈' : kindLabel(selected.kind) }}</div>
         <h2 id="detail-title">{{ selected.name }}</h2>
         <p class="detail-description">这份资料已安全保存在你的私人资料库中。</p>
