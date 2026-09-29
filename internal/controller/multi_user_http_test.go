@@ -137,8 +137,11 @@ func (store *multiUserHTTPStore) SaveSession(context.Context, string, time.Time)
 // HasSession 保留兼容密码登录所需的旧会话接口。
 func (store *multiUserHTTPStore) HasSession(context.Context, string) (bool, error) { return false, nil }
 
-// DeleteSession 保留兼容密码登录所需的旧会话接口。
-func (store *multiUserHTTPStore) DeleteSession(context.Context, string) error { return nil }
+// DeleteSession 删除测试会话，使邮箱和密码登录都能验证服务端撤销效果。
+func (store *multiUserHTTPStore) DeleteSession(_ context.Context, hash string) error {
+	delete(store.sessions, hash)
+	return nil
+}
 
 // EnsureAdminUser 提供迁移期管理员用户的最小测试实现。
 func (store *multiUserHTTPStore) EnsureAdminUser(_ context.Context, username string, hash []byte) (model.User, error) {

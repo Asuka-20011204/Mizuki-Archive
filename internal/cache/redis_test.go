@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mizuki-archive/internal/repository"
 )
 
 // TestNewRedisRejectsInvalidURL 不把无效连接字符串中的凭据内容写入错误文本。
@@ -86,6 +88,26 @@ func TestRedisOperations(t *testing.T) {
 	}
 	if ids, err := client.RecentIDs(ctx, 20); err != nil || len(ids) != 0 {
 		t.Fatalf("删除后仍保留访问记录: %v, %v", ids, err)
+	}
+	userAContext := repository.WithUserID(ctx, "user-a")
+	userBContext := repository.WithUserID(ctx, "user-b")
+	if err := client.RecordRecent(userAContext, "resource-a", time.Now(), 20); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.RecordRecent(userBContext, "resource-b", time.Now(), 20); err != nil {
+		t.Fatal(err)
+	}
+	if ids, err := client.RecentIDs(userAContext, 20); err != nil || len(ids) != 1 || ids[0] != "resource-a" {
+		t.Fatalf("user A recent namespace leaked: %v, %v", ids, err)
+	}
+	if ids, err := client.RecentIDs(userBContext, 20); err != nil || len(ids) != 1 || ids[0] != "resource-b" {
+		t.Fatalf("user B recent namespace leaked: %v, %v", ids, err)
+	}
+	if err := client.RemoveRecent(userAContext, "resource-a"); err != nil {
+		t.Fatal(err)
+	}
+	if ids, err := client.RecentIDs(userBContext, 20); err != nil || len(ids) != 1 || ids[0] != "resource-b" {
+		t.Fatalf("user A removal affected user B recent namespace: %v, %v", ids, err)
 	}
 	if err := client.Delete(ctx, "metadata"); err != nil {
 		t.Fatal(err)

@@ -429,7 +429,8 @@ func ensureMultiUserIdentityColumn(connection *gorm.DB, table, name, createSQL s
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate column %s.%s: %w", table, name, err)
 	}
-	if !strings.EqualFold(dataType, "char") || !strings.EqualFold(columnType, "char(32)") || !strings.EqualFold(characterSet, "ascii") || !strings.EqualFold(collation, "ascii_bin") || !strings.EqualFold(nullable, "YES") {
+	validNullable := strings.EqualFold(nullable, "YES") || strings.EqualFold(nullable, "NO")
+	if !strings.EqualFold(dataType, "char") || !strings.EqualFold(columnType, "char(32)") || !strings.EqualFold(characterSet, "ascii") || !strings.EqualFold(collation, "ascii_bin") || !validNullable {
 		return fmt.Errorf("incompatible column definition %s.%s: type=%s column_type=%s charset=%s collation=%s nullable=%s", table, name, dataType, columnType, characterSet, collation, nullable)
 	}
 	return nil

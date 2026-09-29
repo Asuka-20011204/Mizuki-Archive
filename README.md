@@ -31,7 +31,7 @@
 - [架构决策](docs/decisions/0001-product-and-stack.md)：已确定项与待验证项。
 - [变更记录](docs/changes/README.md)：各轮实际修改、验证状态与遗留事项；后续重大修改逐轮记录。
 
-当前身份模型支持多个独立用户：邮箱验证码注册后，资料、会话、任务和 Redis 最近访问均按服务端用户归属隔离；旧 `APP_ADMIN_USERNAME`/`APP_ADMIN_PASSWORD_HASH` 仅作为迁移期兼容登录。邮箱功能需要完整 SMTP 配置，手机号短信尚未接入。
+当前身份模型支持多个独立用户：邮箱验证码注册、登录、退出和一次性消费 HTTP 闭环已验证，资料、会话、任务和 Redis 最近访问均按服务端用户归属隔离；旧 `APP_ADMIN_USERNAME`/`APP_ADMIN_PASSWORD_HASH` 仅作为迁移期兼容登录。邮箱功能需要完整 SMTP 配置，手机号短信尚未接入。
 
 ## 本地启动（Windows PowerShell）
 
