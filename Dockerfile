@@ -5,7 +5,8 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -o /out/server ./cmd/server && \
-    CGO_ENABLED=0 go build -trimpath -o /out/worker ./cmd/worker
+    CGO_ENABLED=0 go build -trimpath -o /out/worker ./cmd/worker && \
+    CGO_ENABLED=0 go build -trimpath -o /out/migrate ./cmd/migrate
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates && \
@@ -13,6 +14,7 @@ RUN apk add --no-cache ca-certificates && \
     mkdir -p /srv/data/files && chown -R archive:archive /srv/data
 COPY --from=build /out/server /app/server
 COPY --from=build /out/worker /app/worker
+COPY --from=build /out/migrate /app/migrate
 USER archive
 WORKDIR /app
 CMD ["/app/server"]

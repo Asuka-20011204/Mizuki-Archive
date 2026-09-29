@@ -4,8 +4,9 @@
 
 ## 先找 `main`
 
-- **API 服务入口：** `cmd/server/main.go` 中的 `func main()`。执行 `go run ./cmd/server`，它读取环境变量、连接 MySQL、运行当前初始迁移、创建 Repository/Service/Controller，并启动 HTTP 服务。
+- **API 服务入口：** `cmd/server/main.go` 中的 `func main()`。执行 `go run ./cmd/server`，它读取环境变量、连接 MySQL、装配 Repository/Service/Controller，并启动 HTTP 服务；本地默认允许自动迁移，生产编排由独立 `migrate` 程序先完成迁移。
 - **任务 Worker 入口：** `cmd/worker/main.go` 中的 `func main()`；数据库或 RabbitMQ 模式由环境配置决定。
+- **数据库迁移入口：** `cmd/migrate/main.go` 中的 `func main()`；使用 `MIGRATION_DSN` 执行版本化 SQL、初始化管理员并回填旧数据归属，完成后退出，不接收 HTTP 请求。
 - **密码辅助命令：** `cmd/hash-password/main.go` 中另一个 `func main()`。执行 `go run ./cmd/hash-password` 只生成管理员密码的 bcrypt 哈希，**不会启动服务**。
 - **浏览器入口：** `web/src/main.ts` 创建 Vue 应用并挂载 `App.vue`，不是 Go 的 `main` 函数。
 
@@ -18,7 +19,8 @@ Mizuki Archive/
 ├── cmd/
 │   ├── server/main.go                 # API 程序入口与依赖装配
 │   ├── worker/main.go                 # 单进程持久任务 Worker 入口
-│   └── hash-password/main.go          # 交互式生成密码哈希
+│   ├── hash-password/main.go          # 交互式生成密码哈希
+│   └── migrate/main.go                # 使用独立账号执行生产数据库迁移
 ├── internal/
 │   ├── model/resource.go              # 资料模型、用户归属与列表筛选条件
 │   ├── model/user.go                  # 多用户身份模型
@@ -26,7 +28,7 @@ Mizuki Archive/
 │   ├── processing/text.go             # PDF/TXT/Markdown 文本处理器
 │   ├── processing/thumbnail.go        # PNG/JPEG/WebP 缩略图处理器与像素边界
 │   ├── cache/redis.go                 # Redis 短缓存、最近访问和共享限流
-│   ├── notification/smtp.go           # 强制 TLS 的验证码邮件发送适配器（尚未接入登录）
+│   ├── notification/smtp.go           # 强制 TLS 的验证码邮件发送适配器
 │   ├── queue/rabbitmq.go              # 持久消息、发布确认和消费 ACK
 │   ├── controller/
 │   │   ├── router.go                  # Gin 路由、Origin 校验、统一错误格式
@@ -59,13 +61,13 @@ Mizuki Archive/
 ├── docs/                              # 产品、架构、安全、设计和变更记录
 ├── compose.yaml                       # MySQL 与可选 RabbitMQ/Redis 容器
 ├── compose.deploy.yaml                # V6 独立单机编排：Web/API/Worker/MySQL
-├── Dockerfile                         # Go API 与 Worker 的非 root 镜像
+├── Dockerfile                         # Go API、Worker 与 migrate 的非 root 镜像
 ├── web/Dockerfile、web/nginx.conf      # Vue 静态构建和同源反向代理
 ├── .env.example                       # 仅示例变量，真实 .env 不入库
 └── go.mod / go.sum                    # Go 模块与依赖校验
 ```
 
-`web/node_modules/`、`web/dist/`、`data/`、`.env` 和 Docker 的数据库卷是依赖或运行时产物，不是需要阅读或提交的业务源码。
+`web/node_modules/`、`web/dist/`、`data/`、`.env` 和 Docker 的数据库卷是依赖或运行时产物，不是需要阅读或提交的业务源码。`AGENTS.md` 是本机协作规则，已由 `.gitignore` 排除，不进入 Git 提交历史。
 
 ## 一条请求怎么走
 

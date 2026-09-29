@@ -98,17 +98,37 @@ func main() {
 		log.Fatal("database is unavailable")
 	}
 	store := repository.NewMySQL(database)
-	if err := store.Migrate(startup); err != nil {
-		log.Fatal("database schema initialization failed")
-	}
 	adminUsername := required("APP_ADMIN_USERNAME")
-	adminPasswordHash := []byte(required("APP_ADMIN_PASSWORD_HASH"))
-	adminUser, err := store.EnsureAdminUser(startup, adminUsername, adminPasswordHash)
-	if err != nil {
-		log.Fatal("cannot migrate admin identity")
-	}
-	if err := store.FinalizeOwnership(startup, adminUser.ID); err != nil {
-		log.Fatal("cannot finalize data ownership")
+	var adminPasswordHash []byte
+	var adminUserID string
+	if autoMigrateEnabled() {
+		// 本地开发默认允许 API 自动迁移；生产编排关闭此开关，由一次性 migrate 服务使用独立账号执行。
+		if err := store.Migrate(startup); err != nil {
+			log.Fatal("database schema initialization failed")
+		}
+		adminPasswordHash = []byte(required("APP_ADMIN_PASSWORD_HASH"))
+		adminUser, ensureErr := store.EnsureAdminUser(startup, adminUsername, adminPasswordHash)
+		if ensureErr != nil {
+			log.Fatal("cannot migrate admin identity")
+		}
+		if ensureErr := store.FinalizeOwnership(startup, adminUser.ID); ensureErr != nil {
+			log.Fatal("cannot finalize data ownership")
+		}
+		adminUserID = adminUser.ID
+	} else {
+		// 生产 API 只读取已初始化的管理员身份，避免运行时账号拥有 DDL 和数据回填权限。
+		adminUser, lookupErr := store.GetUserByUsername(startup, adminUsername)
+		if errors.Is(lookupErr, repository.ErrNotFound) {
+			log.Fatal("admin identity is missing; run the migration command first")
+		}
+		if lookupErr != nil {
+			log.Fatal("cannot load admin identity")
+		}
+		if len(adminUser.PasswordHash) == 0 {
+			log.Fatal("admin identity has no password hash")
+		}
+		adminPasswordHash = adminUser.PasswordHash
+		adminUserID = adminUser.ID
 	}
 	var sharedCache cache.Cache
 	var redisClient *cache.Redis
@@ -149,7 +169,7 @@ func main() {
 	if err != nil {
 		log.Fatal("invalid admin password hash")
 	}
-	auth.SetUserID(adminUser.ID)
+	auth.SetUserID(adminUserID)
 	var sharedLimiter cache.RateLimiter
 	if sharedCache != nil {
 		sharedLimiter = sharedCache
@@ -180,6 +200,11 @@ func main() {
 	if err := server.Shutdown(shutdown); err != nil {
 		log.Printf("HTTP shutdown: %v", err)
 	}
+}
+
+// autoMigrateEnabled 保留本地开发的开箱即用体验，并允许生产 API/Worker 关闭启动时 DDL。
+func autoMigrateEnabled() bool {
+	return !strings.EqualFold(strings.TrimSpace(os.Getenv("APP_AUTO_MIGRATE")), "false")
 }
 
 // buildEmailAuth 仅在完整配置 SMTP 和验证码密钥时启用邮箱功能，避免暴露无法工作的注册入口。

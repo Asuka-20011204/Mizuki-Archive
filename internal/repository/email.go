@@ -79,6 +79,19 @@ func (store *MySQL) CreateUser(ctx context.Context, email string) (model.User, e
 	return userFromRow(row), nil
 }
 
+// GetUserByUsername 只读取已由迁移命令创建的管理员身份，运行时 API 不再尝试写入用户表。
+func (store *MySQL) GetUserByUsername(ctx context.Context, username string) (model.User, error) {
+	var row userRow
+	err := store.db.WithContext(ctx).Table("users").Where("username = ?", username).Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return model.User{}, ErrNotFound
+	}
+	if err != nil {
+		return model.User{}, fmt.Errorf("get user by username: %w", err)
+	}
+	return userFromRow(row), nil
+}
+
 // GetUserByEmail 按规范化邮箱读取用户，缺失时统一返回 ErrNotFound。
 func (store *MySQL) GetUserByEmail(ctx context.Context, email string) (model.User, error) {
 	var row userRow

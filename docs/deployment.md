@@ -4,7 +4,7 @@
 
 ## 1. 准备
 
-准备独立于 Git 仓库的部署变量文件，例如 `..\mizuki-deploy.env`，权限限制在自己；不要用真实个人资料做演示。至少设置 `MYSQL_DATABASE`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD_HASH`。不同组件的密码应不同，数据库密码此版需符合 Go MySQL DSN 的格式；本地演练建议随机字母数字。用 `go run ./cmd/hash-password` 交互式生成管理员哈希，不要把明文放进环境文件。哈希中的 `$` 在 env 文件里需用**单引号**包围，不能提交 Git。若要在部署编排中启用邮箱注册/登录，再额外设置 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM` 和至少 32 字节的 `EMAIL_CODE_SECRET`；不完整配置会让 API 启动失败。
+准备独立于 Git 仓库的部署变量文件，例如 `..\mizuki-deploy.env`，权限限制在自己；不要用真实个人资料做演示。至少设置 `MYSQL_DATABASE`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`MYSQL_MIGRATION_USER`、`MYSQL_MIGRATION_PASSWORD`、`APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD_HASH`。不同组件的密码应不同，数据库密码此版需符合 Go MySQL DSN 的格式；本地演练建议随机字母数字。用 `go run ./cmd/hash-password` 交互式生成管理员哈希，不要把明文放进环境文件。哈希中的 `$` 在 env 文件里需用**单引号**包围，不能提交 Git。若要在部署编排中启用邮箱注册/登录，再额外设置 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM` 和至少 32 字节的 `EMAIL_CODE_SECRET`；不完整配置会让 API 启动失败。
 
 从仓库根目录执行：
 
@@ -19,7 +19,7 @@ Invoke-WebRequest http://localhost:18080/readyz
 
 两条探针均返回 204 才检查浏览器 `http://localhost:18080/`；登录名默认由 `APP_ADMIN_USERNAME` 指定，密码是生成哈希时输入的原始明文。`/healthz` 仅检查进程；`/readyz` 额外限时检测 MySQL，不将数据库错误返回给客户端。修改 `DEPLOY_WEB_PORT` 时同时设置匹配的 `DEPLOY_APP_ORIGIN`（如 `http://localhost:18081`），否则写请求会因 Origin 不匹配被拒绝。
 
-镜像中 Go 程序和 Nginx 均以非 root 身份运行；API/Worker 只读根文件系统，仅 `/srv/data` 命名卷和 `/tmp` 可写，并限制内存、进程数及容器权限。SMTP 配置只注入 API 服务，Worker 不接收邮箱用户名、密码或验证码密钥。数据库仅为此项目创建数据库用户（不使用 root 连接应用），但 API 与 Worker 启动时执行版本迁移，**该用户仍有本数据库内的建表权限**；生产环境需进一步拆出迁移角色、TLS、入口层限流、镜像漏洞扫描和密钥管理。不要将本机绑定改成公网地址直接公开。
+镜像中 Go 程序和 Nginx 均以非 root 身份运行；API/Worker 只读根文件系统，仅 `/srv/data` 命名卷和 `/tmp` 可写，并限制内存、进程数及容器权限。启动时由 `db-access-bootstrap` 创建独立迁移账号并收窄运行账号为 `SELECT/INSERT/UPDATE/DELETE`，一次性 `migrate` 容器使用迁移账号执行 DDL 和管理员归属初始化，API/Worker 不再自动迁移。SMTP 配置只注入 API 服务，Worker 不接收邮箱用户名、密码或验证码密钥。生产环境仍需补齐 TLS、入口层限流、密钥托管和镜像漏洞扫描；不要将本机绑定改成公网地址直接公开。
 
 ## 2. 停机、备份
 

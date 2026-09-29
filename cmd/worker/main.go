@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -79,8 +80,11 @@ func main() {
 	if os.Getenv("PROCESSING_DELIVERY_MODE") == "rabbit" {
 		store.EnableOutbox()
 	}
-	if err := store.Migrate(startup); err != nil {
-		log.Fatal("database schema initialization failed")
+	if autoMigrateEnabled() {
+		// 本地开发允许 Worker 自动准备结构；生产 Worker 只使用迁移服务完成后的数据库。
+		if err := store.Migrate(startup); err != nil {
+			log.Fatal("database schema initialization failed")
+		}
 	}
 	var sharedCache cache.Cache
 	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
@@ -108,6 +112,11 @@ func main() {
 	if err := processor.RunPool(ctx, workers, time.Second); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("processing worker stopped: %v", err)
 	}
+}
+
+// autoMigrateEnabled 让生产 Worker 避免使用拥有 DDL 权限的数据库账号。
+func autoMigrateEnabled() bool {
+	return !strings.EqualFold(strings.TrimSpace(os.Getenv("APP_AUTO_MIGRATE")), "false")
 }
 
 // processingWorkerCount 限制每个进程的并发处理数，避免大文件处理耗尽内存。

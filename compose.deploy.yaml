@@ -17,6 +17,47 @@ services:
       retries: 12
     restart: unless-stopped
 
+  db-access-bootstrap:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?set MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER:?set MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+      MYSQL_MIGRATION_USER: ${MYSQL_MIGRATION_USER:?set MYSQL_MIGRATION_USER}
+      MYSQL_MIGRATION_PASSWORD: ${MYSQL_MIGRATION_PASSWORD:?set MYSQL_MIGRATION_PASSWORD}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        case "$$MYSQL_DATABASE" in *[!A-Za-z0-9_]*|"") echo "invalid MYSQL_DATABASE" >&2; exit 1;; esac
+        case "$$MYSQL_USER" in *[!A-Za-z0-9_]*|"") echo "invalid MYSQL_USER" >&2; exit 1;; esac
+        case "$$MYSQL_MIGRATION_USER" in *[!A-Za-z0-9_]*|"") echo "invalid MYSQL_MIGRATION_USER" >&2; exit 1;; esac
+        case "$$MYSQL_MIGRATION_PASSWORD" in *[!A-Za-z0-9._@#%+=:-]*|"") echo "MYSQL_MIGRATION_PASSWORD contains unsupported characters" >&2; exit 1;; esac
+        mysql --protocol=tcp -h mysql -uroot -p"$$MYSQL_ROOT_PASSWORD" "$$MYSQL_DATABASE" <<SQL
+        CREATE USER IF NOT EXISTS '$$MYSQL_MIGRATION_USER'@'%' IDENTIFIED BY '$$MYSQL_MIGRATION_PASSWORD';
+        ALTER USER '$$MYSQL_MIGRATION_USER'@'%' IDENTIFIED BY '$$MYSQL_MIGRATION_PASSWORD';
+        GRANT ALL PRIVILEGES ON $$MYSQL_DATABASE.* TO '$$MYSQL_MIGRATION_USER'@'%';
+        REVOKE ALL PRIVILEGES, GRANT OPTION FROM '$$MYSQL_USER'@'%';
+        GRANT SELECT, INSERT, UPDATE, DELETE ON $$MYSQL_DATABASE.* TO '$$MYSQL_USER'@'%';
+        FLUSH PRIVILEGES;
+        SQL
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+
+  migrate:
+    image: mizuki-archive-api:local
+    command: ["/app/migrate"]
+    environment:
+      MIGRATION_DSN: ${MYSQL_MIGRATION_USER:?set MYSQL_MIGRATION_USER}:${MYSQL_MIGRATION_PASSWORD:?set MYSQL_MIGRATION_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE:?set MYSQL_DATABASE}?parseTime=true
+      APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:?set APP_ADMIN_USERNAME}
+      APP_ADMIN_PASSWORD_HASH: ${APP_ADMIN_PASSWORD_HASH:?set APP_ADMIN_PASSWORD_HASH}
+    depends_on:
+      db-access-bootstrap:
+        condition: service_completed_successfully
+    restart: "no"
   api:
     build: .
     image: mizuki-archive-api:local
@@ -26,7 +67,7 @@ services:
         APP_LISTEN_ADDR: :8080
         APP_DATA_DIR: /srv/data/files
         APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:?set APP_ADMIN_USERNAME}
-        APP_ADMIN_PASSWORD_HASH: ${APP_ADMIN_PASSWORD_HASH:?set APP_ADMIN_PASSWORD_HASH}
+        APP_AUTO_MIGRATE: "false"
         MYSQL_DSN: ${MYSQL_USER:?set MYSQL_USER}:${MYSQL_PASSWORD:?set MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE:?set MYSQL_DATABASE}?parseTime=true
         PROCESSING_DELIVERY_MODE: database
         PROCESSING_MAX_OUTSTANDING: ${PROCESSING_MAX_OUTSTANDING:-100}
@@ -41,6 +82,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
       interval: 10s
@@ -68,6 +111,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     read_only: true
     tmpfs:
       - /tmp:mode=1777

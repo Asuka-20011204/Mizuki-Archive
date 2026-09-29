@@ -2,6 +2,8 @@
 
 每轮较大修改新增一条 `YYYY-MM-DD-主题.md`，记录目的、范围、设计取舍、真实验证结果、遗留风险与下一步。状态变化继续补充原记录；独立的新一轮另开文件。架构上的长期决定同时写入 `docs/decisions/`。
 
+- [2026-09-29 · V12 生产数据库权限分离](2026-09-29-v12-runtime-database-privilege-separation.md)
+
 - [2026-09-29 · 多用户产品目标与高可用边界更正](2026-09-29-multi-user-product-goal-clarification.md)
 
 - [2026-09-29 · V11 多 API/Worker 本机扩展基础](2026-09-29-v11-multi-api-proxy-foundation.md)
