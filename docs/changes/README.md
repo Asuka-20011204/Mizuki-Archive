@@ -2,6 +2,8 @@
 
 每轮较大修改新增一条 `YYYY-MM-DD-主题.md`，记录目的、范围、设计取舍、真实验证结果、遗留风险与下一步。状态变化继续补充原记录；独立的新一轮另开文件。架构上的长期决定同时写入 `docs/decisions/`。
 
+- [2026-09-29 · 多用户产品目标与高可用边界更正](2026-09-29-multi-user-product-goal-clarification.md)
+
 - [2026-09-29 · 多用户身份与邮箱验证码基础](2026-09-29-email-verification-foundation.md)
 - [2026-09-29 · 多用户目标与认证能力探测](2026-09-29-multi-user-target-and-capabilities.md)
 - [2026-09-29 · 多用户产品定位纠偏与隔离验收更新](2026-09-29-multi-user-scope-correction.md)
