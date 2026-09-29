@@ -191,8 +191,8 @@ async function upload(event: Event) {
     page.value = 1
     await loadResources()
     // 上传成功后复用详情加载流程，确保文本预览、标签建议和任务记录与服务端最新状态同步。
-    await selectResource(result.data)
-    notice.value = '资料已安全存入资料库'
+    const detailLoaded = await selectResource(result.data)
+    notice.value = detailLoaded ? '资料已安全存入资料库' : '资料已上传，但详情暂时无法加载'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '上传失败'
   } finally {
@@ -323,21 +323,23 @@ async function startProcessingJob() {
   }
 }
 // selectResource 从服务端重新获取详情，避免依赖可能已过期的列表快照。
-async function selectResource(resource: Resource) {
+async function selectResource(resource: Resource): Promise<boolean> {
   const requestId = ++detailRequestId
   error.value = ''
   detailError.value = ''
   try {
     const detail = (await api.get(resource.id)).data
-    if (requestId !== detailRequestId) return
+    if (requestId !== detailRequestId) return false
     selected.value = detail
     nameDraft.value = selected.value.name
     draftTags.value = [...(selected.value.tags || [])]
     tagInput.value = ''
     await Promise.all([loadTagSuggestions(), loadTextPreview(detail), loadJobs(detail.id)])
+    return true
   } catch (reason) {
-    if (requestId !== detailRequestId) return
+    if (requestId !== detailRequestId) return false
     error.value = reason instanceof Error ? reason.message : '无法打开资料'
+    return false
   }
 }
 

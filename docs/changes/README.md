@@ -21,3 +21,4 @@
 - [2026-09-29 · 资料检查器布局调整](2026-09-29-resource-inspector-layout.md)
 - [2026-09-29 · V2 图片缩略图处理闭环](2026-09-29-v2-image-thumbnail.md)
 - [2026-09-29 · V1 浏览器验收与备份恢复演练](2026-09-29-v1-acceptance-and-recovery.md)
+- [2026-09-29 · V1 上传后详情预览修复](2026-09-29-v1-upload-preview-fix.md)
