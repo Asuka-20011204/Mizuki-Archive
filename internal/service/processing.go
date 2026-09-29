@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"mizuki-archive/internal/cache"
 	"mizuki-archive/internal/model"
 	"mizuki-archive/internal/processing"
@@ -26,6 +27,8 @@ const (
 	ProcessingLeaseDuration = 5 * time.Minute
 	// ProcessingExecutionTimeout 防止单个损坏或超大 PDF 长时间占用单进程 Worker。
 	ProcessingExecutionTimeout = 2 * time.Minute
+	// DefaultProcessingCapacity 限制单个资料库同时等待或执行的任务总数。
+	DefaultProcessingCapacity = 100
 )
 
 var (
@@ -46,11 +49,12 @@ type JobPublisher interface {
 
 // Processing 负责创建任务、执行 Worker 单次循环以及管理派生文件，不依赖 Gin。
 type Processing struct {
-	store         repository.Store
-	jobs          repository.ProcessingStore
-	dataDir       string
-	cache         cache.Cache
-	outboxEnabled bool
+	store          repository.Store
+	jobs           repository.ProcessingStore
+	dataDir        string
+	cache          cache.Cache
+	outboxEnabled  bool
+	maxOutstanding int
 }
 
 // NewProcessing 校验任务存储和派生目录；目录不可用时拒绝启动处理功能。
@@ -67,7 +71,16 @@ func NewProcessingWithCache(store repository.Store, jobs repository.ProcessingSt
 	if err := os.MkdirAll(derivedDir, 0700); err != nil {
 		return nil, fmt.Errorf("create derived directory: %w", err)
 	}
-	return &Processing{store: store, jobs: jobs, dataDir: dataDir, cache: processingCache}, nil
+	return &Processing{store: store, jobs: jobs, dataDir: dataDir, cache: processingCache, maxOutstanding: DefaultProcessingCapacity}, nil
+}
+
+// SetMaxOutstanding 在 API 启动时配置全局未完成任务配额，拒绝无界积压或异常配置。
+func (service *Processing) SetMaxOutstanding(limit int) error {
+	if limit < 1 || limit > 1000 {
+		return errors.New("processing capacity must be between 1 and 1000")
+	}
+	service.maxOutstanding = limit
+	return nil
 }
 
 // EnableOutbox 仅在服务启动装配 Rabbit 模式时调用；业务开始后不再切换投递方式。
@@ -117,18 +130,28 @@ func (service *Processing) createJob(ctx context.Context, resourceID, jobType st
 	}
 	now := time.Now().UTC()
 	job := model.ProcessingJob{ID: id, ResourceID: resource.ID, Type: jobType, SourceSHA256: resource.SHA256, Status: model.ProcessingStatusPending, MaxAttempts: ProcessingMaxAttempts, AvailableAt: now, CreatedAt: now}
-	if outbox, ok := service.jobs.(repository.ProcessingOutboxStore); service.outboxEnabled && ok {
-		if err := outbox.CreateProcessingJobWithOutbox(ctx, job); err != nil {
-			if errors.Is(err, repository.ErrProcessingJobExists) {
-				return service.jobs.FindReusableProcessingJob(ctx, resource.ID, jobType, resource.SHA256)
-			}
-			return model.ProcessingJob{}, err
-		}
-	} else if err := service.jobs.CreateProcessingJob(ctx, job); err != nil {
+	if err := service.createQueuedJob(ctx, job); errors.Is(err, repository.ErrProcessingJobExists) {
+		return service.jobs.FindReusableProcessingJob(ctx, resource.ID, jobType, resource.SHA256)
+	} else if err != nil {
 		return model.ProcessingJob{}, err
 	}
 	service.invalidateJobCaches(ctx, job)
 	return job, nil
+}
+
+// createQueuedJob 优先使用数据库事务容量门禁；内存测试仓储维持原有创建接口。
+func (service *Processing) createQueuedJob(ctx context.Context, job model.ProcessingJob) error {
+	if capacity, ok := service.jobs.(repository.ProcessingCapacityStore); ok {
+		return capacity.CreateProcessingJobWithinLimit(ctx, job, service.maxOutstanding, service.outboxEnabled)
+	}
+	if service.outboxEnabled {
+		outbox, ok := service.jobs.(repository.ProcessingOutboxStore)
+		if !ok {
+			return ErrQueueNotConfigured
+		}
+		return outbox.CreateProcessingJobWithOutbox(ctx, job)
+	}
+	return service.jobs.CreateProcessingJob(ctx, job)
 }
 
 // GetJob 读取任务详情并拒绝格式不合法的任务 ID，避免无效值进入数据库。
@@ -335,6 +358,18 @@ func (service *Processing) RunLoop(ctx context.Context, interval time.Duration) 
 			return err
 		}
 	}
+}
+
+// RunPool 以固定数量的数据库 Worker 竞争领取任务；任一 Worker 出错即取消同组，停机等待全部退出。
+func (service *Processing) RunPool(ctx context.Context, workers int, interval time.Duration) error {
+	if workers < 1 || workers > 4 {
+		return errors.New("processing worker count must be between 1 and 4")
+	}
+	group, workerContext := errgroup.WithContext(ctx)
+	for index := 0; index < workers; index++ {
+		group.Go(func() error { return service.RunLoop(workerContext, interval) })
+	}
+	return group.Wait()
 }
 
 // waitForProcessingTick 在可取消定时器上等待，避免 Worker 停止时遗留睡眠协程。

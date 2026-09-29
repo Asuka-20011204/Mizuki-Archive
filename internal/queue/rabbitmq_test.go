@@ -90,6 +90,75 @@ func TestRabbitMQPublishConsume(t *testing.T) {
 	}
 }
 
+// TestRabbitMQBoundedConsumers 验证两个任务可并行运行，第三条须等待 ACK 腾出投递窗口。
+func TestRabbitMQBoundedConsumers(t *testing.T) {
+	url := os.Getenv("MIZUKI_TEST_RABBITMQ_URL")
+	if url == "" {
+		t.Skip("仅在设置隔离 RabbitMQ 地址时运行")
+	}
+	name := "mizuki.test.pool." + time.Now().UTC().Format("150405.000000000")
+	broker, err := NewRabbitMQ(url, name, name+".jobs", name+".dead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = broker.publisher.QueueDelete(name+".jobs", false, false, false)
+		_, _ = broker.publisher.QueueDelete(name+".dead", false, false, false)
+		_ = broker.publisher.ExchangeDelete(name, false, false)
+		_ = broker.Close()
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	entered := make(chan string, 3)
+	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	finished := make(chan error, 1)
+	go func() {
+		finished <- broker.ConsumeJobs(ctx, func(ctx context.Context, jobID string) (bool, error) {
+			entered <- jobID
+			select {
+			case <-release:
+				return true, nil
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
+		}, 2)
+	}()
+	for _, id := range []string{strings.Repeat("a", 32), strings.Repeat("b", 32), strings.Repeat("c", 32)} {
+		if err := broker.PublishJob(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index := 0; index < 2; index++ {
+		select {
+		case <-entered:
+		case <-ctx.Done():
+			t.Fatal("Worker 池未并行消费")
+		}
+	}
+	select {
+	case <-entered:
+		t.Fatal("尚未 ACK 就投递了超出 prefetch 的任务")
+	case <-time.After(80 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("ACK 后第三条任务未送达")
+	}
+	cancel()
+	if err := <-finished; !errors.Is(err, context.Canceled) {
+		t.Fatalf("停止消费者失败: %v", err)
+	}
+}
+
 // TestRabbitMQDeadLetter 使用真实 Broker 验证有限重试后消息进入隔离队列，而不是无限重发。
 func TestRabbitMQDeadLetter(t *testing.T) {
 	url := os.Getenv("MIZUKI_TEST_RABBITMQ_URL")

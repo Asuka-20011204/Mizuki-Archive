@@ -272,6 +272,7 @@
 .preview-section { margin-bottom: 22px; }
 .preview-frame { display: block; width: 100%; max-height: 310px; margin: 0 0 20px; border: 1px solid var(--line); border-radius: 12px; background: #f5f9fa; object-fit: contain; }
 .preview-frame img { display: block; width: 100%; height: 100%; max-height: 308px; object-fit: contain; }
+.pdf-preview { height: 520px; max-height: none; background: #eef3f4; }
 .preview-frame.text-preview { height: 220px; padding: 16px; overflow: auto; background: #fff; }
 .preview-frame.text-preview pre { margin: 0; color: var(--ink); font: 0.84rem/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .preview-placeholder { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.6; }

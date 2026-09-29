@@ -58,7 +58,7 @@
 
 ## V1 状态与验证
 
-V1 的个人资料管理闭环已经落地：单管理员登录/退出、私有资料上传、名称编辑、手动标签与标签筛选、收藏、关键词/类型筛选、分页、详情、安全预览、下载和删除。允许 PDF、PNG/JPEG/WebP、Markdown 和 TXT，单文件上限 50 MiB；PDF 暂不在线预览，Markdown/TXT 预览限制为 1 MiB 并以安全文本方式返回。删除先软删除数据库记录并解除标签，再清理原件；原件清理失败时资料保持隐藏，后续由孤儿文件巡检处理。
+V1 的个人资料管理闭环已经落地：单管理员登录/退出、私有资料上传、名称编辑、手动标签与标签筛选、收藏、关键词/类型筛选、分页、详情、安全预览、下载和删除。允许 PDF、PNG/JPEG/WebP、Markdown 和 TXT，单文件上限 50 MiB；PDF 登录后以内联方式预览，Markdown/TXT 预览限制为 1 MiB 并以安全文本方式返回。删除先软删除数据库记录并解除标签，再清理原件；原件清理失败时资料保持隐藏，后续由孤儿文件巡检处理。
 
 - `go test ./...`、`go vet ./...`、`gofmt -l .`：通过；隔离 MySQL 8.4 测试库已验证 4 个迁移、重复迁移、收藏、标签替换/筛选、名称更新、软删除和列表隐藏。
 - `cd web; npm run build`：通过，包含 `vue-tsc --noEmit` 和 Vite 生产构建。
@@ -78,4 +78,4 @@ V2 已完成处理闭环：在 PDF、TXT 或 Markdown 详情页手动创建 `ext
 go run ./cmd/worker
 ```
 
-API 和 Worker 必须使用同一份 `.env`、MySQL 和 `APP_DATA_DIR`。使用 V3 RabbitMQ 模式时，还需在 `.env` 设置独立消息队列凭据，并运行 `docker compose --profile v3 up -d rabbitmq`；V4 Redis 同理需配置密码与 URL，运行 `docker compose --profile v4 up -d redis`。缺少密码时可选容器拒绝启动。完整说明见 [本地启动](docs/local-development.md) 与 [阶段记录](docs/changes/2026-09-29-v3-v4-queue-cache.md)。OCR、自动处理与多人协作尚未实现。
+API 和 Worker 必须使用同一份 `.env`、MySQL 和 `APP_DATA_DIR`。使用 V3 RabbitMQ 模式时，还需在 `.env` 设置独立消息队列凭据，并运行 `docker compose --profile v3 up -d rabbitmq`；V4 Redis 同理需配置密码与 URL，运行 `docker compose --profile v4 up -d redis`。V5 增加有界 Worker Pool 与全局待处理任务上限，满额返回 429；配置和边界见 [本地启动](docs/local-development.md)，验证见 [V5 记录](docs/changes/2026-09-29-v5-concurrency.md)。缺少密码时可选容器拒绝启动。OCR、自动处理与多人协作尚未实现。

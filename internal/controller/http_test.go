@@ -498,3 +498,23 @@ func TestResourceNamePreviewAndDelete(t *testing.T) {
 		t.Fatalf("deleted resource returned %d", missing.Code)
 	}
 }
+
+// TestPDFPreviewServesInline 验证登录用户可以以内联方式读取 PDF，供浏览器原生查看器渲染。
+func TestPDFPreviewServesInline(t *testing.T) {
+	server, store, dataDir := testServer(t)
+	id := strings.Repeat("d", 32)
+	store.resources[id] = model.Resource{ID: id, Name: "document.pdf", OriginalName: "document.pdf", Kind: "pdf", MIME: "application/pdf", StorageKey: id, SHA256: strings.Repeat("1", 64)}
+	path := filepath.Join(dataDir, id)
+	content := []byte("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cookie := login(t, server)
+	request := httptest.NewRequest(http.MethodGet, "/api/resources/"+id+"/preview", nil)
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/pdf" || !strings.Contains(response.Header().Get("Content-Disposition"), "inline") || !bytes.Equal(response.Body.Bytes(), content) {
+		t.Fatalf("PDF preview returned %d, type=%q disposition=%q body=%q", response.Code, response.Header().Get("Content-Type"), response.Header().Get("Content-Disposition"), response.Body.Bytes())
+	}
+}

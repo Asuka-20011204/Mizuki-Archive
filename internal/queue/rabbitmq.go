@@ -12,6 +12,7 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -37,6 +38,7 @@ type RabbitMQ struct {
 	consumer   *amqp.Channel
 	returned   <-chan amqp.Return
 	publishMu  sync.Mutex
+	consumerMu sync.Mutex
 	exchange   string
 	queue      string
 	deadQueue  string
@@ -145,95 +147,121 @@ func (broker *RabbitMQ) publish(ctx context.Context, routingKey, jobID string, r
 	return nil
 }
 
-// ConsumeJobs 消费持久消息；业务成功后 ACK，临时错误有限重发，超过次数进入隔离队列。
+// ConsumeJobs 启动固定数量的消费者；QoS 限制未确认消息，业务完成后才 ACK。
 func (broker *RabbitMQ) ConsumeJobs(ctx context.Context, handler Handler, prefetch int) error {
 	if prefetch <= 0 {
 		prefetch = 1
 	}
+	if prefetch > 4 {
+		prefetch = 4
+	}
 	if err := broker.consumer.Qos(prefetch, 0, false); err != nil {
 		return fmt.Errorf("set RabbitMQ prefetch: %w", err)
 	}
-	deliveries, err := broker.consumer.ConsumeWithContext(ctx, broker.queue, "", false, false, false, false, nil)
+	group, workerContext := errgroup.WithContext(ctx)
+	deliveries, err := broker.consumer.ConsumeWithContext(workerContext, broker.queue, "", false, false, false, false, nil)
 	if err != nil {
 		return fmt.Errorf("consume RabbitMQ jobs: %w", err)
 	}
-	for delivery := range deliveries {
-		message, err := decodeJobMessage(delivery.Body)
-		if err != nil {
-			if err := delivery.Nack(false, false); err != nil {
-				return fmt.Errorf("dead-letter invalid processing message: %w", err)
-			}
-			continue
-		}
-		retryCount, valid := headerInt(delivery.Headers, "x-broker-retry")
-		if !valid {
-			if err := delivery.Nack(false, false); err != nil {
-				return fmt.Errorf("dead-letter invalid processing retry: %w", err)
-			}
-			continue
-		}
-		finished, err := handler(ctx, message.JobID)
-		if err != nil {
-			if retryCount < maxBrokerRetry {
+	for index := 0; index < prefetch; index++ {
+		group.Go(func() error {
+			for {
 				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(time.Duration(1<<retryCount) * time.Second):
-				}
-				if publishErr := broker.publish(ctx, broker.queue, message.JobID, retryCount+1); publishErr == nil {
-					if err := delivery.Ack(false); err != nil {
-						return fmt.Errorf("ack republished processing message: %w", err)
+				case <-workerContext.Done():
+					return workerContext.Err()
+				case delivery, open := <-deliveries:
+					if !open {
+						if workerContext.Err() != nil {
+							return workerContext.Err()
+						}
+						return errors.New("RabbitMQ consumer channel closed")
 					}
-					continue
+					if err := broker.consumeDelivery(workerContext, handler, delivery); err != nil {
+						return err
+					}
 				}
-				// 无法确认重发时不能死信原消息，Broker 恢复后应重新投递。
-				return errors.New("cannot confirm processing message retry")
 			}
-			if err := delivery.Nack(false, false); err != nil {
-				return fmt.Errorf("dead-letter failed processing message: %w", err)
-			}
-			continue
+		})
+	}
+	return group.Wait()
+}
+
+// consumeDelivery 隔离一条投递的校验、有限重试与确认逻辑；失败时不误 ACK 原消息。
+func (broker *RabbitMQ) consumeDelivery(ctx context.Context, handler Handler, delivery amqp.Delivery) error {
+	message, err := decodeJobMessage(delivery.Body)
+	if err != nil {
+		if err := broker.finishDelivery(delivery, false, false); err != nil {
+			return fmt.Errorf("dead-letter invalid processing message: %w", err)
 		}
-		if !finished {
+		return nil
+	}
+	retryCount, valid := headerInt(delivery.Headers, "x-broker-retry")
+	if !valid {
+		if err := broker.finishDelivery(delivery, false, false); err != nil {
+			return fmt.Errorf("dead-letter invalid processing retry: %w", err)
+		}
+		return nil
+	}
+	finished, err := handler(ctx, message.JobID)
+	if err != nil {
+		if retryCount < maxBrokerRetry {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(5 * time.Second):
+			case <-time.After(time.Duration(1<<retryCount) * time.Second):
 			}
-			if err := delivery.Nack(false, true); err != nil {
-				return fmt.Errorf("requeue busy processing message: %w", err)
+			if publishErr := broker.publish(ctx, broker.queue, message.JobID, retryCount+1); publishErr == nil {
+				if err := broker.finishDelivery(delivery, true, false); err != nil {
+					return fmt.Errorf("ack republished processing message: %w", err)
+				}
+				return nil
 			}
-			continue
+			// 无法确认重发时不能死信原消息，Broker 恢复后应重新投递。
+			return errors.New("cannot confirm processing message retry")
 		}
-		if err := delivery.Ack(false); err != nil {
-			return fmt.Errorf("ack RabbitMQ processing message: %w", err)
+		if err := broker.finishDelivery(delivery, false, false); err != nil {
+			return fmt.Errorf("dead-letter failed processing message: %w", err)
 		}
+		return nil
 	}
-	if err := ctx.Err(); err != nil {
-		return err
+	if !finished {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+		if err := broker.finishDelivery(delivery, false, true); err != nil {
+			return fmt.Errorf("requeue busy processing message: %w", err)
+		}
+		return nil
 	}
-	return errors.New("RabbitMQ consumer channel closed")
+	if err := broker.finishDelivery(delivery, true, false); err != nil {
+		return fmt.Errorf("ack RabbitMQ processing message: %w", err)
+	}
+	return nil
 }
 
-// Close 按发布、消费、连接顺序关闭资源，避免后台协程继续使用已释放通道。
+// finishDelivery 串行化共享消费通道的 ACK/NACK，避免并发 Worker 交错提交确认帧。
+func (broker *RabbitMQ) finishDelivery(delivery amqp.Delivery, acknowledge, requeue bool) error {
+	broker.consumerMu.Lock()
+	defer broker.consumerMu.Unlock()
+	if acknowledge {
+		return delivery.Ack(false)
+	}
+	return delivery.Nack(false, requeue)
+}
+
 // PublisherClosed 标记发布通道失效；消费通道仍存活时也必须重建整条 Broker 连接。
 func (broker *RabbitMQ) PublisherClosed() bool {
 	return broker.publisher.IsClosed() || broker.connection.IsClosed()
 }
 
-// Close 按发布、消费、连接顺序关闭资源，避免后台协程继续使用已释放通道。
+// Close 限时关闭整条连接，避免取消消费的内部协程与通道关闭同时等待响应；未确认消息由 Broker 重排。
 func (broker *RabbitMQ) Close() error {
-	var first error
-	if err := broker.consumer.Close(); err != nil && !errors.Is(err, amqp.ErrClosed) {
-		first = err
+	if err := broker.connection.CloseDeadline(time.Now().Add(3 * time.Second)); err != nil && !errors.Is(err, amqp.ErrClosed) {
+		return err
 	}
-	if err := broker.publisher.Close(); err != nil && first == nil && !errors.Is(err, amqp.ErrClosed) {
-		first = err
-	}
-	if err := broker.connection.Close(); err != nil && first == nil && !errors.Is(err, amqp.ErrClosed) {
-		first = err
-	}
-	return first
+	return nil
 }
 
 // decodeJobMessage 严格校验版本和任务 ID，拒绝未知字段与携带正文的消息。

@@ -13,6 +13,7 @@ var ErrNotFound = errors.New("resource not found")
 var ErrNoPendingJob = errors.New("no pending processing job")
 var ErrJobLeaseLost = errors.New("processing job lease lost")
 var ErrProcessingJobExists = errors.New("processing job already exists")
+var ErrProcessingQueueFull = errors.New("processing queue is full")
 
 // Store 包含首期资料和会话的持久化操作，测试可用内存实现替换 MySQL。
 type Store interface {
@@ -53,4 +54,9 @@ type ProcessingOutboxStore interface {
 // ProcessingClaimStore 支持 RabbitMQ 按消息中的任务 ID 幂等领取任务。
 type ProcessingClaimStore interface {
 	ClaimProcessingJob(context.Context, string, time.Time) (model.ProcessingJob, error)
+}
+
+// ProcessingCapacityStore 原子限制待处理和执行中任务总数，适用于多个 API 进程并发提交。
+type ProcessingCapacityStore interface {
+	CreateProcessingJobWithinLimit(context.Context, model.ProcessingJob, int, bool) error
 }

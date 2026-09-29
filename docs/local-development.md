@@ -71,6 +71,8 @@ V2 任务不会由 API 进程偷偷执行，必须单独启动 Worker 终端：
 
 如果不启动 Worker，任务会稳定保留为“等待处理”，这不是前端卡死；如果任务失败，详情会显示脱敏失败摘要。重复点击同一资料的提取按钮不会重复创建同一来源哈希的未完成或成功任务。
 
+V5 可在 `.env` 设置 `PROCESSING_WORKERS=2`（每个 Worker 进程 1–4 个槽位）、`PROCESSING_MAX_OUTSTANDING=100`（全局未完成任务上限 1–1000）。RabbitMQ 模式下 `RABBITMQ_PREFETCH` 须在 1 和 `PROCESSING_WORKERS` 之间。改动配置后重启对应进程。容量满时手动任务接口返回 `429 queue_full` 和 `Retry-After: 5`；重复任务仍返回已存在的任务。不要同时运行数据库与 RabbitMQ 模式的 Worker 来绕开限制。部署多台 Worker 时各进程槽位会相加，须控制总并发。
+
 ## 5. V2 手工验收清单
 
 - 使用 PDF、TXT、Markdown 各验证一次手动任务；确认原文件下载仍正常。

@@ -46,7 +46,8 @@ Mizuki Archive/
 │           ├── 002_manual_tags.sql    # 标签与资料关联
 │           ├── 003_soft_delete.sql    # 软删除字段与索引
 │           ├── 004_processing_jobs.sql # 持久任务与派生产物
-│           └── 005_processing_outbox.sql # 事件表与旧任务回填
+│           ├── 005_processing_outbox.sql # 事件表与旧任务回填
+│           └── 006_processing_capacity.sql # 全局任务容量锁
 ├── web/                               # Vue 3 + TypeScript View
 ├── docs/                              # 产品、架构、安全、设计和变更记录
 ├── compose.yaml                       # MySQL 与可选 RabbitMQ/Redis 容器

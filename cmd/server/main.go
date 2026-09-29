@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -120,6 +121,12 @@ func main() {
 
 		log.Fatal("cannot prepare processing service")
 
+	}
+	if value := os.Getenv("PROCESSING_MAX_OUTSTANDING"); value != "" {
+		limit, parseErr := strconv.Atoi(value)
+		if parseErr != nil || processingService.SetMaxOutstanding(limit) != nil {
+			log.Fatal("PROCESSING_MAX_OUTSTANDING must be between 1 and 1000")
+		}
 	}
 	if os.Getenv("PROCESSING_DELIVERY_MODE") == "rabbit" {
 		if err := processingService.EnableOutbox(); err != nil {

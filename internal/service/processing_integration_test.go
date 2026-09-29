@@ -207,3 +207,92 @@ func TestProcessingQueueEndToEnd(t *testing.T) {
 		t.Fatalf("Redis 故障后资料列表不可用: %v", err)
 	}
 }
+
+// TestProcessingPoolRecoversExpiredLease 模拟旧进程领取后崩溃，验证并发 Worker 重启后恢复任务且只产出一份文件。
+func TestProcessingPoolRecoversExpiredLease(t *testing.T) {
+	dsn := os.Getenv("MIZUKI_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("仅在设置隔离 MySQL 地址时运行")
+	}
+	config, err := driver.ParseDSN(dsn)
+	if err != nil || !strings.HasPrefix(config.DBName, "mizuki_test_") {
+		t.Fatal("测试 DSN 必须指向 mizuki_test_ 前缀的独立数据库")
+	}
+	config.ParseTime = true
+	config.Loc = time.UTC
+	database, err := gorm.Open(mysql.Open(config.FormatDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := database.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	store := repository.NewMySQL(database)
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := t.TempDir()
+	idBytes := make([]byte, 16)
+	if _, err := rand.Read(idBytes); err != nil {
+		t.Fatal(err)
+	}
+	resourceID := hex.EncodeToString(idBytes)
+	content := []byte("Mizuki Worker Pool 恢复测试")
+	if err := os.WriteFile(filepath.Join(dataDir, resourceID), content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(content)
+	resource := model.Resource{ID: resourceID, Name: "recovery.txt", OriginalName: "recovery.txt", Kind: "text", MIME: "text/plain", Size: int64(len(content)), StorageKey: resourceID, SHA256: hex.EncodeToString(digest[:]), CreatedAt: time.Now().UTC()}
+	if err := store.SaveResource(ctx, resource); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = database.WithContext(context.Background()).Exec("DELETE FROM resources WHERE id = ?", resourceID).Error
+	})
+	processor, err := NewProcessing(store, store, dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := processor.CreateTextJob(ctx, resourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ClaimProcessingJob(ctx, job.ID, time.Now().UTC().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	// 旧进程已消失，只留下过期租约；下一进程必须凭新令牌领取并完成。
+	if err := database.Table("processing_jobs").Where("id = ?", job.ID).Update("lease_until", time.Now().UTC().Add(-time.Second)).Error; err != nil {
+		t.Fatal(err)
+	}
+	poolCtx, stop := context.WithCancel(ctx)
+	finished := make(chan error, 1)
+	go func() { finished <- processor.RunPool(poolCtx, 2, 20*time.Millisecond) }()
+	defer func() { stop(); <-finished }()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatal("重启后的任务未在期限内完成")
+		case <-ticker.C:
+			completed, readErr := processor.GetJob(ctx, job.ID)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if completed.Status == model.ProcessingStatusSucceeded {
+				if completed.Attempts != 2 || completed.Asset == nil {
+					t.Fatalf("重启恢复状态不正确: %#v", completed)
+				}
+				var count int64
+				if err := database.Table("derived_assets").Where("job_id = ?", job.ID).Count(&count).Error; err != nil || count != 1 {
+					t.Fatalf("并发恢复生成了重复产物: %d, %v", count, err)
+				}
+				return
+			}
+		}
+	}
+}

@@ -56,6 +56,9 @@ func (handler *Controller) createProcessingJob(ctx *gin.Context) {
 		} else {
 			failure(ctx, http.StatusUnprocessableEntity, "unsupported_resource", "当前资料格式不能执行文本提取")
 		}
+	case errors.Is(err, repository.ErrProcessingQueueFull):
+		ctx.Header("Retry-After", "5")
+		failure(ctx, http.StatusTooManyRequests, "queue_full", "当前处理任务较多，请稍后重试")
 	case err != nil:
 		failure(ctx, http.StatusInternalServerError, "internal", "无法创建处理任务")
 	default:

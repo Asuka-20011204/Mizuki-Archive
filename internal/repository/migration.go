@@ -18,3 +18,6 @@ var processingJobsMigration string
 
 //go:embed migrations/005_processing_outbox.sql
 var processingOutboxMigration string
+
+//go:embed migrations/006_processing_capacity.sql
+var processingCapacityMigration string

@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS processing_capacity (
+  id TINYINT UNSIGNED PRIMARY KEY
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT IGNORE INTO processing_capacity (id) VALUES (1);

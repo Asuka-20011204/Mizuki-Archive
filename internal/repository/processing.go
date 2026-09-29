@@ -125,6 +125,68 @@ func (store *MySQL) CreateProcessingJobWithOutbox(ctx context.Context, job model
 	})
 }
 
+// CreateProcessingJobWithinLimit 锁定容量行后检查幂等和全局未完成数，再同事务写任务与可选事件。
+func (store *MySQL) CreateProcessingJobWithinLimit(ctx context.Context, job model.ProcessingJob, limit int, withOutbox bool) error {
+	if limit < 1 {
+		return errors.New("processing capacity limit must be positive")
+	}
+	return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := checkProcessingCapacity(tx, job, limit); err != nil {
+			return err
+		}
+		row := processingJobRow{ID: job.ID, ResourceID: job.ResourceID, Type: job.Type, SourceSHA256: job.SourceSHA256, Status: job.Status, Attempts: job.Attempts, MaxAttempts: job.MaxAttempts, AvailableAt: job.AvailableAt, CreatedAt: job.CreatedAt}
+		if err := tx.Table("processing_jobs").Create(&row).Error; err != nil {
+			return fmt.Errorf("create processing job within capacity: %w", err)
+		}
+		if !withOutbox {
+			return nil
+		}
+		eventID, err := newProcessingID()
+		if err != nil {
+			return err
+		}
+		event := processingOutboxRow{ID: eventID, JobID: job.ID, Status: model.OutboxStatusPending, AvailableAt: job.AvailableAt, CreatedAt: job.CreatedAt}
+		if err := tx.Table("processing_outbox").Create(&event).Error; err != nil {
+			return fmt.Errorf("create processing outbox within capacity: %w", err)
+		}
+		return nil
+	})
+}
+
+// checkProcessingCapacity 在锁住全局容量行和来源资料后先识别重复请求，再统计未完成任务。
+func checkProcessingCapacity(tx *gorm.DB, job model.ProcessingJob, limit int) error {
+	var capacity struct{ ID int }
+	result := tx.Table("processing_capacity").Where("id = ?", 1).Clauses(clause.Locking{Strength: "UPDATE"}).Take(&capacity)
+	if result.Error != nil {
+		return fmt.Errorf("lock processing capacity: %w", result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return errors.New("processing capacity guard missing")
+	}
+	var resource struct{ ID string }
+	if err := tx.Table("resources").Where("id = ? AND deleted_at IS NULL", job.ResourceID).Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").Take(&resource).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("lock processing resource: %w", err)
+	}
+	var duplicates int64
+	if err := tx.Table("processing_jobs").Where("resource_id = ? AND type = ? AND source_sha256 = ? AND status IN ?", job.ResourceID, job.Type, job.SourceSHA256, []string{model.ProcessingStatusPending, model.ProcessingStatusProcessing, model.ProcessingStatusSucceeded}).Count(&duplicates).Error; err != nil {
+		return fmt.Errorf("check duplicate processing job: %w", err)
+	}
+	if duplicates != 0 {
+		return ErrProcessingJobExists
+	}
+	var outstanding int64
+	if err := tx.Table("processing_jobs").Where("status IN ?", []string{model.ProcessingStatusPending, model.ProcessingStatusProcessing}).Count(&outstanding).Error; err != nil {
+		return fmt.Errorf("count outstanding processing jobs: %w", err)
+	}
+	if outstanding >= int64(limit) {
+		return ErrProcessingQueueFull
+	}
+	return nil
+}
+
 // GetProcessingJob 获取单个任务并在成功时附带派生产物元数据。
 func (store *MySQL) GetProcessingJob(ctx context.Context, id string) (model.ProcessingJob, error) {
 	var row processingJobRow

@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -244,5 +245,53 @@ func TestRunOnceMarksUnsupportedResourceFailed(t *testing.T) {
 	}
 	if jobs.jobs[job.ID].Status != model.ProcessingStatusFailed || jobs.jobs[job.ID].LastError == "" {
 		t.Fatalf("failed job=%#v", jobs.jobs[job.ID])
+	}
+}
+
+// blockingClaimStore 用可取消的领取阻塞点观测同时工作的数据库 Worker 数量。
+type blockingClaimStore struct {
+	repository.ProcessingStore
+	entered chan struct{}
+}
+
+// ClaimNextProcessingJob 只报告领取尝试，不修改共享测试数据。
+func (store *blockingClaimStore) ClaimNextProcessingJob(ctx context.Context, _ time.Time) (model.ProcessingJob, error) {
+	select {
+	case store.entered <- struct{}{}:
+	case <-ctx.Done():
+		return model.ProcessingJob{}, ctx.Err()
+	}
+	<-ctx.Done()
+	return model.ProcessingJob{}, ctx.Err()
+}
+
+// TestRunPoolBoundedAndCancelable 验证池大小限制同时领取数且取消后所有 Worker 退出。
+func TestRunPoolBoundedAndCancelable(t *testing.T) {
+	store := &blockingClaimStore{entered: make(chan struct{}, 4)}
+	processor := &Processing{jobs: store}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	finished := make(chan error, 1)
+	go func() { finished <- processor.RunPool(ctx, 2, time.Millisecond) }()
+	for count := 0; count < 2; count++ {
+		select {
+		case <-store.entered:
+		case <-ctx.Done():
+			t.Fatal("两个 Worker 未同时领取")
+		}
+	}
+	select {
+	case <-store.entered:
+		t.Fatal("Worker 数量超出配置上限")
+	case <-time.After(30 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case err := <-finished:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("退出错误 = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("取消后 Worker 未退出")
 	}
 }

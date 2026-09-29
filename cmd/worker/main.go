@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -47,6 +48,10 @@ func required(name string) string {
 func main() {
 	if err := loadEnvironment(); err != nil {
 		log.Fatalf("cannot load environment file: %v", err)
+	}
+	workers, err := processingWorkerCount(os.Getenv("PROCESSING_WORKERS"))
+	if err != nil {
+		log.Fatal(err)
 	}
 	dsn, err := mysql.ParseDSN(required("MYSQL_DSN"))
 	if err != nil {
@@ -94,23 +99,37 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if os.Getenv("PROCESSING_DELIVERY_MODE") == "rabbit" {
-		if err := runRabbitWorker(ctx, processor); err != nil && !errors.Is(err, context.Canceled) {
+		if err := runRabbitWorker(ctx, processor, workers); err != nil && !errors.Is(err, context.Canceled) {
 			log.Fatalf("RabbitMQ processing worker stopped: %v", err)
 		}
 		return
 	}
-	log.Println("archive processing worker started in database mode")
-	if err := processor.RunLoop(ctx, time.Second); err != nil && !errors.Is(err, context.Canceled) {
+	log.Printf("archive processing worker started in database mode with %d slots", workers)
+	if err := processor.RunPool(ctx, workers, time.Second); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("processing worker stopped: %v", err)
 	}
 }
 
+// processingWorkerCount 限制每个进程的并发处理数，避免大文件处理耗尽内存。
+func processingWorkerCount(value string) (int, error) {
+	if value == "" {
+		return 2, nil
+	}
+	count, err := strconv.Atoi(value)
+	if err != nil || count < 1 || count > 4 {
+		return 0, fmt.Errorf("PROCESSING_WORKERS must be between 1 and 4")
+	}
+	return count, nil
+}
+
 // runRabbitWorker 在连接中断后重新建立发布与消费通道；数据库模式仍可作为明确的回滚开关。
-func runRabbitWorker(ctx context.Context, processor *service.Processing) error {
-	prefetch := 1
+func runRabbitWorker(ctx context.Context, processor *service.Processing, workers int) error {
+	prefetch := workers
 	if value := os.Getenv("RABBITMQ_PREFETCH"); value != "" {
-		if parsed, parseErr := strconv.Atoi(value); parseErr == nil && parsed > 0 && parsed <= 32 {
+		if parsed, parseErr := strconv.Atoi(value); parseErr == nil && parsed > 0 && parsed <= workers {
 			prefetch = parsed
+		} else {
+			return errors.New("RABBITMQ_PREFETCH must be between 1 and PROCESSING_WORKERS")
 		}
 	}
 	if os.Getenv("RABBITMQ_URL") == "" {

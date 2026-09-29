@@ -256,7 +256,7 @@ func (handler *Controller) delete(ctx *gin.Context) {
 	}
 }
 
-// preview 只内联渲染 PNG/JPEG/WebP 与纯文本内容；Markdown 按纯文本返回，避免用户内容变成本站 HTML。
+// preview 以内联方式渲染 PDF、PNG/JPEG/WebP 与纯文本内容；Markdown 按纯文本返回，避免用户内容变成本站 HTML。
 func (handler *Controller) preview(ctx *gin.Context) {
 	resource, ok := handler.resource(ctx)
 	if !ok {
@@ -270,6 +270,9 @@ func (handler *Controller) preview(ctx *gin.Context) {
 	defer file.Close()
 	ctx.Header("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": resource.Name}))
 	switch resource.Kind {
+	case "pdf":
+		ctx.Header("Content-Type", resource.MIME)
+		http.ServeContent(ctx.Writer, ctx.Request, resource.Name, resource.CreatedAt, file)
 	case "image":
 		ctx.Header("Content-Type", resource.MIME)
 		http.ServeContent(ctx.Writer, ctx.Request, resource.Name, resource.CreatedAt, file)

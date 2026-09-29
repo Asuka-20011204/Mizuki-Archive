@@ -16,8 +16,9 @@ import (
 
 // httpJobStore 为 HTTP 测试提供最小任务仓储，重点验证请求校验和状态返回而非 SQL。
 type httpJobStore struct {
-	jobs   map[string]model.ProcessingJob
-	assets map[string]model.DerivedAsset
+	jobs      map[string]model.ProcessingJob
+	assets    map[string]model.DerivedAsset
+	queueFull bool
 }
 
 // FindReusableProcessingJob 返回当前资料已有的未失败任务。
@@ -34,6 +35,14 @@ func (store *httpJobStore) FindReusableProcessingJob(_ context.Context, resource
 func (store *httpJobStore) CreateProcessingJob(_ context.Context, job model.ProcessingJob) error {
 	store.jobs[job.ID] = job
 	return nil
+}
+
+// CreateProcessingJobWithinLimit 让 HTTP 用例能模拟数据库的容量拒绝与正常提交。
+func (store *httpJobStore) CreateProcessingJobWithinLimit(ctx context.Context, job model.ProcessingJob, _ int, _ bool) error {
+	if store.queueFull {
+		return repository.ErrProcessingQueueFull
+	}
+	return store.CreateProcessingJob(ctx, job)
 }
 
 // GetProcessingJob 返回 HTTP 测试任务详情。
@@ -176,5 +185,23 @@ func TestProcessingJobRoutes(t *testing.T) {
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("unsupported type returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
+// TestProcessingCapacityReturns429 验证积压过多时返回可重试错误，不把数据库细节暴露给浏览器。
+func TestProcessingCapacityReturns429(t *testing.T) {
+	server, store, jobs := processingTestServer(t)
+	resourceID := strings.Repeat("f", 32)
+	store.resources[resourceID] = model.Resource{ID: resourceID, Name: "memo.txt", Kind: "text", SHA256: "source"}
+	jobs.queueFull = true
+	cookie := login(t, server)
+	request := httptest.NewRequest(http.MethodPost, "/api/resources/"+resourceID+"/jobs", strings.NewReader(`{"type":"extract_text"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "http://localhost:5173")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") == "" || !strings.Contains(response.Body.String(), "queue_full") || len(jobs.jobs) != 0 {
+		t.Fatalf("积压时响应无效: status=%d retry=%q body=%q", response.Code, response.Header().Get("Retry-After"), response.Body.String())
 	}
 }
