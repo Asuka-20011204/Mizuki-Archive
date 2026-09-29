@@ -103,7 +103,13 @@ func TestMySQLSetFavorite(t *testing.T) {
 	if _, err := store.GetResource(ctx, id); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("软删除后仍可读取: %v", err)
 	}
-	if resources, err := store.ListResources(ctx, model.ListQuery{Limit: 10}); err != nil || len(resources) != 0 {
-		t.Fatalf("软删除资料仍在列表: %#v, %v", resources, err)
+	resources, err := store.ListResources(ctx, model.ListQuery{Limit: 30})
+	if err != nil {
+		t.Fatalf("软删除后读取列表失败: %v", err)
+	}
+	for _, listed := range resources {
+		if listed.ID == id {
+			t.Fatalf("软删除资料仍在列表: %#v", listed)
+		}
 	}
 }

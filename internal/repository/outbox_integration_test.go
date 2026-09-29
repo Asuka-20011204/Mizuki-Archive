@@ -89,4 +89,33 @@ func TestMySQLProcessingOutbox(t *testing.T) {
 	if err := transaction.Table("processing_jobs").Where("id = ?", jobID).Pluck("status", &status).Error; err != nil || status != model.ProcessingStatusFailed {
 		t.Fatalf("任务未终止: %s, %v", status, err)
 	}
+	// 数据库回滚模式不生成待发布事件；切换到 Rabbit 模式后失败重试与事件同事务写入。
+	databaseJobID, _ := newProcessingID()
+	databaseJob := job
+	databaseJob.ID = databaseJobID
+	if err := store.CreateProcessingJob(ctx, databaseJob); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimProcessingJob(ctx, databaseJobID, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FailProcessingJob(ctx, databaseJobID, claimed.LeaseToken, "暂时失败", &now); err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	if err := transaction.Table("processing_outbox").Where("job_id = ?", databaseJobID).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("数据库模式意外写入事件: %d, %v", count, err)
+	}
+	claimed, err = store.ClaimProcessingJob(ctx, databaseJobID, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.EnableOutbox()
+	if err := store.FailProcessingJob(ctx, databaseJobID, claimed.LeaseToken, "暂时失败", &now); err != nil {
+		t.Fatal(err)
+	}
+	if err := transaction.Table("processing_outbox").Where("job_id = ?", databaseJobID).Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("Rabbit 模式未写入重试事件: %d, %v", count, err)
+	}
 }

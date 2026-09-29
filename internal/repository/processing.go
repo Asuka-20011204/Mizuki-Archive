@@ -313,10 +313,14 @@ func (store *MySQL) FailProcessingJob(ctx context.Context, jobID, leaseToken, me
 		if status == model.ProcessingStatusPending {
 			updates["finished_at"] = nil
 		}
-		if err := tx.Table("processing_jobs").Where("id = ? AND status = ? AND lease_token = ?", jobID, model.ProcessingStatusProcessing, leaseToken).Updates(updates).Error; err != nil {
-			return fmt.Errorf("fail processing job: %w", err)
+		result := tx.Table("processing_jobs").Where("id = ? AND status = ? AND lease_token = ?", jobID, model.ProcessingStatusProcessing, leaseToken).Updates(updates)
+		if result.Error != nil {
+			return fmt.Errorf("fail processing job: %w", result.Error)
 		}
-		if status == model.ProcessingStatusPending {
+		if result.RowsAffected != 1 {
+			return ErrJobLeaseLost
+		}
+		if status == model.ProcessingStatusPending && store.outboxEnabled {
 			eventID, err := newProcessingID()
 			if err != nil {
 				return err

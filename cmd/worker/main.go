@@ -71,6 +71,9 @@ func main() {
 		log.Fatal("database is unavailable")
 	}
 	store := repository.NewMySQL(database)
+	if os.Getenv("PROCESSING_DELIVERY_MODE") == "rabbit" {
+		store.EnableOutbox()
+	}
 	if err := store.Migrate(startup); err != nil {
 		log.Fatal("database schema initialization failed")
 	}

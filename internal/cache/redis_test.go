@@ -3,9 +3,18 @@ package cache
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
+
+// TestNewRedisRejectsInvalidURL 不把无效连接字符串中的凭据内容写入错误文本。
+func TestNewRedisRejectsInvalidURL(t *testing.T) {
+	_, err := NewRedis("not-a-url-secret", "")
+	if err == nil || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("无效 URL 的错误未脱敏: %v", err)
+	}
+}
 
 // TestRedisOperations 在显式隔离命名空间验证 TTL、限流及最近访问删除，不清空共享数据库。
 func TestRedisOperations(t *testing.T) {
@@ -29,6 +38,37 @@ func TestRedisOperations(t *testing.T) {
 	if hit, err := client.Get(ctx, "metadata", &data); err != nil || !hit || data.Name != "资料" {
 		t.Fatalf("缓存读取失败: %t, %v, %#v", hit, err, data)
 	}
+	if err := client.Set(ctx, "invalid", make(chan int), time.Minute); err == nil {
+		t.Fatal("不支持 JSON 的数据不应写入缓存")
+	}
+	if err := client.client.Set(ctx, client.key("malformed"), "not-json", time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Get(ctx, "malformed", &data); err == nil {
+		t.Fatal("非法 JSON 缓存必须返回解码错误")
+	}
+	if err := client.Set(ctx, "group:first", "a", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Set(ctx, "group:second", "b", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.DeleteByPrefix(ctx, "group:"); err != nil {
+		t.Fatal(err)
+	}
+	var removed string
+	if hit, err := client.Get(ctx, "group:first", &removed); err != nil || hit {
+		t.Fatalf("前缀失效后仍有缓存: %t, %v", hit, err)
+	}
+	if err := client.Delete(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Set(ctx, "no-ttl", "ignored", 0); err != nil {
+		t.Fatal(err)
+	}
+	if hit, err := client.Get(ctx, "no-ttl", &removed); err != nil || hit {
+		t.Fatalf("零 TTL 不应保留缓存: %t, %v", hit, err)
+	}
 	if allowed, err := client.Allow(ctx, "login:loopback", 1, time.Minute); err != nil || !allowed {
 		t.Fatalf("首次限流结果错误: %t, %v", allowed, err)
 	}
@@ -37,6 +77,9 @@ func TestRedisOperations(t *testing.T) {
 	}
 	if err := client.RecordRecent(ctx, "resource-id", time.Now(), 20); err != nil {
 		t.Fatal(err)
+	}
+	if ids, err := client.RecentIDs(ctx, 20); err != nil || len(ids) != 1 || ids[0] != "resource-id" {
+		t.Fatalf("最近访问未读取到资料 ID: %v, %v", ids, err)
 	}
 	if err := client.RemoveRecent(ctx, "resource-id"); err != nil {
 		t.Fatal(err)

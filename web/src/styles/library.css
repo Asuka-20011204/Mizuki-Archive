@@ -136,6 +136,15 @@
 .tag-filter-label { color: var(--muted); font-size: 12px; font-weight: 650; }
 .tag-filter-item { border: 1px solid #d6e4e6; border-radius: 50px; background: #fff; color: var(--muted); padding: 7px 11px; font-size: 12px; }
 .tag-filter-item:hover, .tag-filter-item.active { border-color: #9dbcc2; background: #eaf3f4; color: var(--accent-hover); }
+.recent-section { margin-top: 40px; }
+.recent-section h2 { margin: 0 0 14px; color: var(--muted); font-size: 13px; font-weight: 650; letter-spacing: .04em; }
+.recent-items { display: flex; flex-wrap: wrap; gap: 10px; }
+.recent-item { display: inline-flex; max-width: min(100%, 290px); align-items: center; gap: 10px; border: 1px solid #fff; border-radius: 30px; background: #ffffffdf; box-shadow: 0 6px 20px #72899414; padding: 9px 14px; color: var(--text); font-size: 13px; transition: background .25s, transform .25s; }
+.recent-item:hover { background: #eaf3f4; transform: translateY(-2px); }
+.recent-kind { color: var(--accent-hover); font-size: 11px; font-weight: 700; }
+.recent-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-item > :last-child { color: var(--accent-hover); }
+.recent-section + .library-section { padding-top: 32px; }
 .library-section { padding-top: 52px; animation: sakura-rise .65s .17s var(--sakura-ease) both; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .section-heading h2 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -.035em; }
@@ -262,6 +271,7 @@
 .preview-format { max-width: 48%; overflow: hidden; color: var(--subtle); font-family: Consolas, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .preview-section { margin-bottom: 22px; }
 .preview-frame { display: block; width: 100%; max-height: 310px; margin: 0 0 20px; border: 1px solid var(--line); border-radius: 12px; background: #f5f9fa; object-fit: contain; }
+.preview-frame img { display: block; width: 100%; height: 100%; max-height: 308px; object-fit: contain; }
 .preview-frame.text-preview { height: 220px; padding: 16px; overflow: auto; background: #fff; }
 .preview-frame.text-preview pre { margin: 0; color: var(--ink); font: 0.84rem/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .preview-placeholder { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.6; }

@@ -16,11 +16,15 @@ import (
 
 // MySQL 是 GORM 实现；数据库表结构仍由显式 SQL 迁移管理。
 type MySQL struct {
-	db *gorm.DB
+	db            *gorm.DB
+	outboxEnabled bool
 }
 
 // NewMySQL 注入 GORM 连接；建表仍由显式迁移负责，不在构造时自动改表。
 func NewMySQL(db *gorm.DB) *MySQL { return &MySQL{db: db} }
+
+// EnableOutbox 在 Rabbit Worker 启动前启用重试任务的事务事件写入；数据库模式只更新任务表。
+func (store *MySQL) EnableOutbox() { store.outboxEnabled = true }
 
 // resourceRow 只负责 GORM 字段映射，不把数据库标签渗入 model.Resource。
 type resourceRow struct {

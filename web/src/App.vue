@@ -19,6 +19,7 @@ const detailError = ref('')
 const error = ref('')
 const notice = ref('')
 const resources = ref<Resource[]>([])
+const recentResources = ref<Resource[]>([])
 const selected = ref<Resource | null>(null)
 // 搜索条件与页码交给 API 查询，不在浏览器里模拟 MySQL 的筛选和分页。
 const search = ref('')
@@ -44,6 +45,8 @@ const jobError = ref('')
 let previousFocus: HTMLElement | null = null
 // 并发列表请求使用单调序号，防止旧筛选的响应覆盖新筛选。
 let listRequestId = 0
+// 最近访问请求也使用序号，防止退出后较晚返回的私有资料重新出现在页面。
+let recentRequestId = 0
 // 并发详情请求使用单调序号，防止快速切换资料时旧响应覆盖新选择。
 let detailRequestId = 0
 // 并发文本预览请求使用独立序号，关闭详情或切换资料时立即使旧内容失效。
@@ -109,6 +112,18 @@ async function loadResources() {
   }
 }
 
+// loadRecent 读取 Redis 记录的最近查看资料；缓存故障时不影响主列表和登录。
+async function loadRecent() {
+  if (!username.value) return
+  const requestId = ++recentRequestId
+  try {
+    const result = await api.recent()
+    if (requestId === recentRequestId && username.value) recentResources.value = result.data
+  } catch {
+    if (requestId === recentRequestId) recentResources.value = []
+  }
+}
+
 // loadTagSuggestions 读取已有标签建议；失败不阻断资料列表，用户仍可手动输入后保存。
 async function loadTagSuggestions(searchValue = '') {
   try {
@@ -128,7 +143,7 @@ async function checkSession() {
     username.value = ''
   } finally {
     if (username.value) {
-      await Promise.all([loadResources(), loadTagSuggestions()])
+      await Promise.all([loadResources(), loadTagSuggestions(), loadRecent()])
     }
     loadingSession.value = false
   }
@@ -142,7 +157,7 @@ async function login() {
   try {
     username.value = (await api.login(loginName.value, password.value)).username
     password.value = ''
-    await Promise.all([loadResources(), loadTagSuggestions()])
+    await Promise.all([loadResources(), loadTagSuggestions(), loadRecent()])
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '登录失败'
   } finally {
@@ -157,10 +172,12 @@ async function logout() {
     await api.logout()
     // 退出后使所有尚未返回的列表请求失效，避免私有资料重新出现在页面上。
     listRequestId++
+    recentRequestId++
     searching.value = false
     username.value = ''
     closeDetail()
     resources.value = []
+    recentResources.value = []
     tagFilter.value = ''
     draftTags.value = []
     tagSuggestions.value = []
@@ -331,6 +348,7 @@ async function selectResource(resource: Resource): Promise<boolean> {
     const detail = (await api.get(resource.id)).data
     if (requestId !== detailRequestId) return false
     selected.value = detail
+    void loadRecent()
     nameDraft.value = selected.value.name
     draftTags.value = [...(selected.value.tags || [])]
     tagInput.value = ''
@@ -353,6 +371,7 @@ async function saveName() {
     const updated = (await api.setName(resource.id, nameDraft.value)).data
     if (selected.value?.id === updated.id) selected.value = updated
     resources.value = resources.value.map((item) => item.id === updated.id ? updated : item)
+    recentResources.value = recentResources.value.map((item) => item.id === updated.id ? updated : item)
   } catch (reason) {
     detailError.value = reason instanceof Error ? reason.message : '名称保存失败'
   } finally {
@@ -368,7 +387,10 @@ async function deleteResource() {
   detailError.value = ''
   try {
     await api.deleteResource(resource.id)
+    recentRequestId++
     resources.value = resources.value.filter((item) => item.id !== resource.id)
+    recentResources.value = recentResources.value.filter((item) => item.id !== resource.id)
+    void loadRecent()
     closeDetail()
     notice.value = '资料已删除'
   } catch (reason) {
@@ -624,6 +646,23 @@ onUnmounted(() => {
           >#{{ tag }}</button>
         </div>
 
+        <section v-if="recentResources.length" class="recent-section" aria-labelledby="recent-title">
+          <h2 id="recent-title">最近查看</h2>
+          <div class="recent-items">
+            <button
+              v-for="resource in recentResources.slice(0, 5)"
+              :key="resource.id"
+              type="button"
+              class="recent-item"
+              @click="selectResource(resource)"
+            >
+              <span class="recent-kind">{{ kindLabel(resource.kind) }}</span>
+              <span class="recent-name">{{ resource.name }}</span>
+              <span aria-hidden="true">↗</span>
+            </button>
+          </div>
+        </section>
+
         <section class="library-section" aria-labelledby="library-title">
           <div class="section-heading">
             <div>
@@ -734,6 +773,12 @@ onUnmounted(() => {
                 <div v-if="selected.kind === 'image'" class="preview-frame">
                   <img :src="previewURL(selected.id)" :alt="`预览：${selected.name}`" />
                 </div>
+                <iframe
+                  v-else-if="selected.kind === 'pdf'"
+                  class="preview-frame pdf-preview"
+                  :src="previewURL(selected.id)"
+                  :title="`PDF 预览：${selected.name}`"
+                ></iframe>
                 <div
                   v-else-if="selected.kind === 'text' || selected.kind === 'markdown'"
                   class="preview-frame text-preview"

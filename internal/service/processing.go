@@ -46,10 +46,11 @@ type JobPublisher interface {
 
 // Processing 负责创建任务、执行 Worker 单次循环以及管理派生文件，不依赖 Gin。
 type Processing struct {
-	store   repository.Store
-	jobs    repository.ProcessingStore
-	dataDir string
-	cache   cache.Cache
+	store         repository.Store
+	jobs          repository.ProcessingStore
+	dataDir       string
+	cache         cache.Cache
+	outboxEnabled bool
 }
 
 // NewProcessing 校验任务存储和派生目录；目录不可用时拒绝启动处理功能。
@@ -67,6 +68,15 @@ func NewProcessingWithCache(store repository.Store, jobs repository.ProcessingSt
 		return nil, fmt.Errorf("create derived directory: %w", err)
 	}
 	return &Processing{store: store, jobs: jobs, dataDir: dataDir, cache: processingCache}, nil
+}
+
+// EnableOutbox 仅在服务启动装配 Rabbit 模式时调用；业务开始后不再切换投递方式。
+func (service *Processing) EnableOutbox() error {
+	if _, ok := service.jobs.(repository.ProcessingOutboxStore); !ok {
+		return ErrQueueNotConfigured
+	}
+	service.outboxEnabled = true
+	return nil
 }
 
 // CreateTextJob 手动为一份 PDF、TXT 或 Markdown 创建幂等文本提取任务。
@@ -107,7 +117,7 @@ func (service *Processing) createJob(ctx context.Context, resourceID, jobType st
 	}
 	now := time.Now().UTC()
 	job := model.ProcessingJob{ID: id, ResourceID: resource.ID, Type: jobType, SourceSHA256: resource.SHA256, Status: model.ProcessingStatusPending, MaxAttempts: ProcessingMaxAttempts, AvailableAt: now, CreatedAt: now}
-	if outbox, ok := service.jobs.(repository.ProcessingOutboxStore); ok {
+	if outbox, ok := service.jobs.(repository.ProcessingOutboxStore); service.outboxEnabled && ok {
 		if err := outbox.CreateProcessingJobWithOutbox(ctx, job); err != nil {
 			if errors.Is(err, repository.ErrProcessingJobExists) {
 				return service.jobs.FindReusableProcessingJob(ctx, resource.ID, jobType, resource.SHA256)

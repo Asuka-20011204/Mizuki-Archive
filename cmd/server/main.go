@@ -121,6 +121,12 @@ func main() {
 		log.Fatal("cannot prepare processing service")
 
 	}
+	if os.Getenv("PROCESSING_DELIVERY_MODE") == "rabbit" {
+		if err := processingService.EnableOutbox(); err != nil {
+			log.Fatal("cannot enable RabbitMQ processing delivery")
+		}
+		store.EnableOutbox()
+	}
 	auth, err := service.NewAuth(store, required("APP_ADMIN_USERNAME"), []byte(required("APP_ADMIN_PASSWORD_HASH")))
 	if err != nil {
 		log.Fatal("invalid admin password hash")
