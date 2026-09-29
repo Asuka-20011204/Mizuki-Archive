@@ -468,14 +468,22 @@ function clearFilters() {
 
 // trapDetailFocus 处理 Escape 与 Tab 循环，让模态详情不把键盘焦点漏到背景。
 function trapDetailFocus(event: KeyboardEvent) {
+  if (!selected.value) return
   // 详情抽屉作为模态层，键盘焦点不能落到背后的资料列表。
   if (event.key === 'Escape') {
+    event.preventDefault()
     closeDetail()
     return
   }
   if (event.key !== 'Tab') return
   const focusable = detailPanel.value?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled])')
   if (!focusable?.length) return
+  if (!detailPanel.value?.contains(document.activeElement)) {
+    event.preventDefault()
+    const target = event.shiftKey ? focusable[focusable.length - 1] : focusable[0]
+    target?.focus()
+    return
+  }
   if (event.shiftKey && document.activeElement === focusable[0]) {
     event.preventDefault()
     focusable[focusable.length - 1]?.focus()
@@ -517,9 +525,16 @@ watch([search, kind, tagFilter, page], (_current, _previous, onCleanup) => {
   onCleanup(() => window.clearTimeout(timeout))
 })
 
-onMounted(checkSession)
-// onUnmounted 在离开页面时清理任务轮询，避免隐藏页面继续访问 API。
-onUnmounted(stopJobPolling)
+// 模态详情打开期间在文档级处理键盘；即使异步任务使焦点暂时离开抽屉，Escape 和 Tab 仍有效。
+onMounted(() => {
+  document.addEventListener('keydown', trapDetailFocus)
+  void checkSession()
+})
+// 离开页面时同时清理任务轮询与键盘监听，避免组件销毁后继续处理用户输入。
+onUnmounted(() => {
+  stopJobPolling()
+  document.removeEventListener('keydown', trapDetailFocus)
+})
 </script>
 
 <template>
@@ -689,7 +704,6 @@ onUnmounted(stopJobPolling)
           role="dialog"
           aria-modal="true"
           aria-labelledby="detail-title"
-          @keydown="trapDetailFocus"
         >
           <button ref="closeButton" type="button" class="close-button" aria-label="关闭资料详情" @click="closeDetail">×</button>
           <header class="detail-header">
