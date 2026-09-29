@@ -190,7 +190,8 @@ async function upload(event: Event) {
     kind.value = ''
     page.value = 1
     await loadResources()
-    selected.value = result.data
+    // 上传成功后复用详情加载流程，确保文本预览、标签建议和任务记录与服务端最新状态同步。
+    await selectResource(result.data)
     notice.value = '资料已安全存入资料库'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '上传失败'
