@@ -69,10 +69,15 @@ func main() {
 		log.Fatal("migration database is unavailable")
 	}
 	store := repository.NewMySQL(database)
+	adminUsername := required("APP_ADMIN_USERNAME")
+	adminPasswordHash := []byte(required("APP_ADMIN_PASSWORD_HASH"))
+	if err := repository.ValidatePasswordHash(adminPasswordHash); err != nil {
+		log.Fatal("invalid admin password hash")
+	}
 	if err := store.Migrate(startup); err != nil {
 		log.Fatal("database schema migration failed")
 	}
-	admin, err := store.EnsureAdminUser(startup, required("APP_ADMIN_USERNAME"), []byte(required("APP_ADMIN_PASSWORD_HASH")))
+	admin, err := store.EnsureAdminUser(startup, adminUsername, adminPasswordHash)
 	if err != nil {
 		log.Fatal("cannot initialize admin identity")
 	}

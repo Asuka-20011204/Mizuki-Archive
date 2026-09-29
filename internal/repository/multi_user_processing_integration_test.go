@@ -10,6 +10,7 @@ import (
 	"time"
 
 	driver "github.com/go-sql-driver/mysql"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"mizuki-archive/internal/model"
@@ -167,7 +168,11 @@ func TestMySQLFinalizeOwnershipBackfillsLegacyRows(t *testing.T) {
 	if err := database.Exec(`INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, NULL, ?)`, legacyTokenHash, now.Add(time.Hour)).Error; err != nil {
 		t.Fatalf("insert legacy session: %v", err)
 	}
-	admin, err := store.EnsureAdminUser(context.Background(), "legacy-"+legacyResourceID[:8], []byte("test-password-hash"))
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("legacy test password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("generate test password hash: %v", err)
+	}
+	admin, err := store.EnsureAdminUser(context.Background(), "legacy-"+legacyResourceID[:8], passwordHash)
 	if err != nil {
 		t.Fatalf("create migration user: %v", err)
 	}

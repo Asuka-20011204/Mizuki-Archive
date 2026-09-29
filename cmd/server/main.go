@@ -103,10 +103,13 @@ func main() {
 	var adminUserID string
 	if autoMigrateEnabled() {
 		// 本地开发默认允许 API 自动迁移；生产编排关闭此开关，由一次性 migrate 服务使用独立账号执行。
+		adminPasswordHash = []byte(required("APP_ADMIN_PASSWORD_HASH"))
+		if err := repository.ValidatePasswordHash(adminPasswordHash); err != nil {
+			log.Fatal("invalid admin password hash")
+		}
 		if err := store.Migrate(startup); err != nil {
 			log.Fatal("database schema initialization failed")
 		}
-		adminPasswordHash = []byte(required("APP_ADMIN_PASSWORD_HASH"))
 		adminUser, ensureErr := store.EnsureAdminUser(startup, adminUsername, adminPasswordHash)
 		if ensureErr != nil {
 			log.Fatal("cannot migrate admin identity")

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"mizuki-archive/internal/model"
@@ -42,8 +43,22 @@ func newUserID() (string, error) {
 	return hex.EncodeToString(value), nil
 }
 
-// EnsureAdminUser 将旧环境变量管理员纳入用户表，并返回其稳定归属 ID。
+// ValidatePasswordHash 验证迁移入口提供的是可被 bcrypt 使用的密码哈希，避免坏配置写入用户表。
+func ValidatePasswordHash(passwordHash []byte) error {
+	if len(passwordHash) == 0 {
+		return errors.New("password hash is empty")
+	}
+	if _, err := bcrypt.Cost(passwordHash); err != nil {
+		return fmt.Errorf("invalid bcrypt password hash: %w", err)
+	}
+	return nil
+}
+
+// EnsureAdminUser 将旧环境变量管理员纳入用户表，并返回其稳定归属 ID；已有管理员的哈希变化时执行轮换。
 func (store *MySQL) EnsureAdminUser(ctx context.Context, username string, passwordHash []byte) (model.User, error) {
+	if err := ValidatePasswordHash(passwordHash); err != nil {
+		return model.User{}, err
+	}
 	var row userRow
 	err := store.db.WithContext(ctx).Table("users").Where("username = ?", username).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -59,6 +74,11 @@ func (store *MySQL) EnsureAdminUser(ctx context.Context, username string, passwo
 		}
 	} else if err != nil {
 		return model.User{}, fmt.Errorf("get admin user: %w", err)
+	} else if subtle.ConstantTimeCompare(row.PasswordHash, passwordHash) != 1 {
+		if updateErr := store.db.WithContext(ctx).Table("users").Where("id = ?", row.ID).Update("password_hash", append([]byte(nil), passwordHash...)).Error; updateErr != nil {
+			return model.User{}, fmt.Errorf("rotate admin password hash: %w", updateErr)
+		}
+		row.PasswordHash = append([]byte(nil), passwordHash...)
 	}
 	return userFromRow(row), nil
 }
