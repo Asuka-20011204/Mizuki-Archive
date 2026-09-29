@@ -6,6 +6,7 @@
 - [2026-09-29 · 多用户目标与认证能力探测](2026-09-29-multi-user-target-and-capabilities.md)
 - [2026-09-29 · 多用户产品定位纠偏与隔离验收更新](2026-09-29-multi-user-scope-correction.md)
 - [2026-09-29 · V8 邮箱认证与处理归属隔离验收](2026-09-29-v8-email-and-processing-isolation.md)
+- [2026-09-29 · V9 多 API 共享状态基础验收](2026-09-29-v9-multi-api-shared-state.md)
 - [2026-09-29 · 前台产品介绍与资料库视觉增强](2026-09-29-public-product-frontend.md)
 
 - [2026-09-29 · V7 固定负载与 Worker 轮询优化](2026-09-29-v7-fixed-workload.md)
