@@ -18,3 +18,5 @@
 - [2026-09-29 · V2 持久任务与单进程 Worker 设计](2026-09-29-v2-processing-design.md)
 
 - [2026-09-29 · V2 文本处理任务闭环](2026-09-29-v2-text-processing.md)
+- [2026-09-29 · 资料检查器布局调整](2026-09-29-resource-inspector-layout.md)
+- [2026-09-29 · V2 图片缩略图处理闭环](2026-09-29-v2-image-thumbnail.md)

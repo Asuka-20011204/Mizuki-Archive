@@ -283,16 +283,37 @@ async function loadJobs(resourceId: string) {
   }
 }
 
-// startTextJob 手动提交文本提取任务；重复点击由后端幂等返回已有任务。
-async function startTextJob() {
+// processingTitle 根据资料类型说明当前可手动触发的处理器，避免用户误以为图片也会提取文本。
+function processingTitle(kindValue: Resource['kind']) {
+  return kindValue === 'image' ? '图片缩略图' : '文本提取'
+}
+
+// processingHelp 解释处理器的结果和原件关系，明确说明任务不会覆盖用户原始文件。
+function processingHelp(kindValue: Resource['kind']) {
+  return kindValue === 'image' ? '生成适合预览和分享的 PNG 缩略图，原文件不会被修改。' : '生成独立的文本副本，原文件不会被修改。'
+}
+
+// canProcess 判断详情页当前资料是否支持本轮已开放的手动处理器。
+function canProcess(kindValue: Resource['kind']) {
+  return ['pdf', 'text', 'markdown', 'image'].includes(kindValue)
+}
+
+// jobOutputLabel 为不同派生产物提供明确的下载文字，避免所有结果都显示成“提取文本”。
+function jobOutputLabel(job: ProcessingJob) {
+  return job.type === 'generate_thumbnail' ? '下载缩略图' : '下载提取文本'
+}
+
+// startProcessingJob 手动提交文本或缩略图任务；重复点击由后端幂等返回已有任务。
+async function startProcessingJob() {
   const resource = selected.value
-  if (!resource || startingJob.value || !['pdf', 'text', 'markdown'].includes(resource.kind)) return
+  if (!resource || startingJob.value || !canProcess(resource.kind)) return
   startingJob.value = true
   jobError.value = ''
   try {
-    const result = await api.createTextJob(resource.id)
+    const result = resource.kind === 'image' ? await api.createThumbnailJob(resource.id) : await api.createTextJob(resource.id)
     jobs.value = [result.data, ...jobs.value.filter((job) => job.id !== result.data.id)]
-    notice.value = result.data.status === 'succeeded' ? '已有成功的文本提取结果' : '文本提取任务已提交'
+    const outputName = resource.kind === 'image' ? '缩略图' : '文本提取结果'
+    notice.value = result.data.status === 'succeeded' ? `已有成功的${outputName}` : `${outputName}任务已提交`
     scheduleJobPolling(resource.id)
   } catch (reason) {
     jobError.value = reason instanceof Error ? reason.message : '无法提交处理任务'
@@ -635,6 +656,7 @@ onUnmounted(stopJobPolling)
                 class="resource-row"
                 :class="{ selected: selected?.id === resource.id }"
                 :style="{ '--row-index': Math.min(index, 9) }"
+                :aria-label="`单击查看资料详情：${resource.name}`"
                 @click="selectResource(resource)"
               >
                 <span class="file-icon" :class="resource.kind">{{ resource.kind === 'image' ? '◈' : resource.kind === 'pdf' ? 'PDF' : resource.kind === 'markdown' ? 'MD' : 'TXT' }}</span>
@@ -658,7 +680,7 @@ onUnmounted(stopJobPolling)
       </div>
     </main>
 
-    <!-- 详情是模态抽屉：焦点限制与关闭后的焦点恢复由脚本统一处理。 -->
+    <!-- 详情是模态检查器：焦点限制与关闭后的焦点恢复由脚本统一处理。 -->
     <Transition name="drawer" @after-leave="restoreDetailFocus">
       <div v-if="selected" class="detail-backdrop" @click.self="closeDetail">
         <section
@@ -670,106 +692,87 @@ onUnmounted(stopJobPolling)
           @keydown="trapDetailFocus"
         >
           <button ref="closeButton" type="button" class="close-button" aria-label="关闭资料详情" @click="closeDetail">×</button>
-          <p class="eyebrow">资料详情</p>
-          <div class="detail-icon" :class="selected.kind">{{ selected.kind === 'image' ? '◈' : kindLabel(selected.kind) }}</div>
-          <form class="name-editor" aria-labelledby="detail-title" @submit.prevent="saveName">
-            <label class="visually-hidden" for="resource-name">资料展示名称</label>
-            <input id="resource-name" v-model="nameDraft" maxlength="180" aria-describedby="name-help" />
-            <button type="submit" class="secondary-button" :aria-disabled="savingName">{{ savingName ? '保存中…' : '保存名称' }}</button>
-          </form>
-          <p id="name-help" class="detail-name-help">仅修改展示名称，原始上传名称保持不变。</p>
-          <p class="detail-description">这份资料已安全保存在你的私人资料库中。</p>
-          <div v-if="selected.kind === 'image'" class="preview-frame">
-            <img :src="previewURL(selected.id)" :alt="`预览：${selected.name}`" />
-          </div>
-          <div
-            v-else-if="selected.kind === 'text' || selected.kind === 'markdown'"
-            class="preview-frame text-preview"
-            role="region"
-            :aria-label="`文本预览：${selected.name}`"
-          >
-            <p v-if="previewLoading" class="preview-placeholder" role="status">正在加载文本预览…</p>
-            <p v-else-if="previewError" class="preview-placeholder error" role="alert">{{ previewError }}</p>
-            <pre v-else>{{ previewText }}</pre>
-          </div>
-          <p v-else class="preview-note">此格式暂不在线预览，请下载原文件查看。</p>
-          <section class="processing-panel" aria-labelledby="processing-title">
-            <div class="processing-heading">
-              <div>
-                <p class="eyebrow">按需处理</p>
-                <h3 id="processing-title">文本提取</h3>
+          <header class="detail-header">
+            <p class="eyebrow">资料检查器 · {{ kindLabel(selected.kind) }}</p>
+            <div class="detail-title-row">
+              <div class="detail-icon" :class="selected.kind">{{ selected.kind === 'image' ? '◈' : kindLabel(selected.kind) }}</div>
+              <div class="detail-title-content">
+                <form class="name-editor" aria-labelledby="detail-title" @submit.prevent="saveName">
+                  <label class="visually-hidden" for="resource-name">资料展示名称</label>
+                  <input id="resource-name" v-model="nameDraft" maxlength="180" aria-describedby="name-help" />
+                  <button type="submit" class="secondary-button" :aria-disabled="savingName">{{ savingName ? '保存中…' : '保存' }}</button>
+                </form>
+                <p id="name-help" class="detail-name-help">展示名称可修改，原始上传名称保持不变。</p>
               </div>
-              <span v-if="jobsLoading" class="processing-loading" role="status">同步中…</span>
             </div>
-            <p class="processing-help">PDF、TXT 和 Markdown 会生成一份独立的纯文本副本，可下载并参与关键词检索；原文件不会被修改。</p>
-            <button
-              type="button"
-              class="secondary-button processing-trigger"
-              :disabled="startingJob || !['pdf', 'text', 'markdown'].includes(selected.kind)"
-              @click="startTextJob"
-            >
-              {{ startingJob ? '提交中…' : '手动提取文本' }}
-            </button>
-            <p v-if="jobError" class="processing-error" role="alert">{{ jobError }}</p>
-            <ul v-if="jobs.length" class="processing-list" aria-label="处理记录">
-              <li v-for="job in jobs" :key="job.id" class="processing-item">
-                <div>
-                  <strong>{{ jobStatusLabel(job.status) }}</strong>
-                  <span>第 {{ job.attempts }}/{{ job.max_attempts }} 次尝试</span>
-                  <p v-if="job.last_error" class="processing-error">{{ job.last_error }}</p>
+            <p class="detail-description">私有资料 · 仅当前登录会话可访问</p>
+          </header>
+          <div class="detail-body">
+            <div class="detail-main-column">
+              <section class="preview-section" aria-labelledby="preview-title">
+                <div class="detail-section-heading">
+                  <div><p class="eyebrow">内容</p><h3 id="preview-title">预览</h3></div>
+                  <span class="preview-format">{{ selected.mime }}</span>
                 </div>
-                <a v-if="job.status === 'succeeded' && job.asset" class="text-link" :href="api.derivedDownloadURL(job.asset.id)">
-                  下载提取文本
-                </a>
-              </li>
-            </ul>
-            <p v-else-if="!jobsLoading" class="processing-empty">还没有处理记录，可以按需手动开始。</p>
-          </section>
-          <section class="detail-tags" aria-labelledby="detail-tags-title">
-            <div class="detail-tags-heading">
-              <h3 id="detail-tags-title">标签</h3>
-              <span>{{ draftTags.length }}/10</span>
+                <div v-if="selected.kind === 'image'" class="preview-frame">
+                  <img :src="previewURL(selected.id)" :alt="`预览：${selected.name}`" />
+                </div>
+                <div
+                  v-else-if="selected.kind === 'text' || selected.kind === 'markdown'"
+                  class="preview-frame text-preview"
+                  role="region"
+                  :aria-label="`文本预览：${selected.name}`"
+                >
+                  <p v-if="previewLoading" class="preview-placeholder" role="status">正在加载文本预览…</p>
+                  <p v-else-if="previewError" class="preview-placeholder error" role="alert">{{ previewError }}</p>
+                  <pre v-else>{{ previewText }}</pre>
+                </div>
+                <p v-else class="preview-note">此格式暂不在线预览，请下载原文件查看。</p>
+              </section>
+              <section class="processing-panel" aria-labelledby="processing-title">
+                <div class="processing-heading">
+                  <div><p class="eyebrow">按需处理</p><h3 id="processing-title">{{ processingTitle(selected.kind) }}</h3></div>
+                  <span v-if="jobsLoading" class="processing-loading" role="status">同步中…</span>
+                </div>
+                <p class="processing-help">{{ processingHelp(selected.kind) }}</p>
+                <button type="button" class="secondary-button processing-trigger" :disabled="startingJob || !canProcess(selected.kind)" @click="startProcessingJob">
+                  {{ startingJob ? '提交中…' : selected.kind === 'image' ? '手动生成缩略图' : '手动提取文本' }}
+                </button>
+                <p v-if="jobError" class="processing-error" role="alert">{{ jobError }}</p>
+                <ul v-if="jobs.length" class="processing-list" aria-label="处理记录">
+                  <li v-for="job in jobs" :key="job.id" class="processing-item">
+                    <div><strong>{{ jobStatusLabel(job.status) }}</strong><span>第 {{ job.attempts }}/{{ job.max_attempts }} 次尝试</span><p v-if="job.last_error" class="processing-error">{{ job.last_error }}</p></div>
+                    <div v-if="job.status === 'succeeded' && job.asset" class="processing-result">
+                      <img v-if="job.asset.kind === 'thumbnail'" class="thumbnail-result" :src="api.derivedPreviewURL(job.asset.id)" alt="生成的图片缩略图" />
+                      <div class="processing-result-links">
+                        <a class="text-link" :href="api.derivedDownloadURL(job.asset.id)">{{ jobOutputLabel(job) }}</a>
+                      </div>
+                    </div>
+                  </li>
+                </ul>
+                <p v-else-if="!jobsLoading" class="processing-empty">还没有处理记录</p>
+              </section>
             </div>
-            <div v-if="draftTags.length" class="tag-list" aria-label="当前标签">
-              <span v-for="tag in draftTags" :key="tag" class="tag-chip">
-                #{{ tag }}
-                <button type="button" :aria-label="`移除标签 ${tag}`" @click="removeTag(tag)">×</button>
-              </span>
-            </div>
-            <form class="tag-editor" @submit.prevent="addTag">
-              <label class="visually-hidden" for="tag-input">添加标签</label>
-              <input id="tag-input" v-model="tagInput" list="tag-suggestions" maxlength="24" placeholder="输入标签后按回车" />
-              <datalist id="tag-suggestions"><option v-for="tag in tagSuggestions" :key="`suggestion-${tag}`" :value="tag" /></datalist>
-              <button type="submit" class="secondary-button">添加</button>
-            </form>
-            <button type="button" class="primary-button save-tags-button" :aria-disabled="savingTags" @click="saveTags">
-              {{ savingTags ? '正在保存…' : '保存标签' }}
-            </button>
-          </section>
-          <dl class="detail-meta">
-            <div><dt>类型</dt><dd>{{ kindLabel(selected.kind) }}</dd></div>
-            <div><dt>大小</dt><dd>{{ formatSize(selected.size) }}</dd></div>
-            <div><dt>加入时间</dt><dd>{{ formatDate(selected.created_at) }}</dd></div>
-            <div><dt>文件指纹</dt><dd class="hash">{{ selected.sha256.slice(0, 18) }}…</dd></div>
-          </dl>
-          <button
-            type="button"
-            class="secondary-button favorite-button"
-            :aria-pressed="selected.favorite"
-            :aria-disabled="savingFavorite"
-            @click="setFavorite"
-          >
-            <span aria-hidden="true">{{ selected.favorite ? '★' : '☆' }}</span>
-            {{ savingFavorite ? '正在保存…' : selected.favorite ? '已收藏 · 点击取消' : '加入收藏' }}
-          </button>
-          <p v-if="detailError" class="message error" role="alert">{{ detailError }}</p>
-          <a class="primary-button download-button" :href="`/api/resources/${selected.id}/download`">
-            下载原文件 <span aria-hidden="true">↗</span>
-          </a>
-          <button type="button" class="danger-button" :aria-disabled="deleting" @click="deleteResource">
-            {{ deleting ? '正在删除…' : '删除资料' }}
-          </button>
-          <p class="detail-footnote">处理结果会保留在原件之外，并可单独下载。</p>
+            <aside class="detail-side-column" aria-label="资料属性与操作">
+              <section class="inspector-section" aria-labelledby="properties-title">
+                 <div class="detail-section-heading"><div><p class="eyebrow">属性检查器</p><h3 id="properties-title">属性</h3></div></div>
+                <dl class="detail-meta"><div><dt>类型</dt><dd>{{ kindLabel(selected.kind) }}</dd></div><div><dt>大小</dt><dd>{{ formatSize(selected.size) }}</dd></div><div><dt>加入时间</dt><dd>{{ formatDate(selected.created_at) }}</dd></div><div><dt>文件指纹</dt><dd class="hash">{{ selected.sha256.slice(0, 18) }}…</dd></div></dl>
+              </section>
+              <section class="detail-tags inspector-section" aria-labelledby="detail-tags-title">
+                <div class="detail-tags-heading"><h3 id="detail-tags-title">标签</h3><span>{{ draftTags.length }}/10</span></div>
+                <div v-if="draftTags.length" class="tag-list" aria-label="当前标签"><span v-for="tag in draftTags" :key="tag" class="tag-chip">#{{ tag }}<button type="button" :aria-label="`移除标签 ${tag}`" @click="removeTag(tag)">×</button></span></div>
+                <form class="tag-editor" @submit.prevent="addTag"><label class="visually-hidden" for="tag-input">添加标签</label><input id="tag-input" v-model="tagInput" list="tag-suggestions" maxlength="24" placeholder="输入标签后按回车" /><datalist id="tag-suggestions"><option v-for="tag in tagSuggestions" :key="`suggestion-${tag}`" :value="tag" /></datalist><button type="submit" class="secondary-button">添加</button></form>
+                <button type="button" class="primary-button save-tags-button" :aria-disabled="savingTags" @click="saveTags">{{ savingTags ? '正在保存…' : '保存标签' }}</button>
+              </section>
+              <div class="detail-actions">
+                <button type="button" class="secondary-button favorite-button" :aria-pressed="selected.favorite" :aria-disabled="savingFavorite" @click="setFavorite"><span aria-hidden="true">{{ selected.favorite ? '★' : '☆' }}</span>{{ savingFavorite ? '正在保存…' : selected.favorite ? '已收藏' : '加入收藏' }}</button>
+                <a class="primary-button download-button" :href="`/api/resources/${selected.id}/download`">下载原文件 <span aria-hidden="true">↗</span></a>
+                <button type="button" class="danger-button" :aria-disabled="deleting" @click="deleteResource">{{ deleting ? '正在删除…' : '删除资料' }}</button>
+              </div>
+              <p v-if="detailError" class="message error" role="alert">{{ detailError }}</p>
+              <p class="detail-footnote">处理结果会保留在原件之外，并可单独下载。</p>
+            </aside>
+          </div>
         </section>
       </div>
     </Transition>
