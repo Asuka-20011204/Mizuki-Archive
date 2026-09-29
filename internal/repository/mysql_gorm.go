@@ -66,6 +66,16 @@ func (store *MySQL) GetResource(ctx context.Context, id string) (model.Resource,
 	return resourceFromRow(row), nil
 }
 
+// SetFavorite 显式写入目标状态并读取最终元数据；重复设置同值也应成功，不依赖受影响行数判断存在性。
+func (store *MySQL) SetFavorite(ctx context.Context, id string, favorite bool) (model.Resource, error) {
+	if err := store.db.WithContext(ctx).Table("resources").Where("id = ?", id).Update("favorite", favorite).Error; err != nil {
+		return model.Resource{}, fmt.Errorf("set resource favorite: %w", err)
+	}
+	// 同值更新在 MySQL 中可能报告零受影响行；读取既区分资料不存在，也返回最新元数据。
+	// 写入成功但读取失败时客户端可安全重试同一布尔目标值，不会发生二次反转。
+	return store.GetResource(ctx, id)
+}
+
 // ListResources 在 MySQL 中按名称、类型筛选并稳定分页；不在内存中扫描全部资料。
 func (store *MySQL) ListResources(ctx context.Context, query model.ListQuery) ([]model.Resource, error) {
 	// 筛选值始终作为参数绑定；稳定排序避免同一时间上传的资料翻页漂移。

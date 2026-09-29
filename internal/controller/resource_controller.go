@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"mime"
 	"net/http"
 	"strconv"
@@ -103,6 +105,39 @@ func (handler *Controller) get(ctx *gin.Context) {
 	if ok {
 		ctx.JSON(http.StatusOK, gin.H{"data": resource})
 	}
+}
+
+// setFavorite 仅接受有同源会话的明确布尔值；拒绝缺失、未知字段和多段 JSON，错误不回显内部细节。
+func (handler *Controller) setFavorite(ctx *gin.Context) {
+	if ctx.ContentType() != "application/json" {
+		failure(ctx, http.StatusBadRequest, "invalid_favorite", "收藏状态无效")
+		return
+	}
+	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, 1024)
+	decoder := json.NewDecoder(ctx.Request.Body)
+	decoder.DisallowUnknownFields()
+	var input struct {
+		Favorite *bool `json:"favorite"`
+	}
+	if err := decoder.Decode(&input); err != nil || input.Favorite == nil {
+		failure(ctx, http.StatusBadRequest, "invalid_favorite", "收藏状态无效")
+		return
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		failure(ctx, http.StatusBadRequest, "invalid_favorite", "收藏状态无效")
+		return
+	}
+	resource, err := handler.config.Resources.SetFavorite(ctx.Request.Context(), ctx.Param("id"), *input.Favorite)
+	if errors.Is(err, repository.ErrNotFound) {
+		failure(ctx, http.StatusNotFound, "not_found", "资料不存在")
+		return
+	}
+	if err != nil {
+		failure(ctx, http.StatusInternalServerError, "internal", "无法更新收藏")
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"data": resource})
 }
 
 // download 从受控目录取回原件并强制附件下载，避免活动内容在本站源内联执行。

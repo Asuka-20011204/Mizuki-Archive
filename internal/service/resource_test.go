@@ -17,9 +17,10 @@ import (
 
 // fakeStore 隔离 Service 单测与数据库；各测试独立创建，避免共享状态污染。
 type fakeStore struct {
-	resources map[string]model.Resource
-	sessions  map[string]time.Time
-	saveError error
+	resources     map[string]model.Resource
+	sessions      map[string]time.Time
+	saveError     error
+	favoriteError error
 }
 
 // SaveResource 模拟写入资源；可注入失败以检查文件系统补偿。
@@ -37,6 +38,20 @@ func (store *fakeStore) GetResource(_ context.Context, id string) (model.Resourc
 	if !exists {
 		return model.Resource{}, repository.ErrNotFound
 	}
+	return resource, nil
+}
+
+// SetFavorite 模拟收藏持久化，错误注入时保持原资料不变。
+func (store *fakeStore) SetFavorite(_ context.Context, id string, favorite bool) (model.Resource, error) {
+	if store.favoriteError != nil {
+		return model.Resource{}, store.favoriteError
+	}
+	resource, exists := store.resources[id]
+	if !exists {
+		return model.Resource{}, repository.ErrNotFound
+	}
+	resource.Favorite = favorite
+	store.resources[id] = resource
 	return resource, nil
 }
 
@@ -141,6 +156,33 @@ func TestResourceServiceUploadAndRead(t *testing.T) {
 	stored.StorageKey = "../outside"
 	if _, err := resources.Open(stored); !errors.Is(err, ErrFileUnavailable) {
 		t.Fatalf("unsafe storage key returned %v", err)
+	}
+}
+
+// TestResourceServiceSetFavorite 验证非法 ID 不落到仓储，重复设置幂等且存储失败不修改状态。
+func TestResourceServiceSetFavorite(t *testing.T) {
+	store := newFakeStore()
+	resources, err := NewResources(store, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := strings.Repeat("a", 32)
+	store.resources[id] = model.Resource{ID: id, Name: "notes.txt"}
+	if _, err := resources.SetFavorite(context.Background(), "../invalid", true); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("invalid ID returned %v", err)
+	}
+	if _, err := resources.SetFavorite(context.Background(), strings.Repeat("b", 32), true); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("missing resource returned %v", err)
+	}
+	for _, favorite := range []bool{true, true, false} {
+		updated, err := resources.SetFavorite(context.Background(), id, favorite)
+		if err != nil || updated.Favorite != favorite || store.resources[id].Favorite != favorite {
+			t.Fatalf("favorite=%t: got %#v, error %v", favorite, updated, err)
+		}
+	}
+	store.favoriteError = errors.New("database unavailable")
+	if _, err := resources.SetFavorite(context.Background(), id, true); err == nil || store.resources[id].Favorite {
+		t.Fatalf("failed update changed persisted favorite: %v", err)
 	}
 }
 

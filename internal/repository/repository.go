@@ -15,6 +15,7 @@ var ErrNotFound = errors.New("resource not found")
 type Store interface {
 	SaveResource(context.Context, model.Resource) error
 	GetResource(context.Context, string) (model.Resource, error)
+	SetFavorite(context.Context, string, bool) (model.Resource, error)
 	ListResources(context.Context, model.ListQuery) ([]model.Resource, error)
 	SaveSession(context.Context, string, time.Time) error
 	HasSession(context.Context, string) (bool, error)

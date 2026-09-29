@@ -45,6 +45,7 @@ func New(config Config) (*gin.Engine, error) {
 	private.POST("/resources", handler.upload)
 	private.GET("/resources", handler.list)
 	private.GET("/resources/:id", handler.get)
+	private.PATCH("/resources/:id/favorite", handler.setFavorite)
 	private.GET("/resources/:id/download", handler.download)
 	return engine, nil
 }

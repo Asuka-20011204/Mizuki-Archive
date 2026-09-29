@@ -11,6 +11,8 @@ const loadingSession = ref(true)
 const loggingIn = ref(false)
 const uploading = ref(false)
 const searching = ref(false)
+const savingFavorite = ref(false)
+const detailError = ref('')
 const error = ref('')
 const notice = ref('')
 const resources = ref<Resource[]>([])
@@ -163,10 +165,32 @@ async function upload(event: Event) {
 // selectResource 从服务端重新获取详情，避免依赖可能已过期的列表快照。
 async function selectResource(resource: Resource) {
   error.value = ''
+  detailError.value = ''
   try {
     selected.value = (await api.get(resource.id)).data
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '无法打开资料'
+  }
+}
+
+// setFavorite 将详情中的目标状态提交服务端，成功后同步当前列表；失败保留原状态并在抽屉内提示。
+async function setFavorite() {
+  const resource = selected.value
+  if (!resource || savingFavorite.value) return
+  savingFavorite.value = true
+  detailError.value = ''
+  try {
+    const updated = (await api.setFavorite(resource.id, !resource.favorite)).data
+    if (!username.value) return
+    if (selected.value?.id === updated.id) selected.value = updated
+    // 列表项只替换同一资料，避免重新请求时误清空当前筛选和页码。
+    resources.value = resources.value.map((item) => item.id === updated.id ? updated : item)
+  } catch (reason) {
+    if (selected.value?.id === resource.id) {
+      detailError.value = reason instanceof Error ? reason.message : '收藏状态更新失败'
+    }
+  } finally {
+    savingFavorite.value = false
   }
 }
 
@@ -195,14 +219,13 @@ function trapDetailFocus(event: KeyboardEvent) {
   }
 }
 
-// 详情开合回调负责移动与归还焦点；异步等待 DOM 渲染后再聚焦关闭按钮。
-watch(selected, async (current) => {
-  // 模态抽屉打开时移动焦点，关闭时还给原触发控件，方便键盘用户继续浏览。
-  if (current) {
+// 详情回调只在打开/关闭时移动焦点；收藏后替换详情对象不能把焦点从按钮抢走。
+watch(selected, async (current, previous) => {
+  if (current && !previous) {
     previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     await nextTick()
-    closeButton.value?.focus()
-  } else {
+    if (selected.value) closeButton.value?.focus()
+  } else if (!current && previous) {
     previousFocus?.focus()
     previousFocus = null
   }
@@ -347,6 +370,7 @@ onMounted(checkSession)
                 <strong>{{ resource.name }}</strong>
                 <small>{{ kindLabel(resource.kind) }} <span aria-hidden="true">·</span> {{ formatSize(resource.size) }}</small>
               </span>
+              <span v-if="resource.favorite" class="favorite-marker" aria-label="已收藏" title="已收藏">★</span>
               <span class="file-date">{{ formatDate(resource.created_at) }}</span>
               <span class="row-arrow" aria-hidden="true">↗</span>
             </button>
@@ -381,6 +405,17 @@ onMounted(checkSession)
           <div><dt>加入时间</dt><dd>{{ formatDate(selected.created_at) }}</dd></div>
           <div><dt>文件指纹</dt><dd class="hash">{{ selected.sha256.slice(0, 18) }}…</dd></div>
         </dl>
+        <button
+          type="button"
+          class="secondary-button favorite-button"
+          :aria-pressed="selected.favorite"
+          :aria-disabled="savingFavorite"
+          @click="setFavorite"
+        >
+          <span aria-hidden="true">{{ selected.favorite ? '★' : '☆' }}</span>
+          {{ savingFavorite ? '正在保存…' : selected.favorite ? '已收藏 · 点击取消' : '加入收藏' }}
+        </button>
+        <p v-if="detailError" class="message error" role="alert">{{ detailError }}</p>
         <a class="primary-button download-button" :href="`/api/resources/${selected.id}/download`">
           下载原文件 <span aria-hidden="true">↗</span>
         </a>

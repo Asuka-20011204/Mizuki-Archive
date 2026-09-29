@@ -22,7 +22,7 @@ Mizuki Archive/
 │   ├── controller/
 │   │   ├── router.go                   # Gin 路由、Origin 校验、统一错误格式
 │   │   ├── auth_controller.go         # 登录、会话中间件、退出
-│   │   ├── resource_controller.go     # 上传、查询、详情、下载的 HTTP 接口
+│   │   ├── resource_controller.go     # 上传、查询、详情、收藏、下载的 HTTP 接口
 │   │   ├── limiter.go                 # 单进程登录失败限流
 │   │   └── http_test.go               # HTTP 流程测试
 │   ├── service/
@@ -32,6 +32,7 @@ Mizuki Archive/
 │   └── repository/
 │       ├── repository.go              # 持久化接口与未找到错误
 │       ├── mysql_gorm.go              # GORM 的 MySQL 实现
+│       ├── mysql_gorm_integration_test.go # 隔离 MySQL 下的收藏持久化验证
 │       ├── migration.go               # 内嵌初始 SQL 迁移
 │       └── migrations/001_init.sql    # 资料与会话表
 ├── web/

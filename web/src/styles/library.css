@@ -176,6 +176,7 @@
 .file-main strong { overflow: hidden; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .file-main small, .file-date { color: var(--muted); font-size: 12px; }
 .file-date { flex: none; }
+.favorite-marker { flex: none; color: #9c6b2b; font-size: 17px; }
 .row-arrow { margin-left: 12px; color: var(--accent); font-size: 17px; }
 .empty-state {
   display: flex;
@@ -212,6 +213,10 @@
 .detail-meta dt { color: var(--muted); }
 .detail-meta dd { max-width: 65%; margin: 0; overflow-wrap: anywhere; text-align: right; }
 .detail-meta .hash { color: var(--muted); font-family: Consolas, monospace; }
+/* 收藏状态由服务端保存；按钮用文字和按下状态表达，不仅靠星形颜色。 */
+.favorite-button { width: 100%; margin-bottom: 12px; }
+.favorite-button[aria-pressed="true"] { border-color: #c69b68; color: #80531e; background: #fff9ef; }
+.favorite-button[aria-disabled="true"] { cursor: wait; opacity: .7; }
 .download-button { width: 100%; justify-content: space-between; }
 .detail-footnote { margin-top: 18px; color: var(--muted); font-size: 12px; }
 

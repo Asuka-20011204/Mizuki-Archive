@@ -48,6 +48,13 @@ export const api = {
     ),
   // get 对路径 ID 编码并读取最新元数据，供详情抽屉展示。
   get: (id: string) => request<{ data: Resource }>(`/resources/${encodeURIComponent(id)}`),
+  // setFavorite 发送明确的目标状态，网络重试不会把已收藏资料意外取消。
+  setFavorite: (id: string, favorite: boolean) =>
+    request<{ data: Resource }>(`/resources/${encodeURIComponent(id)}/favorite`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ favorite }),
+    }),
   // upload 用 FormData 交给浏览器设置 multipart 边界，不能手写 Content-Type。
   upload: (file: File) => {
     const body = new FormData()

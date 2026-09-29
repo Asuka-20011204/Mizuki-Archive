@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,9 +22,10 @@ import (
 
 // memoryStore 只模拟 HTTP 层关心的持久化行为，允许人为制造保存失败。
 type memoryStore struct {
-	resources map[string]model.Resource
-	sessions  map[string]time.Time
-	saveError error
+	resources     map[string]model.Resource
+	sessions      map[string]time.Time
+	saveError     error
+	favoriteError error
 }
 
 // SaveResource 保存 HTTP 测试资料；失败注入用于验证接口错误与文件清理。
@@ -41,6 +43,20 @@ func (store *memoryStore) GetResource(_ context.Context, id string) (model.Resou
 	if !exists {
 		return model.Resource{}, repository.ErrNotFound
 	}
+	return resource, nil
+}
+
+// SetFavorite 模拟资料收藏的原子更新；持久层失败时不能提前改变内存资料。
+func (store *memoryStore) SetFavorite(_ context.Context, id string, favorite bool) (model.Resource, error) {
+	if store.favoriteError != nil {
+		return model.Resource{}, store.favoriteError
+	}
+	resource, exists := store.resources[id]
+	if !exists {
+		return model.Resource{}, repository.ErrNotFound
+	}
+	resource.Favorite = favorite
+	store.resources[id] = resource
 	return resource, nil
 }
 
@@ -259,5 +275,61 @@ func TestLoginRejectsOversizedBody(t *testing.T) {
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized login returned %d", response.Code)
+	}
+}
+
+// favoriteResponse 向测试服务提交收藏状态，统一携带已登录 Cookie 和同源来源。
+func favoriteResponse(server http.Handler, cookie *http.Cookie, id, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPatch, "/api/resources/"+id+"/favorite", strings.NewReader(body))
+	request.Header.Set("Origin", "http://localhost:5173")
+	request.Header.Set("Content-Type", "application/json")
+	if cookie != nil {
+		request.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	return response
+}
+
+// TestFavoriteFlow 验证收藏只能由已登录同源请求设置，失败不改变数据，重复设置仍成功。
+func TestFavoriteFlow(t *testing.T) {
+	server, store, _ := testServer(t)
+	id := strings.Repeat("a", 32)
+	store.resources[id] = model.Resource{ID: id, Name: "notes.txt"}
+	if response := favoriteResponse(server, nil, id, `{"favorite":true}`); response.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous update returned %d", response.Code)
+	}
+	cookie := login(t, server)
+	request := httptest.NewRequest(http.MethodPatch, "/api/resources/"+id+"/favorite", strings.NewReader(`{"favorite":true}`))
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin update returned %d", response.Code)
+	}
+	for _, body := range []string{`{}`, `{"favorite":null}`, `{"favorite":"yes"}`, `{"favorite":true,"extra":1}`, `{"favorite":true}{"favorite":false}`, strings.Repeat(" ", 1025)} {
+		if response := favoriteResponse(server, cookie, id, body); response.Code != http.StatusBadRequest {
+			t.Fatalf("invalid body returned %d: %q", response.Code, body)
+		}
+	}
+	if response := favoriteResponse(server, cookie, "invalid", `{"favorite":true}`); response.Code != http.StatusNotFound {
+		t.Fatalf("invalid ID returned %d", response.Code)
+	}
+	if response := favoriteResponse(server, cookie, strings.Repeat("b", 32), `{"favorite":true}`); response.Code != http.StatusNotFound {
+		t.Fatalf("missing resource returned %d", response.Code)
+	}
+	for _, favorite := range []bool{true, true, false} {
+		body := `{"favorite":false}`
+		if favorite {
+			body = `{"favorite":true}`
+		}
+		response := favoriteResponse(server, cookie, id, body)
+		if response.Code != http.StatusOK || store.resources[id].Favorite != favorite || !strings.Contains(response.Body.String(), `"favorite":`+strconv.FormatBool(favorite)) {
+			t.Fatalf("favorite=%t returned %d: %s", favorite, response.Code, response.Body.String())
+		}
+	}
+	store.favoriteError = errors.New("database unavailable")
+	if response := favoriteResponse(server, cookie, id, `{"favorite":true}`); response.Code != http.StatusInternalServerError || store.resources[id].Favorite {
+		t.Fatalf("failed update returned %d and persisted favorite=%t", response.Code, store.resources[id].Favorite)
 	}
 }

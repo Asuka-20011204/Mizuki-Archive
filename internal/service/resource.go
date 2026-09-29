@@ -143,16 +143,31 @@ func (resources *Resources) List(ctx context.Context, query model.ListQuery) ([]
 	return resources.store.ListResources(ctx, query)
 }
 
-// Get 先检查资源 ID 格式，再将合法 ID 交给持久层查询。
-func (resources *Resources) Get(ctx context.Context, id string) (model.Resource, error) {
-	// 资源 ID 来自随机字节的十六进制编码，查询前先拒绝其他路径或异常输入。
+// validResourceID 只接受服务端生成的 16 字节十六进制 ID，避免无效输入进入持久层。
+func validResourceID(id string) bool {
 	if len(id) != 32 {
-		return model.Resource{}, repository.ErrNotFound
+		return false
 	}
 	if _, err := hex.DecodeString(id); err != nil {
+		return false
+	}
+	return true
+}
+
+// Get 先检查资源 ID 格式，再将合法 ID 交给持久层查询。
+func (resources *Resources) Get(ctx context.Context, id string) (model.Resource, error) {
+	if !validResourceID(id) {
 		return model.Resource{}, repository.ErrNotFound
 	}
 	return resources.store.GetResource(ctx, id)
+}
+
+// SetFavorite 显式设置资料收藏状态；缺失或非法 ID 返回同一种未找到错误，重复设置保持幂等。
+func (resources *Resources) SetFavorite(ctx context.Context, id string, favorite bool) (model.Resource, error) {
+	if !validResourceID(id) {
+		return model.Resource{}, repository.ErrNotFound
+	}
+	return resources.store.SetFavorite(ctx, id, favorite)
 }
 
 // Open 仅按受控存储键打开原件；数据库记录异常时返回文件不可用。
