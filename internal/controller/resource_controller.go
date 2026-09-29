@@ -50,6 +50,7 @@ func (handler *Controller) upload(ctx *gin.Context) {
 }
 
 func (handler *Controller) list(ctx *gin.Context) {
+	// 页码和筛选条件只在 HTTP 边界解析，Service/Repository 接收已校验的查询对象。
 	page := 1
 	if ctx.Query("page") != "" {
 		parsed, err := strconv.Atoi(ctx.Query("page"))
@@ -80,6 +81,7 @@ func (handler *Controller) list(ctx *gin.Context) {
 }
 
 func (handler *Controller) resource(ctx *gin.Context) (model.Resource, bool) {
+	// 详情与下载共享“未找到/内部错误”映射，避免对外暴露存储层错误细节。
 	resource, err := handler.config.Resources.Get(ctx.Request.Context(), ctx.Param("id"))
 	if errors.Is(err, repository.ErrNotFound) {
 		failure(ctx, http.StatusNotFound, "not_found", "资料不存在")

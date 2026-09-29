@@ -1,0 +1,57 @@
+# 本地启动与浏览器实测（Windows PowerShell）
+
+以下命令从项目的仓库根目录开始。准备 **三个 PowerShell 终端**：数据库命令、Go API、Vue 开发服务器；每次新开终端先切换到仓库根目录。不要把密码、哈希或个人文件提交到 Git；示例值要改成本机独有值。
+
+## 1. 准备 MySQL
+
+启动 Docker Desktop，确认 `docker info` 成功。在仓库根目录执行：
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+notepad .env
+docker compose up -d mysql
+docker compose ps
+```
+
+将 `.env` 中的 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD` 换成不同的强随机密码；默认数据库名和普通用户名都是 `archive`。等待 `docker compose ps` 显示 `healthy`。**不要运行 `docker compose down -v`**，它会删除数据库卷。`.env` 已忽略，但提交前仍要检查暂存区。
+
+## 2. 启动 Go API
+
+在仓库根目录的第二个终端，先执行 `go run ./cmd/hash-password`。输入你选择的管理员明文密码（至少 12 字节；终端不回显），复制输出的 bcrypt 哈希。浏览器登录时使用的是**原来的明文密码**，不是这段哈希。
+
+然后在**同一个终端**设置环境变量并启动服务：
+
+```powershell
+$env:APP_ORIGIN = 'http://localhost:5173'
+$env:APP_LISTEN_ADDR = '127.0.0.1:8080'
+$env:APP_DATA_DIR = './data/files'
+$env:APP_ADMIN_USERNAME = 'owner'
+$env:APP_ADMIN_PASSWORD_HASH = '在此粘贴刚生成的 bcrypt 哈希'
+$env:MYSQL_DSN = 'archive:在此填写.env中的MYSQL_PASSWORD@tcp(127.0.0.1:3306)/archive'
+go run ./cmd/server
+```
+
+`MYSQL_DSN` 中的密码需与 `.env` 一致；特殊字符可能需要按 Go MySQL DSN 格式处理，初学时可用随机字母数字密码。API 显示 `archive API listening on 127.0.0.1:8080` 后，在新终端用 `Invoke-WebRequest http://127.0.0.1:8080/healthz` 可检查状态码 `204`。不要在截图或公开日志中展示配置值。
+
+## 3. 启动 Vue 并登录
+
+第三个终端执行：
+
+```powershell
+cd web
+npm ci
+npm run dev
+```
+
+只打开 **`http://localhost:5173/`**；不要改用 `127.0.0.1:5173`，因为 API 校验写请求的 `Origin`。账号是 `owner`（或你设置的 `APP_ADMIN_USERNAME`），密码是第 2 步生成哈希时输入的明文。登录后可用一份不含真实个人信息的 `.txt` 或 `.md` 验证上传、搜索、详情、下载和退出；不要上传简历或私人资料作为公开演示数据。若你检出的版本在窄屏找不到退出按钮，先在桌面宽屏使用并检查最新的界面变更是否已合入。
+
+## 常见问题与停止
+
+| 现象 | 优先检查 |
+| --- | --- |
+| 数据库连接失败 | Docker Desktop 是否启动、容器是否健康、`.env` 与 `MYSQL_DSN` 用户名/密码/端口是否一致。 |
+| `403 请求来源未获授权` | 地址栏是否是 `localhost:5173`，`APP_ORIGIN` 是否完全相同。 |
+| `401` 或登录失败 | 账号与明文密码是否对应哈希；更改环境变量后要重启 Go 服务。 |
+| 前端打不开/502 | Vite 是否显示 `Local` 地址，Go 服务是否仍运行，8080/5173 是否被其他程序占用。 |
+
+结束时在 Go 和 Vite 终端分别按 `Ctrl+C`；数据库可用 `docker compose stop mysql` 停止，卷保留供下次使用。测试环境和真实资料分开；需要清除自己的数据前先做好备份。

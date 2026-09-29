@@ -38,6 +38,7 @@ type sessionRow struct {
 }
 
 func resourceFromRow(row resourceRow) model.Resource {
+	// 显式映射让数据库字段命名和 JSON/业务模型独立演进，不把 GORM 标签透传到接口层。
 	return model.Resource{ID: row.ID, Name: row.Name, OriginalName: row.OriginalName, Kind: row.Kind, MIME: row.MIME, Size: row.Size, SHA256: row.SHA256, StorageKey: row.StorageKey, Favorite: row.Favorite, CreatedAt: row.CreatedAt}
 }
 
@@ -50,6 +51,7 @@ func (store *MySQL) SaveResource(ctx context.Context, resource model.Resource) e
 }
 
 func (store *MySQL) GetResource(ctx context.Context, id string) (model.Resource, error) {
+	// “不存在”统一转换为领域可识别的错误，其余数据库错误保持原始因果链。
 	var row resourceRow
 	err := store.db.WithContext(ctx).Table("resources").Where("id = ?", id).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

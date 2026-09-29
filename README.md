@@ -24,14 +24,15 @@
 - [AGENTS.md](AGENTS.md)：对人和编码 Agent 同样适用的项目约束。
 - [项目目录导览](docs/project-structure.md)：两个 Go `main()`、各层职责和请求调用路径。
 - [开发与 Git 规范](docs/development.md)：中文提交、分支、质量门禁、文档同步。
+- [本地启动与实测](docs/local-development.md)：按终端分步启动 MySQL、Go、Vue，并在浏览器登录验收。
 - [安全基线](docs/security.md)：私有文件、上传、鉴权、任务安全。
-- [界面方向](docs/design.md)：参考 Sakurairo 的氛围，不复制主题代码和素材。
+- [界面方向](docs/design.md)：白色、内容优先的独立视觉语言；不复制 Sakurairo 主题代码和素材。
 - [架构决策](docs/decisions/0001-product-and-stack.md)：已确定项与待验证项。
 - [变更记录](docs/changes/README.md)：各轮实际修改、验证状态与遗留事项；后续重大修改逐轮记录。
 
 ## 本地启动（Windows PowerShell）
 
-前置：Go 1.25、Node.js、Docker Desktop/MySQL 8.4。Docker Desktop 必须已启动；本机当前未运行 Docker daemon，所以数据库连通性尚未实测。
+前置：Go 1.25、Node.js、Docker Desktop/MySQL 8.4。请先确认 Docker Desktop 正在运行；首次启动的完整操作与故障排查见 [本地启动与实测](docs/local-development.md)。
 
 1. 复制 `.env.example` 为本地 `.env`，只用于 Docker Compose；把 `MYSQL_DATABASE`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD` 改为你自己的值。`.env` 已被 Git 忽略。**不要把真实密码或哈希写进仓库。**
 2. 在仓库根目录运行 `docker compose up -d mysql`。检查 `docker compose ps`，等待数据库健康。
@@ -63,8 +64,9 @@
 
 单管理员登录/退出、私有资料上传、文件名/类型筛选、资料详情与附件下载。允许 PDF、PNG/JPEG/WebP、Markdown 和 TXT，单文件上限 50 MiB；尚无标签编辑、收藏操作、预览、删除、Worker 或 Redis/MQ。
 
-- `go test ./...`、`go vet ./...`：已通过；`go test -cover ./...` 中 Controller 66.9%、Service 77.3%，尚未达到 80% 目标。MySQL 真机集成未运行。
+- `go test ./...`、`go vet ./...`：已通过；`go test -cover ./...` 中 Controller 66.9%、Service 77.3%，尚未达到 80% 目标。已用隔离的 MySQL 8.4 测试容器验证登录、上传、查询、下载和退出；尚未建立可重复运行的自动化数据库集成测试。
 - `cd web; npm run build`：已通过；`npm audit --omit=dev --audit-level=high`：零条生产依赖告警。
 - `go test -race ./...`：本机 CGO 未启用且无 C 编译器，尚未运行成功。开发/CI 后续补齐。
+- 已在本地工作区的窄屏界面验证登录、空状态、搜索、类型筛选、详情焦点/Escape 与退出；界面改动将另行评审提交。桌面宽屏和浏览器文件选择上传仍待手工验收。API 上传与文件内容回读已通过测试容器验证。
 
 本地资料、会话与数据库数据请自行备份；不要用真实私人文件做公开演示。

@@ -6,3 +6,5 @@
 - [2026-09-29 · V1 基础切片与 MVC/GORM 调整](2026-09-29-v1-foundation.md)
 - [2026-09-29 · 目录导览与中文注释](2026-09-29-structure-and-comments.md)
 - [2026-09-29 · 可读性与前端样式整理](2026-09-29-readability-and-ui-structure.md)
+- [2026-09-29 · 浏览器实测与本地启动说明](2026-09-29-interaction-and-local-dev.md)
+- [2026-09-29 · 独立视觉改版](2026-09-29-independent-visual-direction.md)

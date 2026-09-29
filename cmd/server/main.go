@@ -36,6 +36,7 @@ func main() {
 		address = "127.0.0.1:8080"
 	}
 	origin := required("APP_ORIGIN")
+	// Origin 必须是明确的站点根地址；写请求依赖它做来源校验，不能接受路径或模糊值。
 	parsedOrigin, err := url.Parse(origin)
 	if err != nil || (parsedOrigin.Scheme != "http" && parsedOrigin.Scheme != "https") || parsedOrigin.Host == "" || parsedOrigin.Path != "" || parsedOrigin.RawQuery != "" || parsedOrigin.Fragment != "" {
 		log.Fatal("APP_ORIGIN must be a scheme and host only")
@@ -44,6 +45,7 @@ func main() {
 		log.Fatal("non-local APP_ORIGIN requires HTTPS")
 	}
 	dataDir := required("APP_DATA_DIR")
+	// 只解析 DSN 再交给 GORM，不在日志中输出可能包含数据库密码的原始字符串。
 	dsn, err := mysql.ParseDSN(required("MYSQL_DSN"))
 	if err != nil {
 		log.Fatal("invalid MYSQL_DSN")
@@ -62,6 +64,7 @@ func main() {
 	defer connection.Close()
 	connection.SetMaxOpenConns(10)
 	connection.SetConnMaxLifetime(5 * time.Minute)
+	// 设置启动超时：数据库不可用时尽快失败，而不是让浏览器看到一个无法工作的 API。
 	startup, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := connection.PingContext(startup); err != nil {

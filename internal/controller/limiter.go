@@ -27,6 +27,7 @@ func clientAddress(remote string) string {
 func (limiter *loginLimiter) allowed(address string) bool {
 	limiter.mutex.Lock()
 	defer limiter.mutex.Unlock()
+	// 每次检查时顺手移除过期窗口，避免长期运行后尝试记录无限增长。
 	cutoff := time.Now().Add(-15 * time.Minute)
 	for key, attempts := range limiter.attempts {
 		active := attempts[:0]
@@ -41,6 +42,7 @@ func (limiter *loginLimiter) allowed(address string) bool {
 			limiter.attempts[key] = active
 		}
 	}
+	// 限制未知地址的总桶数；达到上限后已有地址仍按自身失败次数判断。
 	return len(limiter.attempts[address]) < 5 && (len(limiter.attempts) < 10000 || limiter.attempts[address] != nil)
 }
 

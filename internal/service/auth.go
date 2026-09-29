@@ -30,6 +30,7 @@ func NewAuth(store repository.Store, username string, passwordHash []byte) (*Aut
 	if store == nil || username == "" {
 		return nil, errors.New("invalid authentication configuration")
 	}
+	// 启动时验证管理员哈希格式，避免把配置错误误报为每次登录的密码错误。
 	if _, err := bcrypt.Cost(passwordHash); err != nil {
 		return nil, fmt.Errorf("invalid password hash: %w", err)
 	}
@@ -53,6 +54,7 @@ func (auth *Auth) Login(ctx context.Context, username, password string) (string,
 	if !validUsername || !validPassword {
 		return "", ErrInvalidCredentials
 	}
+	// Cookie 中是不可预测的原始令牌；Repository 只收到摘要，令牌可随时撤销。
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return "", fmt.Errorf("generate session: %w", err)
@@ -65,6 +67,7 @@ func (auth *Auth) Login(ctx context.Context, username, password string) (string,
 }
 
 func (auth *Auth) Validate(ctx context.Context, token string) (bool, error) {
+	// 先拒绝格式不符的 Cookie，避免无效请求也访问数据库；过期时间由持久层判断。
 	decoded, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil || len(decoded) != 32 {
 		return false, nil
@@ -73,6 +76,7 @@ func (auth *Auth) Validate(ctx context.Context, token string) (bool, error) {
 }
 
 func (auth *Auth) Logout(ctx context.Context, token string) error {
+	// 删除数据库会话而非仅清除浏览器 Cookie，使已泄露的旧 Cookie 也立即失效。
 	if err := auth.store.DeleteSession(ctx, hashToken(token)); err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}

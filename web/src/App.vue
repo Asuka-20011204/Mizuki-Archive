@@ -6,6 +6,7 @@ import { api, type Resource } from './api'
 const username = ref('')
 const loginName = ref('')
 const password = ref('')
+// 各操作分别记录忙碌状态：上传不应让搜索和退出按钮无故禁用。
 const loadingSession = ref(true)
 const loggingIn = ref(false)
 const uploading = ref(false)
@@ -14,6 +15,7 @@ const error = ref('')
 const notice = ref('')
 const resources = ref<Resource[]>([])
 const selected = ref<Resource | null>(null)
+// 搜索条件与页码交给 API 查询，不在浏览器里模拟 MySQL 的筛选和分页。
 const search = ref('')
 const kind = ref('')
 const page = ref(1)
@@ -22,6 +24,7 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const detailPanel = ref<HTMLElement | null>(null)
 const closeButton = ref<HTMLButtonElement | null>(null)
 let previousFocus: HTMLElement | null = null
+// 并发列表请求使用单调序号，防止旧筛选的响应覆盖新筛选。
 let listRequestId = 0
 
 const kinds = [
@@ -74,6 +77,7 @@ async function loadResources() {
 }
 
 async function checkSession() {
+  // 页面刷新后先确认 HttpOnly Cookie 是否仍有效；不能从本地存储推断登录身份。
   try {
     username.value = (await api.me()).username
   } catch {
@@ -86,6 +90,7 @@ async function checkSession() {
 }
 
 async function login() {
+  // 只在登录成功后写入界面身份，密码成功后从组件状态移除。
   loggingIn.value = true
   error.value = ''
   try {
@@ -100,6 +105,7 @@ async function login() {
 }
 
 async function logout() {
+  // 以服务端撤销会话为准；若请求失败则保留当前界面并提示用户重试。
   try {
     await api.logout()
     // 退出后使所有尚未返回的列表请求失效，避免私有资料重新出现在页面上。
@@ -144,6 +150,7 @@ async function upload(event: Event) {
 }
 
 async function selectResource(resource: Resource) {
+  // 详情重新请求服务端，避免列表快照被误当作最新的资料记录。
   error.value = ''
   try {
     selected.value = (await api.get(resource.id)).data
@@ -176,6 +183,7 @@ function trapDetailFocus(event: KeyboardEvent) {
 }
 
 watch(selected, async (current) => {
+  // 模态抽屉打开时移动焦点，关闭时还给原触发控件，方便键盘用户继续浏览。
   if (current) {
     previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     await nextTick()

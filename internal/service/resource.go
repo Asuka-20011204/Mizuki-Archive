@@ -96,6 +96,7 @@ func (resources *Resources) Upload(ctx context.Context, filename string, source 
 	if !valid {
 		return model.Resource{}, ErrUnsupportedFile
 	}
+	// 临时文件放在目标目录，避免跨文件系统移动时丢失原子重命名的前提。
 	temporary, err := os.CreateTemp(resources.dataDir, "pending-*")
 	if err != nil {
 		return model.Resource{}, fmt.Errorf("create temporary file: %w", err)
@@ -126,6 +127,7 @@ func (resources *Resources) Upload(ctx context.Context, filename string, source 
 	}
 	resource := model.Resource{ID: id, Name: name, OriginalName: name, Kind: kind, MIME: contentType, Size: written, SHA256: hex.EncodeToString(digest.Sum(nil)), StorageKey: id, CreatedAt: time.Now().UTC()}
 	if err := resources.store.SaveResource(ctx, resource); err != nil {
+		// DB 失败时尽力删除刚落盘的文件；进程崩溃窗口仍需后续孤儿文件巡检。
 		os.Remove(finalPath)
 		return model.Resource{}, fmt.Errorf("save resource: %w", err)
 	}
