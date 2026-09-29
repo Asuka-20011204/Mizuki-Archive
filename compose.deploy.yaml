@@ -1,0 +1,101 @@
+name: mizuki-archive-v6
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?set MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER:?set MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build: .
+    image: mizuki-archive-api:local
+    environment: &app_environment
+      APP_ORIGIN: ${DEPLOY_APP_ORIGIN:-http://localhost:18080}
+      APP_LISTEN_ADDR: :8080
+      APP_DATA_DIR: /srv/data/files
+      APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:?set APP_ADMIN_USERNAME}
+      APP_ADMIN_PASSWORD_HASH: ${APP_ADMIN_PASSWORD_HASH:?set APP_ADMIN_PASSWORD_HASH}
+      MYSQL_DSN: ${MYSQL_USER:?set MYSQL_USER}:${MYSQL_PASSWORD:?set MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE:?set MYSQL_DATABASE}?parseTime=true
+      PROCESSING_DELIVERY_MODE: database
+      PROCESSING_MAX_OUTSTANDING: ${PROCESSING_MAX_OUTSTANDING:-100}
+    volumes:
+      - archive_data:/srv/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    pids_limit: 128
+    restart: unless-stopped
+
+  worker:
+    image: mizuki-archive-api:local
+    command: ["/app/worker"]
+    environment:
+      <<: *app_environment
+      PROCESSING_WORKERS: ${PROCESSING_WORKERS:-2}
+    volumes:
+      - archive_data:/srv/data
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    pids_limit: 128
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    image: mizuki-archive-web:local
+    ports:
+      - "127.0.0.1:${DEPLOY_WEB_PORT:-18080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  archive_data:

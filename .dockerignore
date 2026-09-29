@@ -1,0 +1,17 @@
+.git
+.env
+.env.*
+!.env.example
+AGENTS.md
+data
+uploads
+storage
+tmp
+docs
+web
+*.pdf
+*.pem
+*.key
+*.db
+*.sqlite*
+*.log

@@ -1,8 +1,8 @@
 # Mizuki Archive
 
-面向个人的数字信息管理与处理系统（V1 资料库已完成，V2 处理闭环持续完善）。把分散的 PDF、图片、Markdown、TXT 等资料收进同一个资料库，支持整理、检索、查看，并按需生成文本或图片派生产物。它**不是**网盘复刻，也**不是**为了展示并发而造的通用任务平台。
+面向个人的数字信息管理与处理系统（V1–V6 已实现相应切片，V7 压测待量化）。把分散的 PDF、图片、Markdown、TXT 等资料收进同一个资料库，支持整理、检索、查看，并按需生成文本或图片派生产物。它**不是**网盘复刻，也**不是**为了展示并发而造的通用任务平台。
 
-> 当前状态：V1 资料管理闭环已完成；V2 已支持手动文本提取和图片缩略图。以实际代码、测试和变更记录为准；尚未完成的功能不得当成已实现。
+> 当前状态：V1 资料管理、V2 手动处理、V3 队列、V4 缓存、V5 背压与 V6 本机隔离部署/恢复各有验收记录；V7 固定负载压测尚未完成。以实际代码、测试和变更记录为准。
 
 ## 产品主线
 
@@ -15,16 +15,17 @@
 - 后端：Go + Gin + MySQL，单体 API；后续处理任务使用独立 Worker。Go 按 Model、Controller、Service、Repository 分层。
 - 前端：Vue 3 + TypeScript 作为 View；优先做好资料列表、详情、搜索和任务状态，不追求复杂后台模板。
 - 文件先放本地受控目录，数据库保存元数据；后续按真实瓶颈引入 Redis 和 RabbitMQ，不把它们设为 V1 前置条件。
-- Docker 化、压测与可选的 Kubernetes 实验放在功能可靠之后；任何性能或规模数据必须实测。
+- 本地 Docker 隔离部署已验收；固定数据集压测与可选的 Kubernetes 实验留待后续，任何性能或规模数据必须实测。
 
 架构与取舍见 [技术方案](docs/architecture.md)，分期见 [路线图](docs/roadmap.md)。
 
 ## 协作入口
 
-- [AGENTS.md](AGENTS.md)：对人和编码 Agent 同样适用的项目约束。
+- 本地 `AGENTS.md`：不提交 Git 的个人编码 Agent 协作约束；共享工程规范以本文档和 `docs/development.md` 为准。
 - [项目目录导览](docs/project-structure.md)：两个 Go `main()`、各层职责和请求调用路径。
 - [开发与 Git 规范](docs/development.md)：中文提交、分支、质量门禁、文档同步。
 - [本地启动与实测](docs/local-development.md)：按终端分步启动 MySQL、Go、Vue，并在浏览器登录验收。
+- [独立 Docker 部署与恢复](docs/deployment.md)：V6 前后端镜像、就绪检查、备份和隔离恢复操作。
 - [安全基线](docs/security.md)：私有文件、上传、鉴权、任务安全。
 - [界面方向](docs/design.md)：以 Sakurairo 的封面、白色层次与动效为主要视觉参考，不直接复制主题代码和素材。
 - [架构决策](docs/decisions/0001-product-and-stack.md)：已确定项与待验证项。

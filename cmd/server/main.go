@@ -142,7 +142,7 @@ func main() {
 	if sharedCache != nil {
 		sharedLimiter = sharedCache
 	}
-	router, err := controller.New(controller.Config{Resources: resources, Processing: processingService, Auth: auth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", RateLimiter: sharedLimiter})
+	router, err := controller.New(controller.Config{Resources: resources, Processing: processingService, Auth: auth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", RateLimiter: sharedLimiter, Ready: connection.PingContext})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}

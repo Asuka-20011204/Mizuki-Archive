@@ -23,6 +23,7 @@ Service（上传、查询、文件校验、业务规则）
 V2：Go Worker ← 持久任务记录
 V3：Go API → MySQL processing_jobs + processing_outbox（同一事务）→ RabbitMQ → Go Worker
 V4：Go API ↔ Redis（标签/任务短缓存、最近访问 ID、共享限流）
+V6：本机 Docker Web(Nginx) → API + Worker → MySQL + 共用数据卷
 ```
 
 V1 不依赖消息队列或缓存；V2 可先用数据库持久任务与受控 Worker 验证处理能力。V3 接入 MQ 时不能假设“写数据库 + 发消息”天然原子化：采用事务性 outbox 或等效方案，发布确认后再标记已投递；消费至少一次，处理结果必须幂等。
@@ -49,6 +50,8 @@ V3 消息只含版本和任务 ID。事务 Outbox 的发布确认与后置 ACK �
 V4 Redis 可丢失：标签和任务状态短时缓存，资源详情/文件下载及私有资料列表仍由 MySQL 校验，避免软删除后的旧列表重新写入缓存。最近访问只存 ID、上限 20 且 90 天到期，删除时尽力清理，查询时始终回源权限校验。共享固定窗口按网络地址限登录总请求 30 次/15 分钟，单进程继续按失败 5 次/15 分钟限制；Redis 故障退回本地保护，不宣称跨进程保障。真实吞吐增益留待 V7 基线对比。
 
 V5 背压在 MySQL 中执行：新任务创建事务先锁 `processing_capacity` 的单行，再锁来源资料，优先识别同来源/类型/哈希的可复用任务，最后统计全局 `pending + processing`。超过 `PROCESSING_MAX_OUTSTANDING`（默认 100，允许 1–1000）时回滚并返回 429；任务与 RabbitMQ Outbox 事件必须同时提交。这个上限针对待处理任务数量，不是每个用户的存储配额，也不限制已经上传的原件。数据库 Worker Pool 每进程允许 1–4 个槽位（默认 2），RabbitMQ prefetch 限于槽位数；多进程部署时总并发数是各实例槽位之和，须在压测中重新评估。任务完成或失败释放容量，过期租约继续由 Worker 接管。
+
+V6 本地 Docker 使用独立 Compose 项目隔离开发库。Web 在本机环回端口同源代理 API，API/Worker 不暴露宿主端口、共用原件/派生产物卷；数据库卷独立。`/healthz` 只看 HTTP 进程，`/readyz` 限时检查 MySQL。容器非 root 且只读根目录，数据库访问不是 root，但启动迁移仍需项目库内的 DDL 权限；公网生产需拆分迁移账号及 TLS/网关/密钥管理。参见 [部署与恢复](deployment.md)。
 
 ## 领域草模
 

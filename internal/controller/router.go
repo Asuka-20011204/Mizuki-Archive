@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -20,6 +21,7 @@ type Config struct {
 	Origin       string
 	SecureCookie bool
 	RateLimiter  cache.RateLimiter
+	Ready        func(context.Context) error
 }
 
 type Controller struct {
@@ -41,6 +43,20 @@ func New(config Config) (*gin.Engine, error) {
 	engine.Use(handler.headersAndOrigin)
 	// 健康检查回调只报告进程存活，不查询数据库，也不返回私有资料或配置细节。
 	engine.GET("/healthz", func(ctx *gin.Context) { ctx.Status(http.StatusNoContent) })
+	// 就绪探针仅检查关键数据库依赖，不返回数据库错误或私有配置。
+	engine.GET("/readyz", func(ctx *gin.Context) {
+		if config.Ready == nil {
+			ctx.Status(http.StatusServiceUnavailable)
+			return
+		}
+		checkCtx, cancel := context.WithTimeout(ctx.Request.Context(), 2*time.Second)
+		defer cancel()
+		if err := config.Ready(checkCtx); err != nil {
+			ctx.Status(http.StatusServiceUnavailable)
+			return
+		}
+		ctx.Status(http.StatusNoContent)
+	})
 	engine.POST("/api/login", handler.login)
 	private := engine.Group("/api", handler.requireSession)
 	// 身份回调只在会话中间件通过后返回服务端用户名，不信任浏览器提交的身份。

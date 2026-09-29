@@ -51,6 +51,9 @@ Mizuki Archive/
 ├── web/                               # Vue 3 + TypeScript View
 ├── docs/                              # 产品、架构、安全、设计和变更记录
 ├── compose.yaml                       # MySQL 与可选 RabbitMQ/Redis 容器
+├── compose.deploy.yaml                # V6 独立单机编排：Web/API/Worker/MySQL
+├── Dockerfile                         # Go API 与 Worker 的非 root 镜像
+├── web/Dockerfile、web/nginx.conf      # Vue 静态构建和同源反向代理
 ├── .env.example                       # 仅示例变量，真实 .env 不入库
 └── go.mod / go.sum                    # Go 模块与依赖校验
 ```
@@ -80,6 +83,7 @@ Mizuki Archive/
 | 文件格式/上传限制 | `internal/service/resource.go` | Controller 测试、`docs/security.md` |
 | 数据库字段/查询 | `internal/model/resource.go`、`internal/repository/mysql_gorm.go`、`migrations/` | 迁移/回滚设计、`docs/architecture.md`、`docs/backup-restore.md` |
 | 本地启动配置 | `cmd/server/main.go`、`.env.example`、`compose.yaml` | `README.md` |
+| 独立 Docker 部署/恢复 | `compose.deploy.yaml`、`Dockerfile`、`web/nginx.conf` | `docs/deployment.md`、`docs/security.md` |
 
 不建议在 `main()` 中写业务逻辑，也不应在 Controller 中直接写 GORM 查询。中文注释重点解释安全边界、失败补偿和架构取舍；简单赋值不逐行复述。
 

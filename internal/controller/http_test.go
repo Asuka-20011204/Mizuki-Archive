@@ -153,12 +153,45 @@ func testServer(t *testing.T) (http.Handler, *memoryStore, string) {
 		t.Fatal(err)
 	}
 	server, err := New(Config{
-		Resources: resourceService, Auth: authService, Origin: "http://localhost:5173",
+		Resources: resourceService, Auth: authService, Origin: "http://localhost:5173", Ready: func(context.Context) error { return nil },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return server, store, dataDir
+}
+
+// TestReadinessDistinguishesDatabaseFailure 确认存活探针不会误报数据库就绪，且就绪失败不泄漏内部错误。
+func TestReadinessDistinguishesDatabaseFailure(t *testing.T) {
+	server, _, _ := testServer(t)
+	liveness := httptest.NewRecorder()
+	server.ServeHTTP(liveness, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if liveness.Code != http.StatusNoContent {
+		t.Fatalf("liveness returned %d", liveness.Code)
+	}
+	readiness := httptest.NewRecorder()
+	server.ServeHTTP(readiness, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if readiness.Code != http.StatusNoContent {
+		t.Fatalf("readiness returned %d", readiness.Code)
+	}
+	missing, err := New(Config{Resources: &service.Resources{}, Auth: &service.Auth{}, Origin: "http://localhost:5173"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unconfigured := httptest.NewRecorder()
+	missing.ServeHTTP(unconfigured, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if unconfigured.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unconfigured readiness returned %d", unconfigured.Code)
+	}
+	server, err = New(Config{Resources: &service.Resources{}, Auth: &service.Auth{}, Origin: "http://localhost:5173", Ready: func(context.Context) error { return errors.New("secret-database-path") }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailable := httptest.NewRecorder()
+	server.ServeHTTP(unavailable, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if unavailable.Code != http.StatusServiceUnavailable || strings.Contains(unavailable.Body.String(), "secret-database-path") {
+		t.Fatalf("readiness leak: code=%d, body=%q", unavailable.Code, unavailable.Body.String())
+	}
 }
 
 // login 用正确测试凭据获取 HttpOnly Cookie，供后续私有接口复用。
