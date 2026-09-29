@@ -68,6 +68,42 @@ const kinds = [
 // sectionName 的计算回调从类型表查找当前标题；找不到时回退为“全部资料”。
 const sectionName = computed(() => kinds.find((item) => item.value === kind.value)?.label || '全部资料')
 
+// PublicView 控制未登录前台的单屏内容切换，避免宣传内容堆成长页面。
+type PublicView = 'home' | 'features' | 'principles' | 'privacy' | 'contact' | 'login'
+const publicViews: PublicView[] = ['home', 'features', 'principles', 'privacy', 'contact', 'login']
+const publicView = ref<PublicView>('home')
+const qqCopyStatus = ref('')
+
+// syncPublicViewFromURL 支持刷新直达和浏览器前进/后退；无效片段回到首页。
+function syncPublicViewFromURL() {
+  const view = window.location.hash.slice(1) as PublicView
+  publicView.value = publicViews.includes(view) ? view : 'home'
+}
+
+// showPublicView 用浏览器历史记录切换视图，保留查询参数和可分享地址。
+function showPublicView(view: PublicView) {
+  if (publicView.value === view) return
+  window.history.pushState(null, '', `${window.location.pathname}${window.location.search}${view === 'home' ? '' : `#${view}`}`)
+  publicView.value = view
+  qqCopyStatus.value = ''
+  window.scrollTo({ top: 0, behavior: 'auto' })
+}
+
+// focusPublicHeading 在过场后把键盘焦点交给新视图的标题。
+function focusPublicHeading() {
+  document.querySelector<HTMLElement>('.public-view-stage h1')?.focus({ preventScroll: true })
+}
+
+// copyContactQQ 将公开 QQ 号码复制到剪贴板，失败时保留可手动选择的号码。
+async function copyContactQQ() {
+  try {
+    await navigator.clipboard.writeText('3178203745')
+    qqCopyStatus.value = 'QQ 号码已复制'
+  } catch {
+    qqCopyStatus.value = '复制失败，请手动选择号码'
+  }
+}
+
 // archiveStats 只统计当前服务端返回的视图，避免把分页数据误报成整库总量。
 const archiveStats = computed(() => {
   const favoriteCount = resources.value.filter((resource) => resource.favorite).length
@@ -566,12 +602,17 @@ watch([search, kind, tagFilter, page], (_current, _previous, onCleanup) => {
 // 模态详情打开期间在文档级处理键盘；即使异步任务使焦点暂时离开抽屉，Escape 和 Tab 仍有效。
 onMounted(() => {
   document.addEventListener('keydown', trapDetailFocus)
+  window.addEventListener('popstate', syncPublicViewFromURL)
+  window.addEventListener('hashchange', syncPublicViewFromURL)
+  syncPublicViewFromURL()
   void checkSession()
 })
 // 离开页面时同时清理任务轮询与键盘监听，避免组件销毁后继续处理用户输入。
 onUnmounted(() => {
   stopJobPolling()
   document.removeEventListener('keydown', trapDetailFocus)
+  window.removeEventListener('popstate', syncPublicViewFromURL)
+  window.removeEventListener('hashchange', syncPublicViewFromURL)
 })
 </script>
 
@@ -581,11 +622,13 @@ onUnmounted(() => {
   <main v-else-if="!username" class="login-screen">
     <div class="public-shell">
       <header class="public-header">
-        <div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div>
+        <button class="brand brand-button" type="button" aria-label="返回首页" @click="showPublicView('home')"><span class="brand-mark">水</span><span>Mizuki Archive</span></button>
         <nav class="public-nav" aria-label="前台导航">
-          <a href="#public-features">产品</a>
-          <a href="#public-principles">原则</a>
-          <a href="#login-title">登录</a>
+          <a href="#features" :aria-current="publicView === 'features' ? 'page' : undefined" @click.prevent="showPublicView('features')">产品</a>
+          <a href="#principles" :aria-current="publicView === 'principles' ? 'page' : undefined" @click.prevent="showPublicView('principles')">原则</a>
+          <a href="#privacy" :aria-current="publicView === 'privacy' ? 'page' : undefined" @click.prevent="showPublicView('privacy')">隐私</a>
+          <a href="#contact" :aria-current="publicView === 'contact' ? 'page' : undefined" @click.prevent="showPublicView('contact')">联系</a>
+          <a href="#login" :aria-current="publicView === 'login' ? 'page' : undefined" @click.prevent="showPublicView('login')">登录</a>
         </nav>
         <div class="public-header-right">
           <span class="public-header-note"><span class="status-dot" aria-hidden="true"></span> PRIVATE · LOCAL FIRST</span>
@@ -593,75 +636,68 @@ onUnmounted(() => {
         </div>
       </header>
 
-      <section class="public-hero" aria-labelledby="public-title">
-        <div class="public-copy">
-          <p class="eyebrow">A QUIET SYSTEM FOR WHAT MATTERS</p>
-          <h1 id="public-title">把分散的资料，<em>整理成自己的秩序。</em></h1>
-          <p class="public-lede">Mizuki Archive 是一个为个人而生的数字资料空间。收进来、找得到、继续处理，让文件不再只是被保存，而是随时可以被重新使用。</p>
-          <div class="public-actions">
-            <a class="public-cta" href="#login-title">打开我的资料库 <span aria-hidden="true">↗</span></a>
-            <span class="public-action-note">单人使用 · 登录后可见</span>
+      <Transition name="public-view" mode="out-in" @after-enter="focusPublicHeading">
+        <section v-if="publicView === 'home'" key="home" class="public-view-stage public-home-view" aria-labelledby="public-title">
+          <div class="public-hero">
+            <div class="public-copy">
+              <p class="eyebrow">A QUIET SYSTEM FOR WHAT MATTERS</p>
+              <h1 id="public-title" tabindex="-1">把分散的资料，<em>整理成自己的秩序。</em></h1>
+              <p class="public-lede">Mizuki Archive 是一个为个人而生的数字资料空间。收进来、找得到、继续处理，让文件不再只是被保存，而是随时可以被重新使用。</p>
+              <div class="public-actions"><a class="public-cta" href="#login" @click.prevent="showPublicView('login')">打开我的资料库 <span aria-hidden="true">↗</span></a><span class="public-action-note">单人使用 · 登录后可见</span></div>
+              <div class="public-proof" aria-label="产品能力概览"><span><strong>01</strong> 收纳</span><span><strong>02</strong> 检索</span><span><strong>03</strong> 处理</span></div>
+            </div>
+            <div class="hero-stage" aria-hidden="true">
+              <div class="stage-orbit stage-orbit-one"></div><div class="stage-orbit stage-orbit-two"></div><div class="stage-label stage-label-top">PRIVATE ARCHIVE / 2026</div>
+              <div class="stage-card stage-card-back"><span>INDEX / 03</span><strong>Notes<br />& traces</strong></div>
+              <div class="stage-card stage-card-main"><div class="stage-card-head"><span class="stage-card-mark">水</span><span>ARCHIVE / 01</span><span>•••</span></div><div class="stage-card-line stage-card-line-long"></div><div class="stage-card-line stage-card-line-short"></div><div class="stage-card-file"><span class="stage-file-icon">PDF</span><span><b>一份资料</b><small>Organized for later</small></span><span class="stage-arrow">↗</span></div><div class="stage-card-tags"><i>#收藏</i><i>#可检索</i><i>#私有</i></div></div>
+              <div class="stage-card stage-card-front"><span class="stage-mini-index">03</span><strong>Find<br />your way<br />back.</strong><span class="stage-mini-line"></span></div><div class="stage-caption"><span>管</span><span>找</span><span>处理</span></div>
+            </div>
           </div>
-          <div class="public-proof" aria-label="产品能力概览">
-            <span><strong>01</strong> 收纳</span>
-            <span><strong>02</strong> 检索</span>
-            <span><strong>03</strong> 处理</span>
+        </section>
+
+        <section v-else-if="publicView === 'features'" key="features" class="public-view-stage public-features-view" aria-labelledby="features-title">
+          <div class="public-page-heading"><p class="eyebrow">THE ARCHIVE SYSTEM</p><h1 id="features-title" tabindex="-1">不是把文件堆起来，<br /><em>而是让它们重新有用。</em></h1><p>为游戏资源、学习资料、创作素材和日常文件建立一条清晰的回路。</p></div>
+          <div class="public-feature-grid" aria-label="产品特点"><article><span class="feature-index">01 / COLLECT</span><h2>先把资料收进来。</h2><p>文件、图片、PDF 和文字拥有统一入口，不需要先想好复杂的分类。</p></article><article><span class="feature-index">02 / RETURN</span><h2>再把它们找回来。</h2><p>关键词、标签、收藏和最近查看，让你从当下的需要出发。</p></article><article><span class="feature-index">03 / PROCESS</span><h2>让资料继续发生。</h2><p>文本提取和图片处理在后台完成，结果与原件并存并可追踪。</p></article></div>
+          <button class="view-back-link" type="button" @click="showPublicView('home')">← 返回首页</button>
+        </section>
+
+        <section v-else-if="publicView === 'principles'" key="principles" class="public-view-stage public-principles-view" aria-labelledby="principles-title">
+          <div class="principles-heading"><p class="eyebrow">THE ARCHIVE PRINCIPLES</p><h1 id="principles-title" tabindex="-1">安静、私有，<br />并且始终可找回。</h1><p>高端感不只来自视觉，也来自产品对边界和细节的尊重。</p></div>
+          <div class="principles-list"><article><span>01 / PRIVATE BY DEFAULT</span><h2>你的资料不做展品。</h2><p>未登录时不加载私有列表；进入资料库后，服务端会话才决定你能看到什么。</p></article><article><span>02 / ORIGINALS STAY INTACT</span><h2>原件和处理结果分开保留。</h2><p>文本提取、缩略图等派生产物不会覆盖原件，每次处理都有状态和结果可追踪。</p></article><article><span>03 / MADE TO RETURN TO</span><h2>不是囤积，是为了再次使用。</h2><p>从名称、标签、收藏到最近查看，让资料在需要的时候回到你的手边。</p></article></div>
+          <button class="view-back-link" type="button" @click="showPublicView('home')">← 返回首页</button>
+        </section>
+
+        <section v-else-if="publicView === 'privacy'" key="privacy" class="public-view-stage public-privacy-view" aria-labelledby="privacy-title">
+          <div class="privacy-heading"><p class="eyebrow">PRIVACY, WITHOUT THE FINE PRINT</p><h1 id="privacy-title" tabindex="-1">你的资料，<br /><em>不该成为<br />公开内容。</em></h1><p>这里说明当前版本实际如何使用和保存资料，也坦诚说明尚未解决的边界。</p><span class="privacy-version">隐私说明 · 2026-09-29</span></div>
+          <div class="privacy-content">
+            <p class="privacy-lead">当前前台只提供已有账号登录，访客只能浏览公开介绍，<strong>不能自行注册、上传或查看库内文件。</strong>多用户隔离尚未完成上线验收，请勿将本版本当作可接收他人敏感资料的公共服务。</p>
+            <div class="privacy-points">
+              <article><span>01 / COLLECT</span><div><h2>上传了什么</h2><p>登录后保存原始文件、名称、类型、标签等元数据；按需处理时会保存提取文本或缩略图，登录会使用会话 Cookie。</p></div></article>
+              <article><span>02 / ACCESS</span><div><h2>谁能访问</h2><p>资源列表、预览、下载和处理接口要求有效登录会话；文件不作为公开静态目录提供。请勿上传无权保存的他人敏感资料。</p></div></article>
+              <article><span>03 / RETENTION</span><div><h2>删除与备份</h2><p>当前管理员删除后资料从列表隐藏，系统会尝试清理原件；派生文件、软删除元数据和已有备份可能继续留存。目前没有承诺统一的彻底删除期限。</p></div></article>
+              <article><span>04 / CONTACT</span><div><h2>遇到隐私问题</h2><p>不承诺网络或存储绝对安全。若发现异常访问、误上传或希望询问数据处理方式，请通过 <a href="#contact" @click.prevent="showPublicView('contact')">联系页的 QQ</a> 告知，便于核查和处理。</p></div></article>
+            </div>
+            <p class="privacy-caveat">本页描述当前产品行为，不是“绝对安全”或免除责任的保证；若将来开放他人上传，需先制定正式隐私政策、保留期限与问题处理流程。</p>
+            <button class="view-back-link" type="button" @click="showPublicView('home')">← 返回首页</button>
           </div>
-        </div>
-        <div class="hero-stage" aria-hidden="true">
-          <div class="stage-orbit stage-orbit-one"></div>
-          <div class="stage-orbit stage-orbit-two"></div>
-          <div class="stage-label stage-label-top">PRIVATE ARCHIVE / 2026</div>
-          <div class="stage-card stage-card-back"><span>INDEX / 03</span><strong>Notes<br />& traces</strong></div>
-          <div class="stage-card stage-card-main">
-            <div class="stage-card-head"><span class="stage-card-mark">水</span><span>ARCHIVE / 01</span><span>•••</span></div>
-            <div class="stage-card-line stage-card-line-long"></div>
-            <div class="stage-card-line stage-card-line-short"></div>
-            <div class="stage-card-file"><span class="stage-file-icon">PDF</span><span><b>一份资料</b><small>Organized for later</small></span><span class="stage-arrow">↗</span></div>
-            <div class="stage-card-tags"><i>#收藏</i><i>#可检索</i><i>#私有</i></div>
-          </div>
-          <div class="stage-card stage-card-front"><span class="stage-mini-index">03</span><strong>Find<br />your way<br />back.</strong><span class="stage-mini-line"></span></div>
-          <div class="stage-caption"><span>管</span><span>找</span><span>处理</span></div>
-        </div>
-      </section>
+        </section>
 
-      <section id="public-features" class="public-feature-grid" aria-label="产品特点">
-        <article><span class="feature-index">01 / COLLECT</span><h2>先把资料收进来。</h2><p>文件、图片、PDF 和文字拥有统一的入口，不需要先想好复杂的分类。</p></article>
-        <article><span class="feature-index">02 / RETURN</span><h2>再把它们找回来。</h2><p>关键词、标签、收藏和最近查看，让你从当下的需要出发，而不是回忆目录结构。</p></article>
-        <article><span class="feature-index">03 / PROCESS</span><h2>让资料继续发生。</h2><p>文本提取和图片处理在后台完成，结果与原件并存，保留每次处理的来路。</p></article>
-      </section>
+        <section v-else-if="publicView === 'contact'" key="contact" class="public-view-stage public-contact-view" aria-labelledby="contact-title">
+          <div class="public-page-heading"><p class="eyebrow">KEEP IN TOUCH</p><h1 id="contact-title" tabindex="-1">一个项目，<br /><em>也应该有自己的来处。</em></h1><p>欢迎通过下面的入口了解项目、查看源码，或联系我交流想法。</p></div>
+          <div class="contact-grid"><a class="contact-card" href="https://github.com/Asuka-20011204/Mizuki-Archive" target="_blank" rel="noreferrer"><span>OPEN SOURCE / 01</span><strong>GitHub</strong><small>查看项目源码与开发记录</small><b aria-hidden="true">↗</b></a><a class="contact-card" href="http://admin.asuka2001.cloud/" target="_blank" rel="noreferrer"><span>PERSONAL SPACE / 02</span><strong>博客 / 联系</strong><small>在博客中了解更多，也可以联系我</small><b aria-hidden="true">↗</b></a><button class="contact-card contact-card-qq" type="button" @click="copyContactQQ"><span>DIRECT CONTACT / 03</span><strong>QQ 3178203745</strong><small>点击复制 QQ 号码，也可手动记录</small><b aria-hidden="true">⧉</b></button></div>
+          <p class="qq-copy-status" role="status">{{ qqCopyStatus }}</p>
+          <button class="view-back-link" type="button" @click="showPublicView('home')">← 返回首页</button>
+        </section>
 
-      <section id="public-principles" class="public-principles" aria-labelledby="principles-title">
-        <div class="principles-heading"><p class="eyebrow">THE ARCHIVE PRINCIPLES</p><h2 id="principles-title">安静、私有，<br />并且始终可找回。</h2></div>
-        <div class="principles-list">
-          <article><span>01 / PRIVATE BY DEFAULT</span><h3>你的资料不做展品。</h3><p>未登录时不加载私有列表；进入资料库后，服务端会话才决定你能看到什么。</p></article>
-          <article><span>02 / ORIGINALS STAY INTACT</span><h3>原件和处理结果分开保留。</h3><p>文本提取、缩略图等派生产物不会覆盖原件，每次处理都有状态和结果可追踪。</p></article>
-          <article><span>03 / MADE TO RETURN TO</span><h3>不是囤积，是为了再次使用。</h3><p>从名称、标签、收藏到最近查看，让资料在需要的时候回到你的手边。</p></article>
-        </div>
-      </section>
+        <section v-else key="login" class="public-view-stage public-login-view" aria-labelledby="login-heading">
+          <section class="login-card" aria-labelledby="login-heading"><div class="login-card-intro"><span class="login-card-kicker">YOUR PRIVATE INDEX</span><span class="login-card-count">MIZUKI / 01</span></div><div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div><p class="eyebrow">PRIVATE ARCHIVE</p><h1 id="login-heading" tabindex="-1">欢迎回来</h1><p class="login-description">从这里继续整理、查找和取回你的资料。</p><form class="login-form" @submit.prevent="login"><label for="username">管理员账号</label><input id="username" v-model="loginName" autocomplete="username" required placeholder="输入账号" /><label for="password">密码</label><input id="password" v-model="password" type="password" autocomplete="current-password" required placeholder="输入密码" /><p v-if="error" class="form-error" role="alert">{{ error }}</p><button class="primary-button" type="submit" :disabled="loggingIn">{{ loggingIn ? '正在进入…' : '进入资料库' }} <span aria-hidden="true">↗</span></button></form><p class="login-footnote">私人资料库 · 请勿在共享设备上保持登录</p></section>
+          <button class="view-back-link" type="button" @click="showPublicView('home')">← 返回首页</button>
+        </section>
+      </Transition>
 
-      <section id="login-title" class="login-card" aria-labelledby="login-heading">
-        <div class="login-card-intro"><span class="login-card-kicker">YOUR PRIVATE INDEX</span><span class="login-card-count">MIZUKI / 01</span></div>
-        <div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div>
-        <p class="eyebrow">PRIVATE ARCHIVE</p>
-        <h2 id="login-heading">欢迎回来</h2>
-        <p class="login-description">从这里继续整理、查找和取回你的资料。</p>
-        <form class="login-form" @submit.prevent="login">
-          <label for="username">管理员账号</label>
-          <input id="username" v-model="loginName" autocomplete="username" required placeholder="输入账号" />
-          <label for="password">密码</label>
-          <input id="password" v-model="password" type="password" autocomplete="current-password" required placeholder="输入密码" />
-          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-          <button class="primary-button" type="submit" :disabled="loggingIn">
-            {{ loggingIn ? '正在进入…' : '进入资料库' }} <span aria-hidden="true">↗</span>
-          </button>
-        </form>
-        <p class="login-footnote">私人资料库 · 请勿在共享设备上保持登录</p>
-      </section>
-      <footer class="public-footer"><span>© Mizuki Archive · Designed for a life of collected things.</span><nav class="public-footer-links" aria-label="外部链接"><a href="https://github.com/Asuka-20011204/Mizuki-Archive" target="_blank" rel="noreferrer">GitHub</a><a href="http://admin.asuka2001.cloud/" target="_blank" rel="noreferrer">博客 / 联系</a><a href="#login-title">进入资料库</a></nav></footer>
+      <footer class="public-footer"><span>© Mizuki Archive · Designed for a life of collected things.</span><nav class="public-footer-links" aria-label="站点与联系链接"><a href="#privacy" @click.prevent="showPublicView('privacy')">隐私说明</a><a href="https://github.com/Asuka-20011204/Mizuki-Archive" target="_blank" rel="noreferrer">GitHub ↗</a><a href="http://admin.asuka2001.cloud/" target="_blank" rel="noreferrer">博客 / 联系 ↗</a><button type="button" @click="showPublicView('contact')">QQ 3178203745</button></nav></footer>
     </div>
   </main>
-
   <div v-else class="workspace">
     <header class="site-header">
       <div class="site-header-inner">

@@ -103,7 +103,9 @@
   .archive-stat { min-height: 56px; padding: 0 11px; }
   .archive-stat strong { font-size: 25px; }
   .welcome-manifest { display: none; }
-}@media (max-width: 900px) {
+}
+
+@media (max-width: 900px) {
   .public-principles { grid-template-columns: 1fr; gap: 42px; padding: 72px 0 78px; }
 }
 
@@ -116,4 +118,49 @@
   .principles-list article { padding: 23px 0; }
   .principles-list article + article { border-top: 1px solid #dbe3df; border-left: 0; }
   .public-footer-links { flex-wrap: wrap; gap: 15px 20px; }
+}
+
+@media (max-width: 900px) {
+  .public-features-view, .public-principles-view, .public-contact-view, .public-login-view { min-height: calc(100dvh - 100px); padding-top: 36px; }
+  .public-privacy-view { grid-template-columns: 1fr; gap: 28px; }
+  .privacy-heading > p:not(.eyebrow) { max-width: 620px; }
+  .privacy-version { margin-top: 16px; }
+  .public-principles-view { grid-template-columns: 1fr; gap: 36px; }
+  .public-principles-view .principles-list { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 680px) {
+  .public-home-view { min-height: calc(100dvh - 82px); }
+  .public-home-view .public-hero { padding-top: 36px; padding-bottom: 22px; }
+  .public-features-view, .public-principles-view, .public-contact-view, .public-login-view { min-height: calc(100dvh - 82px); padding: 28px 0 14px; }
+  .public-page-heading h1 { font-size: clamp(35px, 10vw, 52px); }
+  .public-features-view .public-feature-grid { margin-top: 30px; }
+  .public-features-view .public-feature-grid article { min-height: auto; padding: 18px 0; }
+  .public-principles-view .principles-list { grid-template-columns: 1fr; }
+  .public-principles-view .principles-list article { padding: 18px 0; }
+  .public-principles-view .principles-list article + article { border-top: 1px solid #dbe3df; border-left: 0; }
+  .contact-grid { grid-template-columns: 1fr; gap: 0; margin-top: 30px; }
+  .contact-card, .contact-card + .contact-card { min-height: 112px; border-right: 0; border-left: 0; padding: 15px 0; }
+  .contact-card + .contact-card { border-top: 0; }
+  .contact-card strong { font-size: 20px; }
+  .contact-card b { right: 0; bottom: 15px; }
+  .view-back-link { margin-top: 24px; }
+}
+@media (max-width: 680px) {
+  .public-home-view, .public-features-view, .public-principles-view, .public-contact-view, .public-login-view { min-height: 0; }
+  .public-contact-view { padding-top: 16px; padding-bottom: 6px; }
+  .public-contact-view .contact-grid { margin-top: 20px; }
+  .public-contact-view .contact-card, .public-contact-view .contact-card + .contact-card { min-height: 90px; padding: 10px 0; }
+  .public-contact-view .view-back-link { margin-top: 12px; }
+  .public-privacy-view { gap: 24px; padding: 28px 0 18px; }
+  .privacy-heading h1 { font-size: clamp(30px, 9vw, 52px); }
+  .privacy-lead { padding-left: 14px; font-size: 13px; }
+  .privacy-points article { grid-template-columns: 1fr; gap: 7px; padding: 15px 0; }
+  .privacy-points article > span { padding: 0; }
+}
+@media (max-width: 380px) {
+  .public-header .brand-button { flex: 0 0 32px; }
+  .public-header .brand-button span:last-child { display: none; }
+  .public-nav { gap: 12px; white-space: nowrap; }
+  .public-nav a { font-size: 11px; }
 }
