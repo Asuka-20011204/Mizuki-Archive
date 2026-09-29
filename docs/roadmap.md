@@ -33,4 +33,4 @@ V1 退出条件：
 
 ## 下一阶段设计入口
 
-V2 不直接引入 Redis 或 RabbitMQ，先围绕一个真实处理能力建立 `ProcessingJob`、状态机、单进程 Worker、超时、有限重试、失败摘要和结果文件记录。下一轮将新增 `docs/decisions/0004-v2-processing-jobs.md` 设计草案；在用户确认首个处理类型和验收数据集前，不开始写 Worker 代码。
+V2 不直接引入 Redis 或 RabbitMQ，先围绕一个真实处理能力建立 `ProcessingJob`、状态机、单进程 Worker、超时、有限重试、失败摘要和结果文件记录。V2 设计草案已记录在 `docs/decisions/0004-v2-processing-jobs.md`；在用户确认首个处理类型和验收数据集前，不开始写 Worker 代码。
