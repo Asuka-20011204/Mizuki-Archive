@@ -308,6 +308,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 2, name: "manual_tags", sql: manualTagsMigration},
 		{version: 3, name: "soft_delete", sql: softDeleteMigration},
 		{version: 4, name: "processing_jobs", sql: processingJobsMigration},
+		{version: 5, name: "processing_outbox", sql: processingOutboxMigration},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int

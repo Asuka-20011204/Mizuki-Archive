@@ -2,6 +2,22 @@
 
 以下命令从项目的仓库根目录开始。准备 **三个 PowerShell 终端**：数据库命令、Go API、Vue 开发服务器；每次新开终端先切换到仓库根目录。Go API 会自动读取根目录 `.env`，系统环境变量优先于文件中的同名值。不要把密码、哈希或个人文件提交到 Git；示例值要改成本机独有值。
 
+## 可选 V3/V4 服务
+
+默认 `docker compose up -d mysql` 只启动 MySQL。启用 RabbitMQ 前，在 `.env` 设置独立的 `RABBITMQ_USER`、`RABBITMQ_PASSWORD`、`RABBITMQ_URL`，然后运行 `docker compose --profile v3 up -d rabbitmq`。API 与 Worker 均设置 `PROCESSING_DELIVERY_MODE=rabbit`；只运行一个任务模式的 Worker。回退时停止 RabbitMQ Worker，改为 `database` 后重启，Outbox 数据仍保留在 MySQL。
+
+启用 Redis 前，在 `.env` 设置非空 `REDIS_PASSWORD` 和一致的 `REDIS_URL`，运行 `docker compose --profile v4 up -d redis`。默认主机端口是 `6381`（容器内 `6379`），如需调整 `REDIS_HOST_PORT` 必须同步 URL。Redis 停止后缓存回源 MySQL，但跨进程限流不再保证。不要把 `.env`、真实个人资料或容器卷提交 Git。
+
+浏览器仍打开 `http://localhost:5173/`：登录、上传可处理资料、进入详情并手动发起任务，观察状态、派生产物查看/下载和关键词搜索。RabbitMQ/Redis 后台能力不能仅靠页面成功展示证明断线、重复消息和故障降级已经验收。
+
+## 可选 V3/V4 服务
+
+默认 `docker compose up -d mysql` 只启动 MySQL。启用 RabbitMQ 前，在 `.env` 设置独立的 `RABBITMQ_USER`、`RABBITMQ_PASSWORD`、`RABBITMQ_URL`，然后运行 `docker compose --profile v3 up -d rabbitmq`。API 与 Worker 均设置 `PROCESSING_DELIVERY_MODE=rabbit`；只运行一个任务模式的 Worker。回退时停止 RabbitMQ Worker，改为 `database` 后重启，Outbox 数据仍保留在 MySQL。
+
+启用 Redis 前，在 `.env` 设置非空 `REDIS_PASSWORD` 和一致的 `REDIS_URL`，运行 `docker compose --profile v4 up -d redis`。默认主机端口是 `6381`（容器内 `6379`），如需调整 `REDIS_HOST_PORT` 必须同步 URL。Redis 停止后缓存回源 MySQL，但跨进程限流不再保证。不要把 `.env`、真实个人资料或容器卷提交 Git。
+
+浏览器仍打开 `http://localhost:5173/`：登录、上传可处理资料、进入详情并手动发起任务，观察状态、派生产物查看/下载和关键词搜索。RabbitMQ/Redis 后台能力不能仅靠页面成功展示证明断线、重复消息和故障降级已经验收。
+
 ## 1. 准备 MySQL
 
 启动 Docker Desktop，确认 `docker info` 成功。在仓库根目录执行：

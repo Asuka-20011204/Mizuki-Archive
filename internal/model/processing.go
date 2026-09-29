@@ -21,6 +21,15 @@ const (
 	DerivedAssetText = "extracted_text"
 	// DerivedAssetThumbnail 表示由图片原件生成的 PNG 缩略图派生文件。
 	DerivedAssetThumbnail = "thumbnail"
+
+	// OutboxStatusPending 表示任务事件等待发布到 RabbitMQ。
+	OutboxStatusPending = "pending"
+	// OutboxStatusPublishing 表示某个发布者暂时持有事件租约。
+	OutboxStatusPublishing = "publishing"
+	// OutboxStatusPublished 表示 RabbitMQ 已返回发布确认。
+	OutboxStatusPublished = "published"
+	// OutboxStatusDead 表示超过发布重试上限，等待人工排查。
+	OutboxStatusDead = "dead"
 )
 
 // ProcessingJob 描述一次手动触发的资料处理任务和当前状态。
@@ -60,4 +69,18 @@ type DerivedAsset struct {
 // ProcessingSummary 是资料详情中用于显示的任务摘要，避免列表接口携带大字段。
 type ProcessingSummary struct {
 	Jobs []ProcessingJob `json:"jobs"`
+}
+
+// ProcessingOutbox 描述一条只包含任务 ID 的待发布事件，不携带原始文件或提取正文。
+type ProcessingOutbox struct {
+	ID          string     `json:"id"`
+	JobID       string     `json:"job_id"`
+	Status      string     `json:"status"`
+	Attempts    int        `json:"attempts"`
+	AvailableAt time.Time  `json:"available_at"`
+	LeaseUntil  *time.Time `json:"-"`
+	LeaseToken  string     `json:"-"`
+	LastError   string     `json:"last_error,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	PublishedAt *time.Time `json:"published_at,omitempty"`
 }

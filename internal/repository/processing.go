@@ -95,6 +95,36 @@ func (store *MySQL) CreateProcessingJob(ctx context.Context, job model.Processin
 	return nil
 }
 
+// CreateProcessingJobWithOutbox 在同一个 MySQL 事务中写入任务和初始投递事件，避免任务已创建但消息未生成。
+func (store *MySQL) CreateProcessingJobWithOutbox(ctx context.Context, job model.ProcessingJob) error {
+	eventID, err := newProcessingID()
+	if err != nil {
+		return err
+	}
+	return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var resource struct{ ID string }
+		if err := tx.Table("resources").Where("id = ? AND deleted_at IS NULL", job.ResourceID).Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").Take(&resource).Error; err != nil {
+			return fmt.Errorf("lock processing resource: %w", err)
+		}
+		var count int64
+		if err := tx.Table("processing_jobs").Where("resource_id = ? AND type = ? AND source_sha256 = ? AND status IN ?", job.ResourceID, job.Type, job.SourceSHA256, []string{model.ProcessingStatusPending, model.ProcessingStatusProcessing, model.ProcessingStatusSucceeded}).Count(&count).Error; err != nil {
+			return fmt.Errorf("check duplicate processing job: %w", err)
+		}
+		if count != 0 {
+			return ErrProcessingJobExists
+		}
+		row := processingJobRow{ID: job.ID, ResourceID: job.ResourceID, Type: job.Type, SourceSHA256: job.SourceSHA256, Status: job.Status, Attempts: job.Attempts, MaxAttempts: job.MaxAttempts, AvailableAt: job.AvailableAt, CreatedAt: job.CreatedAt}
+		if err := tx.Table("processing_jobs").Create(&row).Error; err != nil {
+			return fmt.Errorf("create processing job with outbox: %w", err)
+		}
+		outbox := processingOutboxRow{ID: eventID, JobID: job.ID, Status: model.OutboxStatusPending, AvailableAt: job.AvailableAt, CreatedAt: job.CreatedAt}
+		if err := tx.Table("processing_outbox").Create(&outbox).Error; err != nil {
+			return fmt.Errorf("create processing outbox: %w", err)
+		}
+		return nil
+	})
+}
+
 // GetProcessingJob 获取单个任务并在成功时附带派生产物元数据。
 func (store *MySQL) GetProcessingJob(ctx context.Context, id string) (model.ProcessingJob, error) {
 	var row processingJobRow
@@ -154,6 +184,9 @@ func (store *MySQL) ClaimNextProcessingJob(ctx context.Context, now time.Time) (
 		if query.Error != nil {
 			return fmt.Errorf("claim processing job: %w", query.Error)
 		}
+		if row.Attempts >= row.MaxAttempts {
+			return failExhaustedProcessingJob(tx, row.ID, now)
+		}
 		started := now
 		updates := map[string]any{"status": model.ProcessingStatusProcessing, "attempts": gorm.Expr("attempts + 1"), "lease_until": leaseUntil, "lease_token": leaseToken, "started_at": started, "finished_at": nil, "last_error": ""}
 		if err := tx.Table("processing_jobs").Where("id = ?", row.ID).Updates(updates).Error; err != nil {
@@ -169,7 +202,59 @@ func (store *MySQL) ClaimNextProcessingJob(ctx context.Context, now time.Time) (
 		job = processingJobFromRow(row)
 		return nil
 	})
+	if err == nil && job.ID == "" {
+		return model.ProcessingJob{}, ErrNoPendingJob
+	}
 	return job, err
+}
+
+// ClaimProcessingJob 按 RabbitMQ 消息中的任务 ID 获取租约；重复消息在任务已完成时会被安全忽略。
+func (store *MySQL) ClaimProcessingJob(ctx context.Context, id string, now time.Time) (model.ProcessingJob, error) {
+	leaseToken, err := newProcessingID()
+	if err != nil {
+		return model.ProcessingJob{}, err
+	}
+	leaseUntil := now.Add(5 * time.Minute)
+	var job model.ProcessingJob
+	err = store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row processingJobRow
+		query := tx.Table("processing_jobs").Where("id = ? AND ((status = ? AND available_at <= ?) OR (status = ? AND lease_until IS NOT NULL AND lease_until <= ?))", id, model.ProcessingStatusPending, now, model.ProcessingStatusProcessing, now).Clauses(clause.Locking{Strength: "UPDATE"}).Take(&row)
+		if errors.Is(query.Error, gorm.ErrRecordNotFound) {
+			return ErrNoPendingJob
+		}
+		if query.Error != nil {
+			return fmt.Errorf("claim processing job by ID: %w", query.Error)
+		}
+		if row.Attempts >= row.MaxAttempts {
+			return failExhaustedProcessingJob(tx, row.ID, now)
+		}
+		started := now
+		updates := map[string]any{"status": model.ProcessingStatusProcessing, "attempts": gorm.Expr("attempts + 1"), "lease_until": leaseUntil, "lease_token": leaseToken, "started_at": started, "finished_at": nil, "last_error": ""}
+		if err := tx.Table("processing_jobs").Where("id = ?", row.ID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("mark processing job by ID: %w", err)
+		}
+		row.Status = model.ProcessingStatusProcessing
+		row.Attempts++
+		row.LeaseUntil = &leaseUntil
+		row.LeaseToken = leaseToken
+		row.StartedAt = &started
+		row.FinishedAt = nil
+		row.LastError = ""
+		job = processingJobFromRow(row)
+		return nil
+	})
+	if err == nil && job.ID == "" {
+		return model.ProcessingJob{}, ErrNoPendingJob
+	}
+	return job, err
+}
+
+// failExhaustedProcessingJob 将多次崩溃后耗尽执行次数的任务终止，避免租约过期后无限重跑。
+func failExhaustedProcessingJob(tx *gorm.DB, id string, now time.Time) error {
+	if err := tx.Table("processing_jobs").Where("id = ?", id).Updates(map[string]any{"status": model.ProcessingStatusFailed, "lease_until": nil, "lease_token": nil, "finished_at": now, "last_error": "处理次数已用尽"}).Error; err != nil {
+		return fmt.Errorf("finish exhausted processing job: %w", err)
+	}
+	return nil
 }
 
 // CompleteProcessingJob 在租约校验通过后原子保存派生产物元数据并结束任务。
@@ -230,6 +315,16 @@ func (store *MySQL) FailProcessingJob(ctx context.Context, jobID, leaseToken, me
 		}
 		if err := tx.Table("processing_jobs").Where("id = ? AND status = ? AND lease_token = ?", jobID, model.ProcessingStatusProcessing, leaseToken).Updates(updates).Error; err != nil {
 			return fmt.Errorf("fail processing job: %w", err)
+		}
+		if status == model.ProcessingStatusPending {
+			eventID, err := newProcessingID()
+			if err != nil {
+				return err
+			}
+			outbox := processingOutboxRow{ID: eventID, JobID: jobID, Status: model.OutboxStatusPending, AvailableAt: availableAt, CreatedAt: finishedAt}
+			if err := tx.Table("processing_outbox").Create(&outbox).Error; err != nil {
+				return fmt.Errorf("create retry processing outbox: %w", err)
+			}
 		}
 		return nil
 	})

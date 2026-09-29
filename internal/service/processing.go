@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"mizuki-archive/internal/cache"
 	"mizuki-archive/internal/model"
 	"mizuki-archive/internal/processing"
 	"mizuki-archive/internal/repository"
@@ -32,17 +33,32 @@ var (
 	ErrProcessingType = errors.New("unsupported processing type")
 	// ErrProcessingResource 表示当前资料格式不能执行所请求的处理。
 	ErrProcessingResource = errors.New("resource cannot be processed")
+	// ErrQueueNotConfigured 表示当前 Worker 没有可用的消息发布器，调用方应继续使用数据库回退模式。
+	ErrQueueNotConfigured = errors.New("processing queue not configured")
+	// ErrJobNotReady 表示任务仍处于别的 Worker 租约或退避窗口，消息不可提前确认。
+	ErrJobNotReady = errors.New("processing job not ready")
 )
+
+// JobPublisher 只暴露发布任务 ID 的能力，Service 不依赖 RabbitMQ 客户端类型。
+type JobPublisher interface {
+	PublishJob(context.Context, string) error
+}
 
 // Processing 负责创建任务、执行 Worker 单次循环以及管理派生文件，不依赖 Gin。
 type Processing struct {
 	store   repository.Store
 	jobs    repository.ProcessingStore
 	dataDir string
+	cache   cache.Cache
 }
 
 // NewProcessing 校验任务存储和派生目录；目录不可用时拒绝启动处理功能。
 func NewProcessing(store repository.Store, jobs repository.ProcessingStore, dataDir string) (*Processing, error) {
+	return NewProcessingWithCache(store, jobs, dataDir, nil)
+}
+
+// NewProcessingWithCache 创建处理服务并注入可选 Redis；缓存只保存状态摘要，MySQL 仍是事实源。
+func NewProcessingWithCache(store repository.Store, jobs repository.ProcessingStore, dataDir string, processingCache cache.Cache) (*Processing, error) {
 	if store == nil || jobs == nil || dataDir == "" {
 		return nil, errors.New("invalid processing configuration")
 	}
@@ -50,7 +66,7 @@ func NewProcessing(store repository.Store, jobs repository.ProcessingStore, data
 	if err := os.MkdirAll(derivedDir, 0700); err != nil {
 		return nil, fmt.Errorf("create derived directory: %w", err)
 	}
-	return &Processing{store: store, jobs: jobs, dataDir: dataDir}, nil
+	return &Processing{store: store, jobs: jobs, dataDir: dataDir, cache: processingCache}, nil
 }
 
 // CreateTextJob 手动为一份 PDF、TXT 或 Markdown 创建幂等文本提取任务。
@@ -91,9 +107,17 @@ func (service *Processing) createJob(ctx context.Context, resourceID, jobType st
 	}
 	now := time.Now().UTC()
 	job := model.ProcessingJob{ID: id, ResourceID: resource.ID, Type: jobType, SourceSHA256: resource.SHA256, Status: model.ProcessingStatusPending, MaxAttempts: ProcessingMaxAttempts, AvailableAt: now, CreatedAt: now}
-	if err := service.jobs.CreateProcessingJob(ctx, job); err != nil {
+	if outbox, ok := service.jobs.(repository.ProcessingOutboxStore); ok {
+		if err := outbox.CreateProcessingJobWithOutbox(ctx, job); err != nil {
+			if errors.Is(err, repository.ErrProcessingJobExists) {
+				return service.jobs.FindReusableProcessingJob(ctx, resource.ID, jobType, resource.SHA256)
+			}
+			return model.ProcessingJob{}, err
+		}
+	} else if err := service.jobs.CreateProcessingJob(ctx, job); err != nil {
 		return model.ProcessingJob{}, err
 	}
+	service.invalidateJobCaches(ctx, job)
 	return job, nil
 }
 
@@ -102,12 +126,24 @@ func (service *Processing) GetJob(ctx context.Context, id string) (model.Process
 	if !validResourceID(id) {
 		return model.ProcessingJob{}, repository.ErrNotFound
 	}
+	var cached model.ProcessingJob
+	if service.cache != nil {
+		if hit, cacheErr := service.cache.Get(ctx, "owner:job:"+id, &cached); cacheErr == nil && hit {
+			if _, resourceErr := service.store.GetResource(ctx, cached.ResourceID); resourceErr != nil {
+				return model.ProcessingJob{}, resourceErr
+			}
+			return cached, nil
+		}
+	}
 	job, err := service.jobs.GetProcessingJob(ctx, id)
 	if err != nil {
 		return model.ProcessingJob{}, err
 	}
 	if _, err := service.store.GetResource(ctx, job.ResourceID); err != nil {
 		return model.ProcessingJob{}, err
+	}
+	if service.cache != nil {
+		_ = service.cache.Set(ctx, "owner:job:"+id, job, 3*time.Second)
 	}
 	return job, nil
 }
@@ -120,7 +156,21 @@ func (service *Processing) ListJobs(ctx context.Context, resourceID string) ([]m
 	if _, err := service.store.GetResource(ctx, resourceID); err != nil {
 		return nil, err
 	}
-	return service.jobs.ListProcessingJobs(ctx, resourceID)
+	key := "owner:resource-jobs:" + resourceID
+	if service.cache != nil {
+		var cached []model.ProcessingJob
+		if hit, err := service.cache.Get(ctx, key, &cached); err == nil && hit {
+			return cached, nil
+		}
+	}
+	jobs, err := service.jobs.ListProcessingJobs(ctx, resourceID)
+	if err != nil {
+		return nil, err
+	}
+	if service.cache != nil {
+		_ = service.cache.Set(ctx, key, jobs, 3*time.Second)
+	}
+	return jobs, nil
 }
 
 // GetAsset 读取派生产物元数据，下载接口随后用同一个服务打开受控文件。
@@ -159,28 +209,106 @@ func (service *Processing) RunOnce(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	return true, service.runClaimedJob(ctx, job)
+}
+
+// RunJob 按消息中的任务 ID 领取并执行任务；重复消息在数据库状态检查中幂等结束。
+func (service *Processing) RunJob(ctx context.Context, jobID string) error {
+	claimer, ok := service.jobs.(repository.ProcessingClaimStore)
+	if !ok {
+		return ErrQueueNotConfigured
+	}
+	job, err := claimer.ClaimProcessingJob(ctx, jobID, time.Now().UTC())
+	if errors.Is(err, repository.ErrNoPendingJob) {
+		current, readErr := service.jobs.GetProcessingJob(ctx, jobID)
+		if errors.Is(readErr, repository.ErrNotFound) {
+			return nil
+		}
+		if readErr != nil {
+			return readErr
+		}
+		if current.Status == model.ProcessingStatusSucceeded || current.Status == model.ProcessingStatusFailed {
+			return nil
+		}
+		return ErrJobNotReady
+	}
+	if err != nil {
+		return err
+	}
+	return service.runClaimedJob(ctx, job)
+}
+
+// RunOutboxOnce 发布一条事务性 Outbox 事件；发布确认后才将事件标为已发布。
+func (service *Processing) RunOutboxOnce(ctx context.Context, publisher JobPublisher) (bool, error) {
+	if publisher == nil {
+		return false, ErrQueueNotConfigured
+	}
+	outbox, ok := service.jobs.(repository.ProcessingOutboxStore)
+	if !ok {
+		return false, ErrQueueNotConfigured
+	}
+	event, err := outbox.ClaimProcessingOutbox(ctx, time.Now().UTC())
+	if errors.Is(err, repository.ErrNoPendingJob) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := publisher.PublishJob(ctx, event.JobID); err != nil {
+		return true, outbox.FailProcessingOutbox(ctx, event.ID, event.LeaseToken, "RabbitMQ 发布失败")
+	}
+	return true, outbox.MarkProcessingOutboxPublished(ctx, event.ID, event.LeaseToken)
+}
+
+// runClaimedJob 执行已经持有租约的任务，并把资料处理错误转换为安全的业务状态。
+func (service *Processing) runClaimedJob(ctx context.Context, job model.ProcessingJob) error {
+	defer service.invalidateJobCaches(ctx, job)
 	resource, err := service.store.GetResource(ctx, job.ResourceID)
 	if err != nil {
-		return true, service.failPermanent(ctx, job, "来源资料不存在或已删除")
+		return service.failPermanent(ctx, job, "来源资料不存在或已删除")
 	}
 	if resource.SHA256 != job.SourceSHA256 || resource.StorageKey != resource.ID {
-		return true, service.failPermanent(ctx, job, "来源资料已变化，任务结果已作废")
+		return service.failPermanent(ctx, job, "来源资料已变化，任务结果已作废")
 	}
 	workContext, cancel := context.WithTimeout(ctx, ProcessingExecutionTimeout)
 	defer cancel()
 	content, assetKind, assetName, assetMIME, contentText, err := service.processJob(workContext, resource, job)
 	if err != nil {
-		return true, service.failPermanent(ctx, job, processingErrorMessage(job.Type, err))
+		return service.failPermanent(ctx, job, processingErrorMessage(job.Type, err))
 	}
 	asset, temporaryPath, err := service.writeDerivedAsset(resource, job, content, assetKind, assetName, assetMIME, contentText)
 	if err != nil {
-		return true, err
+		return service.retryClaimedJob(ctx, job, "派生产物暂时无法写入")
 	}
 	if err := service.jobs.CompleteProcessingJob(ctx, job.ID, job.LeaseToken, asset); err != nil {
 		_ = os.Remove(temporaryPath)
-		return true, err
+		return err
 	}
-	return true, nil
+	return nil
+}
+
+// invalidateJobCaches 清理任务详情和资料任务列表，保证 Worker 状态变化不会长期停留在旧缓存。
+func (service *Processing) invalidateJobCaches(ctx context.Context, job model.ProcessingJob) {
+	if service.cache == nil {
+		return
+	}
+	_ = service.cache.Delete(ctx, "owner:job:"+job.ID, "owner:resource-jobs:"+job.ResourceID)
+	_ = service.cache.DeleteByPrefix(ctx, "owner:resource-list:")
+}
+
+// RepairOutbox 在发布者循环中补写老任务或丢失投递确认后的事件；已完成和仍有有效租约的任务不补。
+func (service *Processing) RepairOutbox(ctx context.Context) (bool, error) {
+	outbox, ok := service.jobs.(repository.ProcessingOutboxStore)
+	if !ok {
+		return false, ErrQueueNotConfigured
+	}
+	return outbox.RepairProcessingOutbox(ctx, time.Now().UTC())
+}
+
+// retryClaimedJob 将文件系统暂时失败重新放回数据库和 Outbox；没有 Outbox 时保留旧 Worker 的租约恢复语义。
+func (service *Processing) retryClaimedJob(ctx context.Context, job model.ProcessingJob, message string) error {
+	retryAt := time.Now().UTC().Add(time.Duration(job.Attempts*job.Attempts) * time.Second)
+	return service.jobs.FailProcessingJob(ctx, job.ID, job.LeaseToken, message, &retryAt)
 }
 
 // RunLoop 按固定间隔执行单 Worker 循环；停止信号由 cmd/worker 的 Context 传入。

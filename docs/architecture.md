@@ -21,8 +21,8 @@ Service（上传、查询、文件校验、业务规则）
              └── File Storage ── 本地受控目录
 
 V2：Go Worker ← 持久任务记录
-V3：Go API → 事务性待投递记录 → RabbitMQ → Go Worker
-V4：Go API ↔ Redis（有界缓存、状态读取、提交限流）
+V3：Go API → MySQL processing_jobs + processing_outbox（同一事务）→ RabbitMQ → Go Worker
+V4：Go API ↔ Redis（标签/任务短缓存、最近访问 ID、共享限流）
 ```
 
 V1 不依赖消息队列或缓存；V2 可先用数据库持久任务与受控 Worker 验证处理能力。V3 接入 MQ 时不能假设“写数据库 + 发消息”天然原子化：采用事务性 outbox 或等效方案，发布确认后再标记已投递；消费至少一次，处理结果必须幂等。
@@ -42,7 +42,11 @@ V1 不依赖消息队列或缓存；V2 可先用数据库持久任务与受控 W
 
 当前入口、文件级职责和上传/登录调用路径见 [项目目录导览](project-structure.md)。
 
-数据库迁移使用内嵌的版本化 SQL（当前 `001_init.sql`、`002_manual_tags.sql`、`003_soft_delete.sql`、`004_processing_jobs.sql`），由 `schema_migrations` 记录已应用版本；不使用 GORM AutoMigrate 修改生产表结构。每个迁移必须幂等或由版本表保证只执行一次，正式执行前先备份数据库。
+数据库迁移使用内嵌的版本化 SQL（当前 `001` 至 `005_processing_outbox.sql`），由 `schema_migrations` 记录已应用版本；不使用 GORM AutoMigrate 修改生产表结构。`005` 回填尚未投递的旧任务。正式执行前先备份数据库。
+
+V3 消息只含版本和任务 ID。事务 Outbox 的发布确认与后置 ACK 提供至少一次交付；MySQL 租约和成功状态负责幂等。发布通道断开重建连接，过期租约与丢失的已发布事件由定期修复补偿；隔离队列用于排查异常消息。任务最多执行三次（包括租约到期重领）；发布失败不直接标记业务任务失败。数据库模式可作为回滚开关，不能与 RabbitMQ Worker 同时消费同一任务。
+
+V4 Redis 可丢失：标签和任务状态短时缓存，资源详情/文件下载及私有资料列表仍由 MySQL 校验，避免软删除后的旧列表重新写入缓存。最近访问只存 ID、上限 20 且 90 天到期，删除时尽力清理，查询时始终回源权限校验。共享固定窗口按网络地址限登录总请求 30 次/15 分钟，单进程继续按失败 5 次/15 分钟限制；Redis 故障退回本地保护，不宣称跨进程保障。真实吞吐增益留待 V7 基线对比。
 
 ## 领域草模
 

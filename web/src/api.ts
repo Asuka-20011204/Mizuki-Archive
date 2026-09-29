@@ -87,6 +87,8 @@ export const api = {
     request<{ data: Resource[]; meta: { page: number; has_more: boolean } }>(
       `/resources?${new URLSearchParams({ q: search, kind, tag, page: String(page) })}`,
     ),
+  // recent 读取最近访问的资料元数据；缓存缺失时服务端返回空数组，不影响主列表。
+  recent: () => request<{ data: Resource[] }>('/resources/recent'),
   // listTags 只读取已有标签，用于建议和筛选，不把用户输入直接当作可信标签。
   listTags: (search = '') => request<{ data: string[] }>(`/tags?${new URLSearchParams({ q: search })}`),
   // get 对路径 ID 编码并读取最新元数据，供详情抽屉展示。

@@ -18,6 +18,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"mizuki-archive/internal/cache"
 	"mizuki-archive/internal/model"
 	"mizuki-archive/internal/repository"
 )
@@ -41,17 +42,23 @@ const maxResourceTags = 10
 type Resources struct {
 	store   repository.Store
 	dataDir string
+	cache   cache.Cache
 }
 
 // NewResources 验证存储依赖并准备受控目录；创建失败时拒绝启动文件服务。
 func NewResources(store repository.Store, dataDir string) (*Resources, error) {
+	return NewResourcesWithCache(store, dataDir, nil)
+}
+
+// NewResourcesWithCache 创建资料服务并注入可选 Redis；缓存不可用时仍由 MySQL 完成主流程。
+func NewResourcesWithCache(store repository.Store, dataDir string, resourceCache cache.Cache) (*Resources, error) {
 	if store == nil || dataDir == "" {
 		return nil, errors.New("invalid resources configuration")
 	}
 	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return nil, fmt.Errorf("create data directory: %w", err)
 	}
-	return &Resources{store: store, dataDir: dataDir}, nil
+	return &Resources{store: store, dataDir: dataDir, cache: resourceCache}, nil
 }
 
 // fileType 同时比对扩展名与文件头；返回业务类型、可信 MIME 和是否允许上传。
@@ -141,6 +148,7 @@ func (resources *Resources) Upload(ctx context.Context, filename string, source 
 		os.Remove(finalPath)
 		return model.Resource{}, fmt.Errorf("save resource: %w", err)
 	}
+	resources.invalidateResourceCaches(ctx, resource.ID)
 	return resource, nil
 }
 
@@ -153,7 +161,30 @@ func (resources *Resources) List(ctx context.Context, query model.ListQuery) ([]
 		}
 		query.Tag = normalized
 	}
+	// 删除后列表必须立即遵循 MySQL 可见性；不缓存可被并发回填的私有资料列表。
 	return resources.store.ListResources(ctx, query)
+}
+
+// Recent 按 Redis Sorted Set 中的资源 ID 返回最近访问资料；详情仍回源 MySQL 验证可见性。
+func (resources *Resources) Recent(ctx context.Context, limit int64) ([]model.Resource, error) {
+	if resources.cache == nil {
+		return []model.Resource{}, nil
+	}
+	if limit <= 0 || limit > 20 {
+		limit = 10
+	}
+	ids, err := resources.cache.RecentIDs(ctx, limit)
+	if err != nil {
+		return []model.Resource{}, nil
+	}
+	items := make([]model.Resource, 0, len(ids))
+	for _, id := range ids {
+		resource, getErr := resources.store.GetResource(ctx, id)
+		if getErr == nil {
+			items = append(items, resource)
+		}
+	}
+	return items, nil
 }
 
 // NormalizeTag 清理单个标签的展示输入，并返回用于唯一性和查询的规范值。
@@ -201,7 +232,11 @@ func (resources *Resources) SetTags(ctx context.Context, id string, values []str
 	if err != nil {
 		return model.Resource{}, err
 	}
-	return resources.store.ReplaceResourceTags(ctx, id, tags)
+	resource, err := resources.store.ReplaceResourceTags(ctx, id, tags)
+	if err == nil {
+		resources.invalidateResourceCaches(ctx, id)
+	}
+	return resource, err
 }
 
 // ListTags 返回经过同一套规则规范化的标签建议，避免筛选输入与保存输入产生不同结果。
@@ -213,7 +248,21 @@ func (resources *Resources) ListTags(ctx context.Context, search string) ([]stri
 		}
 		search = normalized
 	}
-	return resources.store.ListTags(ctx, search)
+	key := "owner:tags:" + search
+	if resources.cache != nil {
+		var cached []string
+		if hit, err := resources.cache.Get(ctx, key, &cached); err == nil && hit {
+			return cached, nil
+		}
+	}
+	tags, err := resources.store.ListTags(ctx, search)
+	if err != nil {
+		return nil, err
+	}
+	if resources.cache != nil {
+		_ = resources.cache.Set(ctx, key, tags, 60*time.Second)
+	}
+	return tags, nil
 }
 
 // validResourceID 只接受服务端生成的 16 字节十六进制 ID，避免无效输入进入持久层。
@@ -232,7 +281,15 @@ func (resources *Resources) Get(ctx context.Context, id string) (model.Resource,
 	if !validResourceID(id) {
 		return model.Resource{}, repository.ErrNotFound
 	}
-	return resources.store.GetResource(ctx, id)
+	// 详情可能用于打开原文件；不能从省略 StorageKey 的 JSON 缓存读取，也不能让软删除后的缓存绕过数据库可见性。
+	resource, err := resources.store.GetResource(ctx, id)
+	if err != nil {
+		return model.Resource{}, err
+	}
+	if resources.cache != nil {
+		_ = resources.cache.RecordRecent(ctx, id, time.Now().UTC(), 20)
+	}
+	return resource, nil
 }
 
 // SetFavorite 显式设置资料收藏状态；缺失或非法 ID 返回同一种未找到错误，重复设置保持幂等。
@@ -240,7 +297,11 @@ func (resources *Resources) SetFavorite(ctx context.Context, id string, favorite
 	if !validResourceID(id) {
 		return model.Resource{}, repository.ErrNotFound
 	}
-	return resources.store.SetFavorite(ctx, id, favorite)
+	resource, err := resources.store.SetFavorite(ctx, id, favorite)
+	if err == nil {
+		resources.invalidateResourceCaches(ctx, id)
+	}
+	return resource, err
 }
 
 // NormalizeDisplayName 校验用户可见名称；名称不能成为路径或控制字符载体，但可以保留中文和常用文件符号。
@@ -266,7 +327,11 @@ func (resources *Resources) SetName(ctx context.Context, id, value string) (mode
 	if err != nil {
 		return model.Resource{}, err
 	}
-	return resources.store.UpdateResourceName(ctx, id, name)
+	resource, err := resources.store.UpdateResourceName(ctx, id, name)
+	if err == nil {
+		resources.invalidateResourceCaches(ctx, id)
+	}
+	return resource, err
 }
 
 // Delete 先在数据库中软删除并解除标签，再清理原件；文件清理失败不会让已删除资料重新出现在列表。
@@ -278,10 +343,25 @@ func (resources *Resources) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	// 资料已经在 MySQL 中不可见，先失效缓存，避免文件清理失败时仍从 Redis 返回已删除资料。
+	resources.invalidateResourceCaches(ctx, id)
+	if resources.cache != nil {
+		_ = resources.cache.RemoveRecent(ctx, id)
+	}
 	if err := os.Remove(filepath.Join(resources.dataDir, resource.ID)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove deleted resource file: %w", err)
 	}
 	return nil
+}
+
+// invalidateResourceCaches 清理详情、列表和标签建议缓存；失效失败不改变已提交的业务结果。
+func (resources *Resources) invalidateResourceCaches(ctx context.Context, id string) {
+	if resources.cache == nil {
+		return
+	}
+	_ = resources.cache.Delete(ctx, "owner:resource:"+id)
+	_ = resources.cache.DeleteByPrefix(ctx, "owner:resource-list:")
+	_ = resources.cache.DeleteByPrefix(ctx, "owner:tags:")
 }
 
 // Open 仅按受控存储键打开原件；数据库记录异常时返回文件不可用。

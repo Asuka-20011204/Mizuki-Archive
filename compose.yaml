@@ -16,5 +16,43 @@ services:
       timeout: 5s
       retries: 10
 
+  rabbitmq:
+    profiles: ["v3"]
+    image: rabbitmq:4.1-management
+    ports:
+      - "127.0.0.1:5672:5672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER-}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD-}
+    entrypoint: ["sh", "-c"]
+    command: ["test -n \"$$RABBITMQ_DEFAULT_USER\" && test -n \"$$RABBITMQ_DEFAULT_PASS\" || exit 1; exec docker-entrypoint.sh rabbitmq-server"]
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    profiles: ["v4"]
+    image: redis:7.4-alpine
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6381}:6379"
+    entrypoint: ["sh", "-c"]
+    command: ["test -n \"$$REDIS_PASSWORD\" || exit 1; printf 'requirepass %s\\n' \"$$REDIS_PASSWORD\" > /run/redis/redis.conf && chmod 600 /run/redis/redis.conf && exec redis-server /run/redis/redis.conf --appendonly yes"]
+    tmpfs: ["/run/redis:mode=0700"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD-}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   mysql_data:
+  rabbitmq_data:
+  redis_data:

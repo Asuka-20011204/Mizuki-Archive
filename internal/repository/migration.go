@@ -15,3 +15,6 @@ var softDeleteMigration string
 
 //go:embed migrations/004_processing_jobs.sql
 var processingJobsMigration string
+
+//go:embed migrations/005_processing_outbox.sql
+var processingOutboxMigration string

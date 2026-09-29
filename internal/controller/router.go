@@ -5,8 +5,10 @@ package controller
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"mizuki-archive/internal/cache"
 	"mizuki-archive/internal/service"
 )
 
@@ -17,6 +19,7 @@ type Config struct {
 	Auth         *service.Auth
 	Origin       string
 	SecureCookie bool
+	RateLimiter  cache.RateLimiter
 }
 
 type Controller struct {
@@ -45,6 +48,7 @@ func New(config Config) (*gin.Engine, error) {
 	private.POST("/logout", handler.logout)
 	private.POST("/resources", handler.upload)
 	private.GET("/resources", handler.list)
+	private.GET("/resources/recent", handler.recent)
 	private.GET("/tags", handler.listTags)
 	private.GET("/resources/:id", handler.get)
 	private.PATCH("/resources/:id/name", handler.setName)
@@ -73,6 +77,14 @@ func (handler *Controller) headersAndOrigin(ctx *gin.Context) {
 		failure(ctx, http.StatusForbidden, "origin_rejected", "请求来源未获授权")
 		ctx.Abort()
 		return
+	}
+	if handler.config.RateLimiter != nil && ctx.Request.Method == http.MethodPost && ctx.Request.URL.Path != "/api/login" {
+		allowed, err := handler.config.RateLimiter.Allow(ctx.Request.Context(), clientAddress(ctx.Request.RemoteAddr)+":"+ctx.Request.URL.Path, 60, time.Minute)
+		if err == nil && !allowed {
+			failure(ctx, http.StatusTooManyRequests, "rate_limited", "请求过于频繁，请稍后再试")
+			ctx.Abort()
+			return
+		}
 	}
 	ctx.Next()
 }

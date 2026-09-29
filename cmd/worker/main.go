@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"mizuki-archive/internal/cache"
+	"mizuki-archive/internal/queue"
 	"mizuki-archive/internal/repository"
 	"mizuki-archive/internal/service"
 )
@@ -71,14 +74,102 @@ func main() {
 	if err := store.Migrate(startup); err != nil {
 		log.Fatal("database schema initialization failed")
 	}
-	processor, err := service.NewProcessing(store, store, required("APP_DATA_DIR"))
+	var sharedCache cache.Cache
+	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
+		redisClient, redisErr := cache.NewRedis(redisURL, os.Getenv("REDIS_KEY_PREFIX"))
+		if redisErr != nil {
+			log.Printf("Redis cache disabled in worker: %v", redisErr)
+		} else {
+			sharedCache = redisClient
+			defer redisClient.Close()
+		}
+	}
+	processor, err := service.NewProcessingWithCache(store, store, required("APP_DATA_DIR"), sharedCache)
 	if err != nil {
 		log.Fatal("cannot prepare processing service")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	log.Println("archive processing worker started")
+	if os.Getenv("PROCESSING_DELIVERY_MODE") == "rabbit" {
+		if err := runRabbitWorker(ctx, processor); err != nil && !errors.Is(err, context.Canceled) {
+			log.Fatalf("RabbitMQ processing worker stopped: %v", err)
+		}
+		return
+	}
+	log.Println("archive processing worker started in database mode")
 	if err := processor.RunLoop(ctx, time.Second); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("processing worker stopped: %v", err)
+	}
+}
+
+// runRabbitWorker 在连接中断后重新建立发布与消费通道；数据库模式仍可作为明确的回滚开关。
+func runRabbitWorker(ctx context.Context, processor *service.Processing) error {
+	prefetch := 1
+	if value := os.Getenv("RABBITMQ_PREFETCH"); value != "" {
+		if parsed, parseErr := strconv.Atoi(value); parseErr == nil && parsed > 0 && parsed <= 32 {
+			prefetch = parsed
+		}
+	}
+	if os.Getenv("RABBITMQ_URL") == "" {
+		return errors.New("missing RABBITMQ_URL")
+	}
+	for ctx.Err() == nil {
+		broker, err := queue.NewRabbitMQ(os.Getenv("RABBITMQ_URL"), os.Getenv("RABBITMQ_EXCHANGE"), os.Getenv("RABBITMQ_QUEUE"), os.Getenv("RABBITMQ_DEAD_QUEUE"))
+		if err == nil {
+			session, cancel := context.WithCancel(ctx)
+			published := make(chan struct{})
+			go func() {
+				defer close(published)
+				publishOutbox(session, cancel, processor, broker)
+			}()
+			log.Println("archive processing worker connected to RabbitMQ")
+			err = broker.ConsumeJobs(session, func(ctx context.Context, jobID string) (bool, error) {
+				err := processor.RunJob(ctx, jobID)
+				if errors.Is(err, service.ErrJobNotReady) {
+					return false, nil
+				}
+				return err == nil, err
+			}, prefetch)
+			cancel()
+			_ = broker.Close()
+			<-published
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		// 不记录连接字符串或错误中的潜在凭据；重试期间任务继续保留在事务 Outbox。
+		log.Println("RabbitMQ unavailable; reconnecting after 2 seconds")
+		select {
+		case <-ctx.Done():
+		case <-time.After(2 * time.Second):
+		}
+	}
+	return ctx.Err()
+}
+
+// publishOutbox 持续扫描事务 Outbox；RabbitMQ 暂时不可用时只记录脱敏错误并等待下一轮。
+func publishOutbox(ctx context.Context, cancel context.CancelFunc, processor *service.Processing, broker *queue.RabbitMQ) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	repairTicker := time.NewTicker(30 * time.Second)
+	defer repairTicker.Stop()
+	for {
+		_, err := processor.RunOutboxOnce(ctx, broker)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("processing outbox publish deferred: %v", err)
+		}
+		if broker.PublisherClosed() {
+			cancel()
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-repairTicker.C:
+			if _, err := processor.RepairOutbox(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Println("processing outbox repair deferred")
+			}
+		case <-ticker.C:
+		}
 	}
 }

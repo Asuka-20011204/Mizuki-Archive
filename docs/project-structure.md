@@ -5,6 +5,7 @@
 ## 先找 `main`
 
 - **API 服务入口：** `cmd/server/main.go` 中的 `func main()`。执行 `go run ./cmd/server`，它读取环境变量、连接 MySQL、运行当前初始迁移、创建 Repository/Service/Controller，并启动 HTTP 服务。
+- **任务 Worker 入口：** `cmd/worker/main.go` 中的 `func main()`；数据库或 RabbitMQ 模式由环境配置决定。
 - **密码辅助命令：** `cmd/hash-password/main.go` 中另一个 `func main()`。执行 `go run ./cmd/hash-password` 只生成管理员密码的 bcrypt 哈希，**不会启动服务**。
 - **浏览器入口：** `web/src/main.ts` 创建 Vue 应用并挂载 `App.vue`，不是 Go 的 `main` 函数。
 
@@ -23,6 +24,8 @@ Mizuki Archive/
 │   ├── model/processing.go            # 任务与派生产物模型
 │   ├── processing/text.go             # PDF/TXT/Markdown 文本处理器
 │   ├── processing/thumbnail.go        # PNG/JPEG/WebP 缩略图处理器与像素边界
+│   ├── cache/redis.go                 # Redis 短缓存、最近访问和共享限流
+│   ├── queue/rabbitmq.go              # 持久消息、发布确认和消费 ACK
 │   ├── controller/
 │   │   ├── router.go                  # Gin 路由、Origin 校验、统一错误格式
 │   │   ├── auth_controller.go         # 登录、会话中间件、退出
@@ -36,15 +39,17 @@ Mizuki Archive/
 │       ├── repository.go              # 资料/会话/处理任务持久化接口
 │       ├── mysql_gorm.go              # GORM 的 MySQL 资料实现
 │       ├── processing.go              # GORM 的任务与派生产物实现
+│       ├── outbox.go                  # 事务 Outbox 及孤儿任务补偿
 │       ├── migration.go               # 内嵌版本化 SQL 迁移
 │       └── migrations/
 │           ├── 001_init.sql           # 资料与会话表
 │           ├── 002_manual_tags.sql    # 标签与资料关联
 │           ├── 003_soft_delete.sql    # 软删除字段与索引
-│           └── 004_processing_jobs.sql # 持久任务与派生产物
+│           ├── 004_processing_jobs.sql # 持久任务与派生产物
+│           └── 005_processing_outbox.sql # 事件表与旧任务回填
 ├── web/                               # Vue 3 + TypeScript View
 ├── docs/                              # 产品、架构、安全、设计和变更记录
-├── compose.yaml                       # 本地 MySQL 容器定义
+├── compose.yaml                       # MySQL 与可选 RabbitMQ/Redis 容器
 ├── .env.example                       # 仅示例变量，真实 .env 不入库
 └── go.mod / go.sum                    # Go 模块与依赖校验
 ```

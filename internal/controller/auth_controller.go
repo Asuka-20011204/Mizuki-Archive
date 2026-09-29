@@ -4,6 +4,7 @@ import (
 	"errors"
 	"mime"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"mizuki-archive/internal/service"
@@ -17,6 +18,14 @@ func (handler *Controller) login(ctx *gin.Context) {
 	if !handler.limiter.allowed(address) {
 		failure(ctx, http.StatusTooManyRequests, "try_later", "尝试次数过多，请稍后再试")
 		return
+	}
+	// 跨进程限制登录请求总量；Redis 故障时保留单进程失败次数限制，不阻断管理员登录。
+	if handler.config.RateLimiter != nil {
+		allowed, err := handler.config.RateLimiter.Allow(ctx.Request.Context(), "login:"+address, 30, 15*time.Minute)
+		if err == nil && !allowed {
+			failure(ctx, http.StatusTooManyRequests, "try_later", "尝试次数过多，请稍后再试")
+			return
+		}
 	}
 	contentType, _, err := mime.ParseMediaType(ctx.GetHeader("Content-Type"))
 	if err != nil || contentType != "application/json" {

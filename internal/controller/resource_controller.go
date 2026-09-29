@@ -90,6 +90,16 @@ func (handler *Controller) list(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"data": resources, "meta": gin.H{"page": page, "has_more": hasMore}})
 }
 
+// recent 返回 Redis 记录的最近访问资料；缓存缺失时返回空数组，不影响主资料库操作。
+func (handler *Controller) recent(ctx *gin.Context) {
+	items, err := handler.config.Resources.Recent(ctx.Request.Context(), 10)
+	if err != nil {
+		failure(ctx, http.StatusInternalServerError, "internal", "无法读取最近访问资料")
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"data": items})
+}
+
 // listTags 返回已存在的标签建议；搜索值只用于缩小建议范围，不创建新标签。
 func (handler *Controller) listTags(ctx *gin.Context) {
 	search := strings.TrimSpace(ctx.Query("q"))

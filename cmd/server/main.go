@@ -18,6 +18,7 @@ import (
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"mizuki-archive/internal/cache"
 	"mizuki-archive/internal/controller"
 	"mizuki-archive/internal/repository"
 	"mizuki-archive/internal/service"
@@ -97,13 +98,24 @@ func main() {
 	if err := store.Migrate(startup); err != nil {
 		log.Fatal("database schema initialization failed")
 	}
-	resources, err := service.NewResources(store, dataDir)
+	var sharedCache cache.Cache
+	var redisClient *cache.Redis
+	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
+		redisClient, err = cache.NewRedis(redisURL, os.Getenv("REDIS_KEY_PREFIX"))
+		if err != nil {
+			log.Printf("Redis disabled: %v", err)
+		} else {
+			sharedCache = redisClient
+			defer redisClient.Close()
+		}
+	}
+	resources, err := service.NewResourcesWithCache(store, dataDir, sharedCache)
 	if err != nil {
 
 		log.Fatal("cannot prepare file storage")
 
 	}
-	processingService, err := service.NewProcessing(store, store, dataDir)
+	processingService, err := service.NewProcessingWithCache(store, store, dataDir, sharedCache)
 	if err != nil {
 
 		log.Fatal("cannot prepare processing service")
@@ -113,7 +125,11 @@ func main() {
 	if err != nil {
 		log.Fatal("invalid admin password hash")
 	}
-	router, err := controller.New(controller.Config{Resources: resources, Processing: processingService, Auth: auth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https"})
+	var sharedLimiter cache.RateLimiter
+	if sharedCache != nil {
+		sharedLimiter = sharedCache
+	}
+	router, err := controller.New(controller.Config{Resources: resources, Processing: processingService, Auth: auth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", RateLimiter: sharedLimiter})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}

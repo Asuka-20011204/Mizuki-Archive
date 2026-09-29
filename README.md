@@ -65,7 +65,7 @@ V1 的个人资料管理闭环已经落地：单管理员登录/退出、私有�
 - 浏览器验收已覆盖登录、空状态、浏览器文件选择上传、搜索/类型筛选、标签、收藏、详情焦点/Escape、文本/图片预览、原件与派生产物下载、名称编辑、删除、退出和窄屏布局；操作系统原生文件对话框的视觉行为不作为验收条件。
 - 已按 [备份恢复演练](docs/backup-restore.md) 完成一次隔离恢复：数据库 6 条资源、6 条任务、4 条派生产物，10 个文件的 SHA-256 和字节数全部匹配；隔离资源删除验证后已清理恢复库和目录。禁止把 `docker compose down -v` 当作备份。
 
-V1 不包含 Redis、RabbitMQ、OCR、自动分类或多人协作；V2 已加入持久任务和单进程 Worker。只有真实处理场景稳定后再评估消息队列。
+V1 不包含 Redis、RabbitMQ、OCR、自动分类或多人协作；V2 已加入持久任务和单进程 Worker。V3/V4 已加入可选 RabbitMQ 和 Redis 实现；默认仍可使用数据库任务模式，浏览器端最近访问展示尚未接入。
 
 本地资料、会话与数据库数据请自行备份；不要用真实私人文件做公开演示。
 ## V2 当前状态
@@ -78,4 +78,4 @@ V2 已完成处理闭环：在 PDF、TXT 或 Markdown 详情页手动创建 `ext
 go run ./cmd/worker
 ```
 
-API 和 Worker 必须使用同一份 `.env`、MySQL 和 `APP_DATA_DIR`。当前仍未实现 OCR、自动处理、Redis、RabbitMQ 和多人协作；图片缩略图与文本提取共用持久任务基础设施，但使用独立任务类型、像素边界和产物类型。
+API 和 Worker 必须使用同一份 `.env`、MySQL 和 `APP_DATA_DIR`。使用 V3 RabbitMQ 模式时，还需在 `.env` 设置独立消息队列凭据，并运行 `docker compose --profile v3 up -d rabbitmq`；V4 Redis 同理需配置密码与 URL，运行 `docker compose --profile v4 up -d redis`。缺少密码时可选容器拒绝启动。完整说明见 [本地启动](docs/local-development.md) 与 [阶段记录](docs/changes/2026-09-29-v3-v4-queue-cache.md)。OCR、自动处理与多人协作尚未实现。
