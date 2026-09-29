@@ -135,3 +135,29 @@
   .content-swap-enter-from, .content-swap-leave-to, .drawer-enter-from, .drawer-leave-to { opacity: 1; transform: none; }
   .drawer-enter-from .detail-panel, .drawer-leave-to .detail-panel { transform: none; }
 }
+
+.public-hero .public-copy { animation: public-copy-enter 1s .14s var(--motion-ease) both; }
+.public-hero .hero-stage { animation: public-stage-enter 1.1s .24s var(--motion-ease) both; }
+.public-feature-grid article { animation: fade-arrive .8s .5s var(--motion-ease) both; }
+.public-feature-grid article:nth-child(2) { animation-delay: .62s; }
+.public-feature-grid article:nth-child(3) { animation-delay: .74s; }
+.stage-card-main { animation: stage-card-float 7s ease-in-out infinite; }
+.stage-card-back { animation: stage-card-back-float 9s ease-in-out infinite; }
+.stage-card-front { animation: stage-card-front-float 8s ease-in-out infinite; }
+.stage-orbit-one { animation: atmosphere-turn 32s linear infinite; }
+.stage-orbit-two { animation: atmosphere-turn 23s linear infinite reverse; }
+.archive-brief { animation: fade-arrive .8s .3s var(--motion-ease) both; }
+.archive-stat { animation: stat-rise .75s .4s var(--motion-ease) both; }
+.archive-stat:nth-child(2) { animation-delay: .48s; }
+.archive-stat:nth-child(3) { animation-delay: .56s; }
+.archive-stat:nth-child(4) { animation-delay: .64s; }
+
+@keyframes public-copy-enter { from { opacity: 0; clip-path: inset(0 0 18% 0); transform: translateY(34px); } to { opacity: 1; clip-path: inset(0); transform: translateY(0); } }
+@keyframes public-stage-enter { from { opacity: 0; transform: translateX(46px) rotate(2deg) scale(.94); } to { opacity: 1; transform: translateX(0) rotate(0) scale(1); } }
+@keyframes stage-card-float { 0%, 100% { transform: rotate(-5deg) translateY(0); } 50% { transform: rotate(-3deg) translateY(-9px); } }
+@keyframes stage-card-back-float { 0%, 100% { transform: rotate(9deg) translateY(0); } 50% { transform: rotate(7deg) translateY(12px); } }
+@keyframes stage-card-front-float { 0%, 100% { transform: rotate(6deg) translateY(0); } 50% { transform: rotate(8deg) translateY(-8px); } }
+@keyframes stat-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }.public-principles { animation: fade-arrive .9s .2s var(--motion-ease) both; }
+.principles-list article { animation: stat-rise .75s .35s var(--motion-ease) both; }
+.principles-list article:nth-child(2) { animation-delay: .45s; }
+.principles-list article:nth-child(3) { animation-delay: .55s; }

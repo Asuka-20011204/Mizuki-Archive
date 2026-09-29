@@ -323,3 +323,21 @@
 .danger-button:hover { border-color: #b86b63; background: #fff0ee; }
 .danger-button[aria-disabled="true"] { cursor: wait; opacity: .7; }
 .detail-footnote { margin: 16px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+
+/* 欢迎区下方增加一条状态叙事，把资料库从列表提升为可理解的个人系统。 */
+.welcome-copy { position: relative; z-index: 1; }
+.welcome-copy > p:last-child { max-width: 580px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.7; }
+.welcome-manifest { position: absolute; z-index: 1; right: clamp(35px, 9%, 130px); bottom: 38px; display: grid; width: 168px; gap: 11px; color: #6f8b8d; font: 10px Consolas, monospace; letter-spacing: .12em; }
+.welcome-manifest strong { color: #a77966; font-size: 54px; font-weight: 400; letter-spacing: -.12em; line-height: .8; }
+.welcome-manifest i { display: block; width: 100%; height: 1px; background: #aac4c5; }
+.welcome-manifest small { color: #8b9b99; font-size: 8px; line-height: 1.5; }
+.archive-brief { display: grid; grid-template-columns: minmax(250px, .9fr) minmax(0, 1.5fr); gap: 30px; align-items: stretch; margin-top: 18px; border: 1px solid #fff; border-radius: 15px; background: #ffffffc9; box-shadow: 0 12px 32px #72899412; padding: 25px 28px; }
+.archive-brief-copy { border-right: 1px solid var(--line); padding-right: 28px; }
+.archive-brief-copy .eyebrow { margin: 0 0 10px; color: #a77966; }
+.archive-brief-copy h2 { margin: 0; color: var(--ink); font-size: 20px; font-weight: 600; letter-spacing: -.045em; }
+.archive-brief-copy p:last-child { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.archive-stats { display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; }
+.archive-stat { display: flex; min-height: 65px; flex-direction: column; justify-content: center; gap: 8px; border-left: 1px solid #e3ecea; padding: 0 17px; }
+.archive-stat:first-child { border-left: 0; }
+.archive-stat strong { color: #456d7b; font: 400 31px/1 Consolas, monospace; letter-spacing: -.1em; }
+.archive-stat span { color: var(--muted); font-size: 10px; line-height: 1.4; }

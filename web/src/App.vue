@@ -68,6 +68,19 @@ const kinds = [
 // sectionName 的计算回调从类型表查找当前标题；找不到时回退为“全部资料”。
 const sectionName = computed(() => kinds.find((item) => item.value === kind.value)?.label || '全部资料')
 
+// archiveStats 只统计当前服务端返回的视图，避免把分页数据误报成整库总量。
+const archiveStats = computed(() => {
+  const favoriteCount = resources.value.filter((resource) => resource.favorite).length
+  const tagCount = new Set(resources.value.flatMap((resource) => resource.tags || [])).size
+  const typeCount = new Set(resources.value.map((resource) => resource.kind)).size
+  return [
+    { value: String(resources.value.length).padStart(2, '0'), label: '当前视图资料' },
+    { value: String(favoriteCount).padStart(2, '0'), label: '已收藏内容' },
+    { value: String(tagCount).padStart(2, '0'), label: '正在使用的标签' },
+    { value: String(typeCount).padStart(2, '0'), label: '资料类型' },
+  ]
+})
+
 // formatSize 将字节数转为列表可扫读的单位，小文件仍显示至少 1 KB。
 function formatSize(size: number) {
   if (size < 1024 * 1024) {
@@ -566,38 +579,87 @@ onUnmounted(() => {
   <div v-if="loadingSession" class="boot-screen" role="status">正在打开你的资料库…</div>
 
   <main v-else-if="!username" class="login-screen">
-    <div class="login-art" aria-hidden="true">
-      <span class="login-art-index">MIZUKI / 01</span>
-      <div class="login-art-content">
-        <span class="login-art-symbol">M.</span>
-        <p>让重要的资料，<br />拥有自己的位置。</p>
-      </div>
-      <span class="login-art-foot">A PRIVATE SPACE FOR WHAT MATTERS</span>
+    <div class="public-shell">
+      <header class="public-header">
+        <div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div>
+        <nav class="public-nav" aria-label="前台导航">
+          <a href="#public-features">产品</a>
+          <a href="#public-principles">原则</a>
+          <a href="#login-title">登录</a>
+        </nav>
+        <div class="public-header-right">
+          <span class="public-header-note"><span class="status-dot" aria-hidden="true"></span> PRIVATE · LOCAL FIRST</span>
+          <a class="public-header-link" href="https://github.com/Asuka-20011204/Mizuki-Archive" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+        </div>
+      </header>
+
+      <section class="public-hero" aria-labelledby="public-title">
+        <div class="public-copy">
+          <p class="eyebrow">A QUIET SYSTEM FOR WHAT MATTERS</p>
+          <h1 id="public-title">把分散的资料，<em>整理成自己的秩序。</em></h1>
+          <p class="public-lede">Mizuki Archive 是一个为个人而生的数字资料空间。收进来、找得到、继续处理，让文件不再只是被保存，而是随时可以被重新使用。</p>
+          <div class="public-actions">
+            <a class="public-cta" href="#login-title">打开我的资料库 <span aria-hidden="true">↗</span></a>
+            <span class="public-action-note">单人使用 · 登录后可见</span>
+          </div>
+          <div class="public-proof" aria-label="产品能力概览">
+            <span><strong>01</strong> 收纳</span>
+            <span><strong>02</strong> 检索</span>
+            <span><strong>03</strong> 处理</span>
+          </div>
+        </div>
+        <div class="hero-stage" aria-hidden="true">
+          <div class="stage-orbit stage-orbit-one"></div>
+          <div class="stage-orbit stage-orbit-two"></div>
+          <div class="stage-label stage-label-top">PRIVATE ARCHIVE / 2026</div>
+          <div class="stage-card stage-card-back"><span>INDEX / 03</span><strong>Notes<br />& traces</strong></div>
+          <div class="stage-card stage-card-main">
+            <div class="stage-card-head"><span class="stage-card-mark">水</span><span>ARCHIVE / 01</span><span>•••</span></div>
+            <div class="stage-card-line stage-card-line-long"></div>
+            <div class="stage-card-line stage-card-line-short"></div>
+            <div class="stage-card-file"><span class="stage-file-icon">PDF</span><span><b>一份资料</b><small>Organized for later</small></span><span class="stage-arrow">↗</span></div>
+            <div class="stage-card-tags"><i>#收藏</i><i>#可检索</i><i>#私有</i></div>
+          </div>
+          <div class="stage-card stage-card-front"><span class="stage-mini-index">03</span><strong>Find<br />your way<br />back.</strong><span class="stage-mini-line"></span></div>
+          <div class="stage-caption"><span>管</span><span>找</span><span>处理</span></div>
+        </div>
+      </section>
+
+      <section id="public-features" class="public-feature-grid" aria-label="产品特点">
+        <article><span class="feature-index">01 / COLLECT</span><h2>先把资料收进来。</h2><p>文件、图片、PDF 和文字拥有统一的入口，不需要先想好复杂的分类。</p></article>
+        <article><span class="feature-index">02 / RETURN</span><h2>再把它们找回来。</h2><p>关键词、标签、收藏和最近查看，让你从当下的需要出发，而不是回忆目录结构。</p></article>
+        <article><span class="feature-index">03 / PROCESS</span><h2>让资料继续发生。</h2><p>文本提取和图片处理在后台完成，结果与原件并存，保留每次处理的来路。</p></article>
+      </section>
+
+      <section id="public-principles" class="public-principles" aria-labelledby="principles-title">
+        <div class="principles-heading"><p class="eyebrow">THE ARCHIVE PRINCIPLES</p><h2 id="principles-title">安静、私有，<br />并且始终可找回。</h2></div>
+        <div class="principles-list">
+          <article><span>01 / PRIVATE BY DEFAULT</span><h3>你的资料不做展品。</h3><p>未登录时不加载私有列表；进入资料库后，服务端会话才决定你能看到什么。</p></article>
+          <article><span>02 / ORIGINALS STAY INTACT</span><h3>原件和处理结果分开保留。</h3><p>文本提取、缩略图等派生产物不会覆盖原件，每次处理都有状态和结果可追踪。</p></article>
+          <article><span>03 / MADE TO RETURN TO</span><h3>不是囤积，是为了再次使用。</h3><p>从名称、标签、收藏到最近查看，让资料在需要的时候回到你的手边。</p></article>
+        </div>
+      </section>
+
+      <section id="login-title" class="login-card" aria-labelledby="login-heading">
+        <div class="login-card-intro"><span class="login-card-kicker">YOUR PRIVATE INDEX</span><span class="login-card-count">MIZUKI / 01</span></div>
+        <div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div>
+        <p class="eyebrow">PRIVATE ARCHIVE</p>
+        <h2 id="login-heading">欢迎回来</h2>
+        <p class="login-description">从这里继续整理、查找和取回你的资料。</p>
+        <form class="login-form" @submit.prevent="login">
+          <label for="username">管理员账号</label>
+          <input id="username" v-model="loginName" autocomplete="username" required placeholder="输入账号" />
+          <label for="password">密码</label>
+          <input id="password" v-model="password" type="password" autocomplete="current-password" required placeholder="输入密码" />
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+          <button class="primary-button" type="submit" :disabled="loggingIn">
+            {{ loggingIn ? '正在进入…' : '进入资料库' }} <span aria-hidden="true">↗</span>
+          </button>
+        </form>
+        <p class="login-footnote">私人资料库 · 请勿在共享设备上保持登录</p>
+      </section>
+      <footer class="public-footer"><span>© Mizuki Archive · Designed for a life of collected things.</span><nav class="public-footer-links" aria-label="外部链接"><a href="https://github.com/Asuka-20011204/Mizuki-Archive" target="_blank" rel="noreferrer">GitHub</a><a href="http://admin.asuka2001.cloud/" target="_blank" rel="noreferrer">博客 / 联系</a><a href="#login-title">进入资料库</a></nav></footer>
     </div>
-    <section class="login-card" aria-labelledby="login-title">
-      <div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div>
-      <p class="eyebrow">PRIVATE ARCHIVE</p>
-      <h1 id="login-title">欢迎回来</h1>
-      <p class="login-description">从这里继续整理、查找和取回你的资料。</p>
-      <form class="login-form" @submit.prevent="login">
-        <label for="username">管理员账号</label>
-        <input id="username" v-model="loginName" autocomplete="username" required placeholder="输入账号" />
-        <label for="password">密码</label>
-        <input
-          id="password"
-          v-model="password"
-          type="password"
-          autocomplete="current-password"
-          required
-          placeholder="输入密码"
-        />
-        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-        <button class="primary-button" type="submit" :disabled="loggingIn">
-          {{ loggingIn ? '正在进入…' : '进入资料库' }} <span aria-hidden="true">↗</span>
-        </button>
-      </form>
-      <p class="login-footnote">私人资料库 · 请勿在共享设备上保持登录</p>
-    </section>
   </main>
 
   <div v-else class="workspace">
@@ -616,10 +678,17 @@ onUnmounted(() => {
     <main class="content">
       <div class="content-inner">
         <section class="welcome" aria-labelledby="page-title">
+          <div class="welcome-copy">
+            <p class="eyebrow">MIZUKI · PERSONAL ARCHIVE</p>
+            <h1 id="page-title">每一份资料，<br />都有自己的位置。</h1>
+            <p>从这里整理、查找和取回你的文件。你的内容只在登录后可见。</p>
+          </div>
+          <div class="welcome-manifest" aria-hidden="true"><span>ARCHIVE<br />MANIFEST</span><strong>01</strong><i></i><small>COLLECT / RETURN / PROCESS</small></div>
           <span class="welcome-orbit" aria-hidden="true"><span>M.</span></span>
-          <p class="eyebrow">MIZUKI · PERSONAL ARCHIVE</p>
-          <h1 id="page-title">每一份资料，<br />都有自己的位置。</h1>
-          <p>从这里整理、查找和取回你的文件。你的内容只在登录后可见。</p>
+        </section>
+        <section class="archive-brief" aria-label="资料库状态">
+          <div class="archive-brief-copy"><p class="eyebrow">ARCHIVE PULSE</p><h2>让整理变成一种轻盈的习惯。</h2><p>当前数字来自已加载的资料视图，列表筛选后会同步变化。</p></div>
+          <div class="archive-stats"><div v-for="stat in archiveStats" :key="stat.label" class="archive-stat"><strong>{{ stat.value }}</strong><span>{{ stat.label }}</span></div></div>
         </section>
 
         <nav class="filter-nav" aria-label="按资料类型筛选">
