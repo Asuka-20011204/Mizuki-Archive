@@ -15,12 +15,14 @@ import (
 	"mizuki-archive/internal/repository"
 )
 
+// fakeStore 隔离 Service 单测与数据库；各测试独立创建，避免共享状态污染。
 type fakeStore struct {
 	resources map[string]model.Resource
 	sessions  map[string]time.Time
 	saveError error
 }
 
+// SaveResource 模拟写入资源；可注入失败以检查文件系统补偿。
 func (store *fakeStore) SaveResource(_ context.Context, resource model.Resource) error {
 	if store.saveError != nil {
 		return store.saveError
@@ -29,6 +31,7 @@ func (store *fakeStore) SaveResource(_ context.Context, resource model.Resource)
 	return nil
 }
 
+// GetResource 模拟按 ID 查找，并与真实仓储一样返回 ErrNotFound。
 func (store *fakeStore) GetResource(_ context.Context, id string) (model.Resource, error) {
 	resource, exists := store.resources[id]
 	if !exists {
@@ -37,6 +40,7 @@ func (store *fakeStore) GetResource(_ context.Context, id string) (model.Resourc
 	return resource, nil
 }
 
+// ListResources 返回内存资料；Service 测试只验证转发，不测试 SQL 筛选。
 func (store *fakeStore) ListResources(_ context.Context, _ model.ListQuery) ([]model.Resource, error) {
 	resources := make([]model.Resource, 0, len(store.resources))
 	for _, resource := range store.resources {
@@ -45,25 +49,30 @@ func (store *fakeStore) ListResources(_ context.Context, _ model.ListQuery) ([]m
 	return resources, nil
 }
 
+// SaveSession 在内存中保存摘要和失效时间，供认证流程断言。
 func (store *fakeStore) SaveSession(_ context.Context, hash string, expires time.Time) error {
 	store.sessions[hash] = expires
 	return nil
 }
 
+// HasSession 用当前时间模拟数据库的会话过期判断。
 func (store *fakeStore) HasSession(_ context.Context, hash string) (bool, error) {
 	expires, exists := store.sessions[hash]
 	return exists && expires.After(time.Now()), nil
 }
 
+// DeleteSession 删除测试会话，验证退出后旧令牌不可再用。
 func (store *fakeStore) DeleteSession(_ context.Context, hash string) error {
 	delete(store.sessions, hash)
 	return nil
 }
 
+// newFakeStore 为每个用例创建独立内存仓储，避免测试之间共享状态。
 func newFakeStore() *fakeStore {
 	return &fakeStore{resources: map[string]model.Resource{}, sessions: map[string]time.Time{}}
 }
 
+// TestFileTypeRejectsMismatchedAndActiveContent 验证扩展名与内容不一致或含活动内容时拒绝上传。
 func TestFileTypeRejectsMismatchedAndActiveContent(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -77,6 +86,7 @@ func TestFileTypeRejectsMismatchedAndActiveContent(t *testing.T) {
 		{"note.html", "<h1>Test</h1>", false},
 	}
 	for _, testCase := range cases {
+		// 每个扩展名与文件头组合单独报告，便于定位绕过格式校验的回归。
 		t.Run(testCase.name+testCase.content, func(t *testing.T) {
 			_, _, allowed := fileType(testCase.name, []byte(testCase.content))
 			if allowed != testCase.allowed {
@@ -86,6 +96,7 @@ func TestFileTypeRejectsMismatchedAndActiveContent(t *testing.T) {
 	}
 }
 
+// TestSafeFilename 验证路径只留下展示文件名，控制字符直接拒绝。
 func TestSafeFilename(t *testing.T) {
 	if name, valid := safeFilename(`..\private\notes.txt`); !valid || name != "notes.txt" {
 		t.Fatalf("unsafe path normalized to %q, valid=%t", name, valid)
@@ -95,6 +106,7 @@ func TestSafeFilename(t *testing.T) {
 	}
 }
 
+// TestResourceServiceUploadAndRead 覆盖上传落盘、读取原件、无效 ID 与异常存储键。
 func TestResourceServiceUploadAndRead(t *testing.T) {
 	store := newFakeStore()
 	dataDir := t.TempDir()
@@ -132,6 +144,7 @@ func TestResourceServiceUploadAndRead(t *testing.T) {
 	}
 }
 
+// TestResourceServiceRemovesFilesOnFailure 验证数据库写入失败时无孤儿文件，也不采用用户文件名作路径。
 func TestResourceServiceRemovesFilesOnFailure(t *testing.T) {
 	store := newFakeStore()
 	store.saveError = errors.New("database unavailable")
@@ -153,6 +166,7 @@ func TestResourceServiceRemovesFilesOnFailure(t *testing.T) {
 	}
 }
 
+// TestAuthServiceSessionLifecycle 验证错误凭据、令牌摘要、会话有效期和主动退出。
 func TestAuthServiceSessionLifecycle(t *testing.T) {
 	store := newFakeStore()
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("a secure testing password"), bcrypt.MinCost)

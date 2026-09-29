@@ -35,9 +35,11 @@ func New(config Config) (*gin.Engine, error) {
 	engine.Use(gin.Recovery())
 	handler := &Controller{config: config, limiter: newLoginLimiter()}
 	engine.Use(handler.headersAndOrigin)
+	// 健康检查回调只报告进程存活，不查询数据库，也不返回私有资料或配置细节。
 	engine.GET("/healthz", func(ctx *gin.Context) { ctx.Status(http.StatusNoContent) })
 	engine.POST("/api/login", handler.login)
 	private := engine.Group("/api", handler.requireSession)
+	// 身份回调只在会话中间件通过后返回服务端用户名，不信任浏览器提交的身份。
 	private.GET("/me", func(ctx *gin.Context) { ctx.JSON(http.StatusOK, gin.H{"username": config.Auth.Username()}) })
 	private.POST("/logout", handler.logout)
 	private.POST("/resources", handler.upload)
@@ -47,6 +49,7 @@ func New(config Config) (*gin.Engine, error) {
 	return engine, nil
 }
 
+// headersAndOrigin 设置私有响应的安全头，并对写请求执行同源校验以降低 CSRF 风险。
 func (handler *Controller) headersAndOrigin(ctx *gin.Context) {
 	ctx.Header("X-Content-Type-Options", "nosniff")
 	ctx.Header("Referrer-Policy", "no-referrer")
@@ -60,6 +63,7 @@ func (handler *Controller) headersAndOrigin(ctx *gin.Context) {
 	ctx.Next()
 }
 
+// failure 统一输出不含内部错误细节的 HTTP 错误结构，供前端稳定展示。
 func failure(ctx *gin.Context, status int, code, message string) {
 	ctx.JSON(status, gin.H{"error": gin.H{"code": code, "message": message}})
 }

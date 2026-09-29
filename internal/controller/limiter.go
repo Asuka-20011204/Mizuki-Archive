@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// loginLimiter 在单进程内按客户端地址记录失败时间；多实例部署需改用共享状态。
 type loginLimiter struct {
 	mutex    sync.Mutex
 	attempts map[string][]time.Time
@@ -16,6 +17,7 @@ func newLoginLimiter() *loginLimiter {
 	return &loginLimiter{attempts: map[string][]time.Time{}}
 }
 
+// clientAddress 从网络地址提取客户端 IP；不信任可由请求方伪造的转发头。
 func clientAddress(remote string) string {
 	address, _, err := net.SplitHostPort(remote)
 	if err != nil {
@@ -24,6 +26,7 @@ func clientAddress(remote string) string {
 	return address
 }
 
+// allowed 清除过期失败记录，并限制单 IP 尝试次数及全局记录桶数。
 func (limiter *loginLimiter) allowed(address string) bool {
 	limiter.mutex.Lock()
 	defer limiter.mutex.Unlock()
@@ -46,12 +49,14 @@ func (limiter *loginLimiter) allowed(address string) bool {
 	return len(limiter.attempts[address]) < 5 && (len(limiter.attempts) < 10000 || limiter.attempts[address] != nil)
 }
 
+// failed 记录一次密码核验失败，供同一 IP 的后续请求限流。
 func (limiter *loginLimiter) failed(address string) {
 	limiter.mutex.Lock()
 	defer limiter.mutex.Unlock()
 	limiter.attempts[address] = append(limiter.attempts[address], time.Now())
 }
 
+// succeeded 清除该 IP 的失败窗口，避免成功登录后继续被旧失败记录限制。
 func (limiter *loginLimiter) succeeded(address string) {
 	limiter.mutex.Lock()
 	defer limiter.mutex.Unlock()

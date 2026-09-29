@@ -14,6 +14,7 @@ import (
 	"mizuki-archive/internal/service"
 )
 
+// upload 解析并限制 multipart 请求，将文件校验交给 Service，再映射为明确的 HTTP 状态。
 func (handler *Controller) upload(ctx *gin.Context) {
 	// HTTP 层限制请求总体大小，Service 再限制真实文件内容大小与类型。
 	// 这里只接受第一个名为 file 的 multipart 部件；其余部件不会被当成资料存储。
@@ -49,6 +50,7 @@ func (handler *Controller) upload(ctx *gin.Context) {
 	}
 }
 
+// list 校验页码和筛选条件，多取一条记录判断下一页并返回列表元数据。
 func (handler *Controller) list(ctx *gin.Context) {
 	// 页码和筛选条件只在 HTTP 边界解析，Service/Repository 接收已校验的查询对象。
 	page := 1
@@ -80,6 +82,7 @@ func (handler *Controller) list(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"data": resources, "meta": gin.H{"page": page, "has_more": hasMore}})
 }
 
+// resource 是详情与下载共用的资料查找入口，统一处理不存在与内部错误。
 func (handler *Controller) resource(ctx *gin.Context) (model.Resource, bool) {
 	// 详情与下载共享“未找到/内部错误”映射，避免对外暴露存储层错误细节。
 	resource, err := handler.config.Resources.Get(ctx.Request.Context(), ctx.Param("id"))
@@ -94,6 +97,7 @@ func (handler *Controller) resource(ctx *gin.Context) (model.Resource, bool) {
 	return resource, true
 }
 
+// get 返回已认证用户可见的资料元数据，文件原件仍由下载接口单独提供。
 func (handler *Controller) get(ctx *gin.Context) {
 	resource, ok := handler.resource(ctx)
 	if ok {
@@ -101,6 +105,7 @@ func (handler *Controller) get(ctx *gin.Context) {
 	}
 }
 
+// download 从受控目录取回原件并强制附件下载，避免活动内容在本站源内联执行。
 func (handler *Controller) download(ctx *gin.Context) {
 	resource, ok := handler.resource(ctx)
 	if !ok {

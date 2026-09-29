@@ -9,6 +9,7 @@ import (
 	"mizuki-archive/internal/service"
 )
 
+// login 限制登录体积和失败次数，成功后只把随机会话令牌放入 HttpOnly Cookie。
 func (handler *Controller) login(ctx *gin.Context) {
 	// 登录体积和尝试次数都有上限，避免账号入口成为内存耗尽或暴力猜测入口。
 	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, 8<<10)
@@ -52,6 +53,7 @@ func (handler *Controller) login(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"username": handler.config.Auth.Username()})
 }
 
+// requireSession 在每个私有路由前验证 Cookie 的数据库会话，失败时立即终止请求。
 func (handler *Controller) requireSession(ctx *gin.Context) {
 	token, err := ctx.Cookie("archive_session")
 	if err != nil {
@@ -73,6 +75,7 @@ func (handler *Controller) requireSession(ctx *gin.Context) {
 	ctx.Next()
 }
 
+// logout 先撤销数据库中的会话再清理 Cookie，确保退出后旧令牌不可用。
 func (handler *Controller) logout(ctx *gin.Context) {
 	token, _ := ctx.Cookie("archive_session")
 	if err := handler.config.Auth.Logout(ctx.Request.Context(), token); err != nil {

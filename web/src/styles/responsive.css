@@ -1,3 +1,4 @@
+/* 中等屏幕收紧封面与留白，不改变资料查询和权限行为。 */
 @media (max-width: 900px) {
   .login-art { min-height: 360px; }
   .login-art-content { gap: 36px; }
@@ -6,6 +7,7 @@
   .toolbar-hint { display: none; }
 }
 
+/* 窄屏压缩导航文案，但保留顶栏退出、搜索和详情操作入口。 */
 @media (max-width: 680px) {
   .login-art { min-height: 270px; }
   .login-art-index { top: 22px; left: 22px; }
@@ -43,6 +45,7 @@
   .close-button { right: 24px; }
 }
 
+/* 系统要求减少动态效果时关闭入场与过渡，信息仍保持可见。 */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }

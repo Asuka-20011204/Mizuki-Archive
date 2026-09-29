@@ -21,6 +21,7 @@ import (
 	"mizuki-archive/internal/repository"
 )
 
+// MaxFileBytes 是单文件真实内容上限（50 MiB），HTTP 层还需给 multipart 包装留余量。
 const MaxFileBytes int64 = 50 << 20
 
 var (
@@ -36,6 +37,7 @@ type Resources struct {
 	dataDir string
 }
 
+// NewResources 验证存储依赖并准备受控目录；创建失败时拒绝启动文件服务。
 func NewResources(store repository.Store, dataDir string) (*Resources, error) {
 	if store == nil || dataDir == "" {
 		return nil, errors.New("invalid resources configuration")
@@ -46,6 +48,7 @@ func NewResources(store repository.Store, dataDir string) (*Resources, error) {
 	return &Resources{store: store, dataDir: dataDir}, nil
 }
 
+// fileType 同时比对扩展名与文件头；返回业务类型、可信 MIME 和是否允许上传。
 func fileType(filename string, header []byte) (string, string, bool) {
 	// 扩展名和文件头必须同时匹配，不能仅相信浏览器传来的 Content-Type。
 	extension := strings.ToLower(filepath.Ext(filename))
@@ -65,8 +68,9 @@ func fileType(filename string, header []byte) (string, string, bool) {
 	}
 }
 
+// safeFilename 只提取用于展示的安全文件名；磁盘路径始终由服务端随机 ID 决定。
 func safeFilename(name string) (string, bool) {
-	// 只保留展示用文件名；实际存储路径由随机 ID 生成，避免目录穿越。
+	// 先统一 Windows 与 Unix 路径分隔符，避免带反斜杠的文件名绕过路径清理。
 	name = filepath.Base(strings.ReplaceAll(name, "\\", "/"))
 	if name == "." || name == "" || utf8.RuneCountInString(name) > 180 {
 		return "", false
@@ -134,10 +138,12 @@ func (resources *Resources) Upload(ctx context.Context, filename string, source 
 	return resource, nil
 }
 
+// List 将已校验的筛选和分页条件交给持久层，不在 Service 重复拼接 SQL。
 func (resources *Resources) List(ctx context.Context, query model.ListQuery) ([]model.Resource, error) {
 	return resources.store.ListResources(ctx, query)
 }
 
+// Get 先检查资源 ID 格式，再将合法 ID 交给持久层查询。
 func (resources *Resources) Get(ctx context.Context, id string) (model.Resource, error) {
 	// 资源 ID 来自随机字节的十六进制编码，查询前先拒绝其他路径或异常输入。
 	if len(id) != 32 {
@@ -149,6 +155,7 @@ func (resources *Resources) Get(ctx context.Context, id string) (model.Resource,
 	return resources.store.GetResource(ctx, id)
 }
 
+// Open 仅按受控存储键打开原件；数据库记录异常时返回文件不可用。
 func (resources *Resources) Open(resource model.Resource) (*os.File, error) {
 	// 存储键必须与服务端生成的 ID 一致，绝不使用上传者提供的文件名拼接路径。
 	if resource.StorageKey != resource.ID {

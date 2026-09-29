@@ -1,3 +1,4 @@
+/* 基础令牌集中在这里：组件优先引用变量，避免同一颜色在页面各处漂移。 */
 :root {
   font-family: 'Segoe UI Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: #33434a;
@@ -65,6 +66,7 @@ button:focus-visible, input:focus-visible, a:focus-visible {
   font-weight: 600;
   letter-spacing: 0;
 }
+/* 交互按钮共享尺寸与缓动；具体强调/次要色由各自规则决定。 */
 .primary-button, .secondary-button {
   display: inline-flex;
   align-items: center;

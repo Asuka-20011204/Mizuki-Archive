@@ -20,6 +20,7 @@ import (
 	"mizuki-archive/internal/service"
 )
 
+// required 读取必需环境变量；缺失时立即中止启动，避免服务带着不完整配置运行。
 func required(name string) string {
 	value := os.Getenv(name)
 	if value == "" {
@@ -90,6 +91,7 @@ func main() {
 	// 收到终止信号后停止接新请求，让正在处理的请求在限定时间内结束。
 	stopped := make(chan os.Signal, 1)
 	signal.Notify(stopped, syscall.SIGINT, syscall.SIGTERM)
+	// 监听协程把启动后的异常退出转成停机信号；主协程统一走带超时的优雅关闭。
 	go func() {
 		log.Printf("archive API listening on %s", address)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

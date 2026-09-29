@@ -19,12 +19,14 @@ import (
 	"mizuki-archive/internal/service"
 )
 
+// memoryStore 只模拟 HTTP 层关心的持久化行为，允许人为制造保存失败。
 type memoryStore struct {
 	resources map[string]model.Resource
 	sessions  map[string]time.Time
 	saveError error
 }
 
+// SaveResource 保存 HTTP 测试资料；失败注入用于验证接口错误与文件清理。
 func (store *memoryStore) SaveResource(_ context.Context, resource model.Resource) error {
 	if store.saveError != nil {
 		return store.saveError
@@ -33,6 +35,7 @@ func (store *memoryStore) SaveResource(_ context.Context, resource model.Resourc
 	return nil
 }
 
+// GetResource 模拟根据 ID 读取资料，缺失时返回统一未找到错误。
 func (store *memoryStore) GetResource(_ context.Context, id string) (model.Resource, error) {
 	resource, exists := store.resources[id]
 	if !exists {
@@ -41,6 +44,7 @@ func (store *memoryStore) GetResource(_ context.Context, id string) (model.Resou
 	return resource, nil
 }
 
+// ListResources 模拟名称与类型筛选，隔离 HTTP 行为和真实 MySQL 查询。
 func (store *memoryStore) ListResources(_ context.Context, query model.ListQuery) ([]model.Resource, error) {
 	resources := make([]model.Resource, 0)
 	for _, resource := range store.resources {
@@ -51,21 +55,25 @@ func (store *memoryStore) ListResources(_ context.Context, query model.ListQuery
 	return resources, nil
 }
 
+// SaveSession 在内存中登记登录令牌摘要与过期时间。
 func (store *memoryStore) SaveSession(_ context.Context, hash string, expires time.Time) error {
 	store.sessions[hash] = expires
 	return nil
 }
 
+// HasSession 模拟数据库会话校验，过期后不允许访问私有路由。
 func (store *memoryStore) HasSession(_ context.Context, hash string) (bool, error) {
 	expires, exists := store.sessions[hash]
 	return exists && expires.After(time.Now()), nil
 }
 
+// DeleteSession 删除内存会话，供退出接口验证撤销效果。
 func (store *memoryStore) DeleteSession(_ context.Context, hash string) error {
 	delete(store.sessions, hash)
 	return nil
 }
 
+// testServer 构造独立的 Gin、内存仓储和临时目录，防止用例读写真实资料。
 func testServer(t *testing.T) (http.Handler, *memoryStore, string) {
 	t.Helper()
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte("correct horse battery staple"), bcrypt.MinCost)
@@ -91,6 +99,7 @@ func testServer(t *testing.T) (http.Handler, *memoryStore, string) {
 	return server, store, dataDir
 }
 
+// login 用正确测试凭据获取 HttpOnly Cookie，供后续私有接口复用。
 func login(t *testing.T, server http.Handler) *http.Cookie {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"owner","password":"correct horse battery staple"}`))
@@ -107,6 +116,7 @@ func login(t *testing.T, server http.Handler) *http.Cookie {
 	return response.Result().Cookies()[0]
 }
 
+// uploadRequest 构造带 Origin 的 multipart 请求，与浏览器实际上传结构一致。
 func uploadRequest(t *testing.T, name string, content []byte) *http.Request {
 	t.Helper()
 	buffer := &bytes.Buffer{}
@@ -127,6 +137,7 @@ func uploadRequest(t *testing.T, name string, content []byte) *http.Request {
 	return request
 }
 
+// TestSessionAndResourceFlow 串起未授权访问、恶意文件拒绝、上传与附件下载。
 func TestSessionAndResourceFlow(t *testing.T) {
 	server, store, dataDir := testServer(t)
 	unauthorized := httptest.NewRecorder()
@@ -181,6 +192,7 @@ func TestSessionAndResourceFlow(t *testing.T) {
 	}
 }
 
+// TestFailedSaveRemovesUploadedFile 验证持久层失败后接口报错且目录不遗留文件。
 func TestFailedSaveRemovesUploadedFile(t *testing.T) {
 	server, store, dataDir := testServer(t)
 	store.saveError = errors.New("database unavailable")
@@ -198,6 +210,7 @@ func TestFailedSaveRemovesUploadedFile(t *testing.T) {
 	}
 }
 
+// TestLogoutRevokesSession 验证登出会撤销服务端会话，不只是清除客户端 Cookie。
 func TestLogoutRevokesSession(t *testing.T) {
 	server, _, _ := testServer(t)
 	cookie := login(t, server)
@@ -218,6 +231,7 @@ func TestLogoutRevokesSession(t *testing.T) {
 	}
 }
 
+// TestLoginRateLimit 确认连续错误密码达到阈值时返回 429。
 func TestLoginRateLimit(t *testing.T) {
 	server, _, _ := testServer(t)
 	for attempt := 0; attempt < 6; attempt++ {
@@ -235,6 +249,7 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 }
 
+// TestLoginRejectsOversizedBody 确认过大的登录请求会在 HTTP 边界被拒绝。
 func TestLoginRejectsOversizedBody(t *testing.T) {
 	server, _, _ := testServer(t)
 	request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"owner","password":"`+strings.Repeat("a", 9000)+`"}`))

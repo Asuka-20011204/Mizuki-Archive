@@ -8,3 +8,4 @@
 - [2026-09-29 · 可读性与前端样式整理](2026-09-29-readability-and-ui-structure.md)
 - [2026-09-29 · 浏览器实测与本地启动说明](2026-09-29-interaction-and-local-dev.md)
 - [2026-09-29 · Sakurairo 视觉改版](2026-09-29-sakurairo-visual-redesign.md)
+- [2026-09-29 · 全函数中文注释审查](2026-09-29-function-comment-audit.md)

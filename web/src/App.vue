@@ -27,6 +27,7 @@ let previousFocus: HTMLElement | null = null
 // 并发列表请求使用单调序号，防止旧筛选的响应覆盖新筛选。
 let listRequestId = 0
 
+// kinds 同时驱动类型导航与文字标签，新增格式时需与后端允许列表一起更新。
 const kinds = [
   { value: '', label: '全部资料', short: '全部' },
   { value: 'pdf', label: 'PDF 文档', short: 'PDF' },
@@ -35,8 +36,10 @@ const kinds = [
   { value: 'text', label: '文本记录', short: '文本' },
 ]
 
+// sectionName 的计算回调从类型表查找当前标题；找不到时回退为“全部资料”。
 const sectionName = computed(() => kinds.find((item) => item.value === kind.value)?.label || '全部资料')
 
+// formatSize 将字节数转为列表可扫读的单位，小文件仍显示至少 1 KB。
 function formatSize(size: number) {
   if (size < 1024 * 1024) {
     return `${Math.max(1, Math.round(size / 1024))} KB`
@@ -44,14 +47,17 @@ function formatSize(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
 
+// formatDate 用中文地区格式显示服务端时间，不改变原始时间戳。
 function formatDate(date: string) {
   return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(date))
 }
 
+// kindLabel 为资料类型提供简短标签；查找回调匹配类型值，未知类型保留原值以便排查数据。
 function kindLabel(value: Resource['kind']) {
   return kinds.find((item) => item.value === value)?.short || value
 }
 
+// loadResources 按当前筛选从服务端读取列表；过期响应不能覆盖更新的搜索结果。
 async function loadResources() {
   // 搜索、类型和页码统一走同一个列表请求，页面不在客户端伪造筛选结果。
   // 快速切换筛选条件时，旧请求可能比新请求晚返回；只有最后一次请求能更新列表。
@@ -64,6 +70,7 @@ async function loadResources() {
     if (requestId !== listRequestId) return
     resources.value = result.data
     hasMore.value = result.meta.has_more
+    // some 的比较回调只匹配当前详情 ID；新列表不含该资料时关闭旧抽屉。
     if (selected.value && !resources.value.some((item) => item.id === selected.value?.id)) {
       selected.value = null
     }
@@ -76,12 +83,13 @@ async function loadResources() {
   }
 }
 
+// checkSession 在首屏询问服务端会话状态，决定展示登录页还是资料库。
 async function checkSession() {
   // 页面刷新后先确认 HttpOnly Cookie 是否仍有效；不能从本地存储推断登录身份。
   try {
     username.value = (await api.me()).username
   } catch {
-    // 未登录时展示登录页；资料列表错误由列表请求自己报告，不能误当成会话失效。
+    // 会话检查失败（包括网络错误）时先显示登录页；列表请求错误由列表自己报告。
     username.value = ''
   } finally {
     if (username.value) await loadResources()
@@ -89,6 +97,7 @@ async function checkSession() {
   }
 }
 
+// login 提交凭据并加载私有列表；失败信息留在登录表单中。
 async function login() {
   // 只在登录成功后写入界面身份，密码成功后从组件状态移除。
   loggingIn.value = true
@@ -104,6 +113,7 @@ async function login() {
   }
 }
 
+// logout 先让服务端撤销会话，再清理页面上的个人资料状态。
 async function logout() {
   // 以服务端撤销会话为准；若请求失败则保留当前界面并提示用户重试。
   try {
@@ -120,6 +130,7 @@ async function logout() {
   }
 }
 
+// upload 先做即时大小提示，再把实际文件校验与保存交给 Go 服务。
 async function upload(event: Event) {
   // 前端限制用于及时反馈；实际大小和类型仍以 Go Service 校验为准。
   const input = event.target as HTMLInputElement
@@ -149,8 +160,8 @@ async function upload(event: Event) {
   }
 }
 
+// selectResource 从服务端重新获取详情，避免依赖可能已过期的列表快照。
 async function selectResource(resource: Resource) {
-  // 详情重新请求服务端，避免列表快照被误当作最新的资料记录。
   error.value = ''
   try {
     selected.value = (await api.get(resource.id)).data
@@ -159,11 +170,13 @@ async function selectResource(resource: Resource) {
   }
 }
 
+// chooseKind 切换资料类型时回到第一页，避免旧页码导致空结果。
 function chooseKind(value: string) {
   kind.value = value
   page.value = 1
 }
 
+// trapDetailFocus 处理 Escape 与 Tab 循环，让模态详情不把键盘焦点漏到背景。
 function trapDetailFocus(event: KeyboardEvent) {
   // 详情抽屉作为模态层，键盘焦点不能落到背后的资料列表。
   if (event.key === 'Escape') {
@@ -182,6 +195,7 @@ function trapDetailFocus(event: KeyboardEvent) {
   }
 }
 
+// 详情开合回调负责移动与归还焦点；异步等待 DOM 渲染后再聚焦关闭按钮。
 watch(selected, async (current) => {
   // 模态抽屉打开时移动焦点，关闭时还给原触发控件，方便键盘用户继续浏览。
   if (current) {
@@ -194,6 +208,7 @@ watch(selected, async (current) => {
   }
 })
 
+// 筛选回调立即作废旧请求，并用可清理的短延迟合并连续输入。
 watch([search, kind, page], (_current, _previous, onCleanup) => {
   if (!username.value) return
   // 筛选变化立即让旧响应失效；输入停止后再请求，避免短暂显示不匹配的资料。
@@ -204,6 +219,7 @@ watch([search, kind, page], (_current, _previous, onCleanup) => {
   error.value = ''
   searching.value = true
   const timeout = window.setTimeout(loadResources, 250)
+  // 清理回调取消上次筛选的定时器，避免输入过程中发出过时的请求。
   onCleanup(() => window.clearTimeout(timeout))
 })
 
