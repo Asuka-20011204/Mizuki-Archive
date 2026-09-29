@@ -331,7 +331,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 6, name: "processing_capacity", sql: processingCapacityMigration},
 		{version: 7, name: "multi_user_identity", sql: multiUserIdentityMigration},
 		{version: 8, name: "multi_user_compatibility", sql: multiUserCompatibilityMigration},
-		{version: 9, name: "multi_user_identity_indexes", sql: multiUserIdentityIndexesMigration, prepare: ensureMultiUserIdentityIndexes},
+		{version: 9, name: "multi_user_identity_indexes", sql: multiUserIdentityIndexesMigration, prepare: ensureMultiUserIdentitySchema},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int
@@ -377,26 +377,97 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 	})
 }
 
-// ensureMultiUserIdentityIndexes 在迁移锁内按索引名检查并补建用户范围查询所需索引，允许中断后安全重试。
-func ensureMultiUserIdentityIndexes(connection *gorm.DB) error {
-	indexes := []struct {
+// ensureMultiUserIdentitySchema 在迁移锁内检查并补建归属列和索引，兼容 MySQL 8.4 并允许中断后安全重试。
+func ensureMultiUserIdentitySchema(connection *gorm.DB) error {
+	columns := []struct {
 		table string
 		name  string
 		sql   string
 	}{
-		{table: "sessions", name: "idx_sessions_user", sql: "ALTER TABLE `sessions` ADD INDEX `idx_sessions_user` (`user_id`)"},
-		{table: "resources", name: "idx_resources_user_created", sql: "ALTER TABLE `resources` ADD INDEX `idx_resources_user_created` (`user_id`, `created_at`, `id`)"},
+		{table: "sessions", name: "user_id", sql: "ALTER TABLE `sessions` ADD COLUMN `user_id` CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER `token_hash`"},
+		{table: "resources", name: "user_id", sql: "ALTER TABLE `resources` ADD COLUMN `user_id` CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER `id`"},
+	}
+	for _, column := range columns {
+		if err := ensureMultiUserIdentityColumn(connection, column.table, column.name, column.sql); err != nil {
+			return err
+		}
+	}
+	indexes := []struct {
+		table   string
+		name    string
+		sql     string
+		columns []string
+	}{
+		{table: "sessions", name: "idx_sessions_user", sql: "ALTER TABLE `sessions` ADD INDEX `idx_sessions_user` (`user_id`)", columns: []string{"user_id"}},
+		{table: "resources", name: "idx_resources_user_created", sql: "ALTER TABLE `resources` ADD INDEX `idx_resources_user_created` (`user_id`, `created_at`, `id`)", columns: []string{"user_id", "created_at", "id"}},
 	}
 	for _, index := range indexes {
-		var count int64
-		if err := connection.Raw(`SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?`, index.table, index.name).Scan(&count).Error; err != nil {
-			return fmt.Errorf("check index %s: %w", index.name, err)
+		if err := ensureMultiUserIdentityIndex(connection, index.table, index.name, index.sql, index.columns); err != nil {
+			return err
 		}
-		if count > 0 {
-			continue
+	}
+	return nil
+}
+
+// ensureMultiUserIdentityColumn 确保用户归属列存在且定义一致，避免同名错误字段被迁移误判为可用。
+func ensureMultiUserIdentityColumn(connection *gorm.DB, table, name, createSQL string) error {
+	rows, err := connection.Raw(`SELECT data_type, column_type, character_set_name, collation_name, is_nullable FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`, table, name).Rows()
+	if err != nil {
+		return fmt.Errorf("check column %s.%s: %w", table, name, err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := connection.Exec(createSQL).Error; err != nil {
+			return fmt.Errorf("create column %s.%s: %w", table, name, err)
 		}
-		if err := connection.Exec(index.sql).Error; err != nil {
-			return fmt.Errorf("create index %s: %w", index.name, err)
+		return nil
+	}
+	var dataType, columnType, characterSet, collation, nullable string
+	if err := rows.Scan(&dataType, &columnType, &characterSet, &collation, &nullable); err != nil {
+		return fmt.Errorf("read column %s.%s: %w", table, name, err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate column %s.%s: %w", table, name, err)
+	}
+	if !strings.EqualFold(dataType, "char") || !strings.EqualFold(columnType, "char(32)") || !strings.EqualFold(characterSet, "ascii") || !strings.EqualFold(collation, "ascii_bin") || !strings.EqualFold(nullable, "YES") {
+		return fmt.Errorf("incompatible column definition %s.%s: type=%s column_type=%s charset=%s collation=%s nullable=%s", table, name, dataType, columnType, characterSet, collation, nullable)
+	}
+	return nil
+}
+
+// ensureMultiUserIdentityIndex 确保用户范围索引存在且列顺序符合查询路径，避免同名错误索引被静默接受。
+func ensureMultiUserIdentityIndex(connection *gorm.DB, table, name, createSQL string, expectedColumns []string) error {
+	rows, err := connection.Raw(`SELECT seq_in_index, column_name FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ? ORDER BY seq_in_index`, table, name).Rows()
+	if err != nil {
+		return fmt.Errorf("check index %s: %w", name, err)
+	}
+	defer rows.Close()
+	actualColumns := make([]string, 0, len(expectedColumns))
+	actualSequences := make([]int, 0, len(expectedColumns))
+	for rows.Next() {
+		var sequence int
+		var column string
+		if err := rows.Scan(&sequence, &column); err != nil {
+			return fmt.Errorf("read index %s: %w", name, err)
+		}
+		actualSequences = append(actualSequences, sequence)
+		actualColumns = append(actualColumns, column)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate index %s: %w", name, err)
+	}
+	if len(actualColumns) == 0 {
+		if err := connection.Exec(createSQL).Error; err != nil {
+			return fmt.Errorf("create index %s: %w", name, err)
+		}
+		return nil
+	}
+	if len(actualColumns) != len(expectedColumns) {
+		return fmt.Errorf("incompatible index %s.%s: got %d columns, want %d", table, name, len(actualColumns), len(expectedColumns))
+	}
+	for position, expectedColumn := range expectedColumns {
+		if actualSequences[position] != position+1 || !strings.EqualFold(actualColumns[position], expectedColumn) {
+			return fmt.Errorf("incompatible index %s.%s at position %d: got %s, want %s", table, name, position+1, actualColumns[position], expectedColumn)
 		}
 	}
 	return nil

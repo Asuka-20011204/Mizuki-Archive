@@ -31,7 +31,7 @@ resource_tags
   FOREIGN KEY tag_id → tags(id) ON DELETE CASCADE
 ```
 
-`normalized_name` 用于唯一性和查询；展示仍保留第一次创建时的 `name`。单人系统暂不增加 `user_id`，但 Service 接口保留后续增加身份范围的空间。标签不参与文件路径、文件名或 HTML 片段生成。
+`normalized_name` 用于唯一性和查询；展示仍保留第一次创建时的 `name`。早期 V1 提案暂不增加 `user_id`，当前多用户归属与权限边界以 [ADR 0007](0007-verified-identity-boundary.md) 及已落地迁移为准。标签不参与文件路径、文件名或 HTML 片段生成。
 
 ### 规范与边界
 
@@ -103,7 +103,7 @@ Content-Type: application/json
 
 ## 不做的事情
 
-- 本轮不做自动分类、AI 标签、层级标签、标签颜色、标签统计、多人权限和 Redis 缓存。
+- 本轮不做自动分类、AI 标签、层级标签、标签颜色、标签统计、跨账号共享协作和 Redis 缓存。
 - 不把标签接口设计成消息任务；标签是同步元数据写入，只有明确出现耗时处理时才进入 V2 Worker。
 
 ## 回滚

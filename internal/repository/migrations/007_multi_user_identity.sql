@@ -18,6 +18,3 @@ CREATE TABLE IF NOT EXISTS email_challenges (
   PRIMARY KEY (email, purpose),
   INDEX idx_email_challenges_expiry (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER token_hash;
-ALTER TABLE resources ADD COLUMN IF NOT EXISTS user_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER id;

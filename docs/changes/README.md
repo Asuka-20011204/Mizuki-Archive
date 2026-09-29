@@ -4,6 +4,7 @@
 
 - [2026-09-29 · 多用户身份与邮箱验证码基础](2026-09-29-email-verification-foundation.md)
 - [2026-09-29 · 多用户目标与认证能力探测](2026-09-29-multi-user-target-and-capabilities.md)
+- [2026-09-29 · 多用户产品定位纠偏与隔离验收更新](2026-09-29-multi-user-scope-correction.md)
 - [2026-09-29 · 前台产品介绍与资料库视觉增强](2026-09-29-public-product-frontend.md)
 
 - [2026-09-29 · V7 固定负载与 Worker 轮询优化](2026-09-29-v7-fixed-workload.md)
