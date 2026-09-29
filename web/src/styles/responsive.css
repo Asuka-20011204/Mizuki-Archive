@@ -12,9 +12,9 @@
   .login-art { min-height: 270px; }
   .login-art-index { top: 22px; left: 22px; }
   .login-art-foot { right: 22px; bottom: 20px; font-size: 9px; }
-  .login-art-content { width: calc(100% - 42px); gap: 15px; }
-  .login-art-symbol { font-size: 100px; }
-  .login-art-content p { font-size: clamp(23px, 6.5vw, 31px); }
+  .login-art-content { width: calc(100% - 42px); gap: 0; }
+  .login-art-symbol { display: none; }
+  .login-art-content p { font-size: clamp(24px, 7vw, 31px); text-align: center; }
   .login-card { margin: -35px 0 48px; padding: 29px 27px 35px; }
   .login-card .brand { margin-bottom: 38px; }
   .login-footnote { margin-top: 28px; }
@@ -26,6 +26,7 @@
   .content-inner { padding: 0 12px 70px; }
   .welcome { min-height: 288px; margin-top: 16px; padding: 38px 26px 50px; }
   .welcome::after { width: 300px; top: -35%; right: -45%; }
+  .welcome-orbit { display: none; }
   .welcome h1 { font-size: clamp(29px, 8vw, 38px); }
   .welcome > p:last-child { font-size: 12px; }
   .filter-nav { gap: 0; max-width: calc(100% - 18px); margin: -22px 9px 0; padding: 4px; }
@@ -38,11 +39,19 @@
   .toolbar { margin: 24px 0 20px; }
   .search-box { width: 100%; }
   .resource-list { padding: 5px 8px; }
+  .empty-state { min-height: 310px; padding: 44px 18px; }
   .resource-row { gap: 12px; padding-right: 4px; padding-left: 4px; }
   .file-date { display: none; }
   .row-arrow { margin-left: 0; }
   .detail-panel { border-radius: 0; padding: 80px 24px 40px; }
   .close-button { right: 24px; }
+  .tag-filter { margin-left: 0; }
+  .tag-filter-item { padding: 6px 9px; }
+  .tag-editor { align-items: stretch; flex-direction: column; }
+  .tag-editor .secondary-button { width: 100%; }
+  .name-editor { align-items: stretch; flex-direction: column; }
+  .name-editor input { width: 100%; font-size: 22px; }
+  .name-editor .secondary-button { width: 100%; }
 }
 
 /* 系统要求减少动态效果时关闭入场与过渡，信息仍保持可见。 */

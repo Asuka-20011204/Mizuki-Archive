@@ -16,6 +16,10 @@ type Store interface {
 	SaveResource(context.Context, model.Resource) error
 	GetResource(context.Context, string) (model.Resource, error)
 	SetFavorite(context.Context, string, bool) (model.Resource, error)
+	ReplaceResourceTags(context.Context, string, []string) (model.Resource, error)
+	ListTags(context.Context, string) ([]string, error)
+	UpdateResourceName(context.Context, string, string) (model.Resource, error)
+	DeleteResource(context.Context, string) (model.Resource, error)
 	ListResources(context.Context, model.ListQuery) ([]model.Resource, error)
 	SaveSession(context.Context, string, time.Time) error
 	HasSession(context.Context, string) (bool, error)

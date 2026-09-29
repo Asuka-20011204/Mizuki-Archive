@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -29,7 +30,12 @@ var (
 	ErrUnsupportedFile = errors.New("unsupported file")
 	ErrFileTooLarge    = errors.New("file too large")
 	ErrFileUnavailable = errors.New("file unavailable")
+	ErrInvalidTag      = errors.New("invalid tag")
+	ErrTooManyTags     = errors.New("too many tags")
+	ErrInvalidName     = errors.New("invalid resource name")
 )
+
+const maxResourceTags = 10
 
 // Resources 负责资料的文件校验、受控存储与元数据登记，不依赖 HTTP 请求对象。
 type Resources struct {
@@ -129,7 +135,7 @@ func (resources *Resources) Upload(ctx context.Context, filename string, source 
 	if err := os.Rename(temporary.Name(), finalPath); err != nil {
 		return model.Resource{}, fmt.Errorf("commit upload: %w", err)
 	}
-	resource := model.Resource{ID: id, Name: name, OriginalName: name, Kind: kind, MIME: contentType, Size: written, SHA256: hex.EncodeToString(digest.Sum(nil)), StorageKey: id, CreatedAt: time.Now().UTC()}
+	resource := model.Resource{ID: id, Name: name, OriginalName: name, Kind: kind, MIME: contentType, Size: written, SHA256: hex.EncodeToString(digest.Sum(nil)), StorageKey: id, Tags: []string{}, CreatedAt: time.Now().UTC()}
 	if err := resources.store.SaveResource(ctx, resource); err != nil {
 		// DB 失败时尽力删除刚落盘的文件；进程崩溃窗口仍需后续孤儿文件巡检。
 		os.Remove(finalPath)
@@ -140,7 +146,74 @@ func (resources *Resources) Upload(ctx context.Context, filename string, source 
 
 // List 将已校验的筛选和分页条件交给持久层，不在 Service 重复拼接 SQL。
 func (resources *Resources) List(ctx context.Context, query model.ListQuery) ([]model.Resource, error) {
+	if query.Tag != "" {
+		normalized, err := NormalizeTag(query.Tag)
+		if err != nil {
+			return nil, err
+		}
+		query.Tag = normalized
+	}
 	return resources.store.ListResources(ctx, query)
+}
+
+// NormalizeTag 清理单个标签的展示输入，并返回用于唯一性和查询的规范值。
+func NormalizeTag(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" || utf8.RuneCountInString(value) > 24 {
+		return "", ErrInvalidTag
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) || !(unicode.IsLetter(character) || unicode.IsDigit(character) || strings.ContainsRune("-_./", character)) {
+			return "", ErrInvalidTag
+		}
+	}
+	return value, nil
+}
+
+// NormalizeTags 校验标签数量、规范名称并去除同一资料内的重复标签。
+func NormalizeTags(values []string) ([]string, error) {
+	if len(values) > maxResourceTags {
+		return nil, ErrTooManyTags
+	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized, err := NormalizeTag(value)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+// SetTags 校验后整体替换资料标签；显式替换让重试幂等，空数组表示清空。
+func (resources *Resources) SetTags(ctx context.Context, id string, values []string) (model.Resource, error) {
+	if !validResourceID(id) {
+		return model.Resource{}, repository.ErrNotFound
+	}
+	tags, err := NormalizeTags(values)
+	if err != nil {
+		return model.Resource{}, err
+	}
+	return resources.store.ReplaceResourceTags(ctx, id, tags)
+}
+
+// ListTags 返回经过同一套规则规范化的标签建议，避免筛选输入与保存输入产生不同结果。
+func (resources *Resources) ListTags(ctx context.Context, search string) ([]string, error) {
+	if strings.TrimSpace(search) != "" {
+		normalized, err := NormalizeTag(search)
+		if err != nil {
+			return nil, err
+		}
+		search = normalized
+	}
+	return resources.store.ListTags(ctx, search)
 }
 
 // validResourceID 只接受服务端生成的 16 字节十六进制 ID，避免无效输入进入持久层。
@@ -168,6 +241,47 @@ func (resources *Resources) SetFavorite(ctx context.Context, id string, favorite
 		return model.Resource{}, repository.ErrNotFound
 	}
 	return resources.store.SetFavorite(ctx, id, favorite)
+}
+
+// NormalizeDisplayName 校验用户可见名称；名称不能成为路径或控制字符载体，但可以保留中文和常用文件符号。
+func NormalizeDisplayName(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "." || value == ".." || utf8.RuneCountInString(value) > 180 {
+		return "", ErrInvalidName
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) || character == '/' || character == '\\' {
+			return "", ErrInvalidName
+		}
+	}
+	return value, nil
+}
+
+// SetName 修改资料展示名而不改动原件和原始上传名，失败时保留数据库旧值。
+func (resources *Resources) SetName(ctx context.Context, id, value string) (model.Resource, error) {
+	if !validResourceID(id) {
+		return model.Resource{}, repository.ErrNotFound
+	}
+	name, err := NormalizeDisplayName(value)
+	if err != nil {
+		return model.Resource{}, err
+	}
+	return resources.store.UpdateResourceName(ctx, id, name)
+}
+
+// Delete 先在数据库中软删除并解除标签，再清理原件；文件清理失败不会让已删除资料重新出现在列表。
+func (resources *Resources) Delete(ctx context.Context, id string) error {
+	if !validResourceID(id) {
+		return repository.ErrNotFound
+	}
+	resource, err := resources.store.DeleteResource(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(resources.dataDir, resource.ID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove deleted resource file: %w", err)
+	}
+	return nil
 }
 
 // Open 仅按受控存储键打开原件；数据库记录异常时返回文件不可用。

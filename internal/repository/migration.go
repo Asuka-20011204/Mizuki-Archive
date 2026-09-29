@@ -6,3 +6,9 @@ import _ "embed"
 //
 //go:embed migrations/001_init.sql
 var initialMigration string
+
+//go:embed migrations/002_manual_tags.sql
+var manualTagsMigration string
+
+//go:embed migrations/003_soft_delete.sql
+var softDeleteMigration string

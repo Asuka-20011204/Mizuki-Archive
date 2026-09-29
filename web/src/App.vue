@@ -12,6 +12,9 @@ const loggingIn = ref(false)
 const uploading = ref(false)
 const searching = ref(false)
 const savingFavorite = ref(false)
+const savingTags = ref(false)
+const savingName = ref(false)
+const deleting = ref(false)
 const detailError = ref('')
 const error = ref('')
 const notice = ref('')
@@ -20,14 +23,22 @@ const selected = ref<Resource | null>(null)
 // 搜索条件与页码交给 API 查询，不在浏览器里模拟 MySQL 的筛选和分页。
 const search = ref('')
 const kind = ref('')
+const tagFilter = ref('')
 const page = ref(1)
 const hasMore = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
+const searchInput = ref<HTMLInputElement | null>(null)
 const detailPanel = ref<HTMLElement | null>(null)
 const closeButton = ref<HTMLButtonElement | null>(null)
+const tagInput = ref('')
+const draftTags = ref<string[]>([])
+const tagSuggestions = ref<string[]>([])
+const nameDraft = ref('')
 let previousFocus: HTMLElement | null = null
 // 并发列表请求使用单调序号，防止旧筛选的响应覆盖新筛选。
 let listRequestId = 0
+// 并发详情请求使用单调序号，防止快速切换资料时旧响应覆盖新选择。
+let detailRequestId = 0
 
 // kinds 同时驱动类型导航与文字标签，新增格式时需与后端允许列表一起更新。
 const kinds = [
@@ -68,13 +79,13 @@ async function loadResources() {
   searching.value = true
   error.value = ''
   try {
-    const result = await api.list(search.value, kind.value, page.value)
+    const result = await api.list(search.value, kind.value, tagFilter.value, page.value)
     if (requestId !== listRequestId) return
     resources.value = result.data
     hasMore.value = result.meta.has_more
     // some 的比较回调只匹配当前详情 ID；新列表不含该资料时关闭旧抽屉。
     if (selected.value && !resources.value.some((item) => item.id === selected.value?.id)) {
-      selected.value = null
+      closeDetail()
     }
   } catch (reason) {
     if (requestId === listRequestId) {
@@ -82,6 +93,15 @@ async function loadResources() {
     }
   } finally {
     if (requestId === listRequestId) searching.value = false
+  }
+}
+
+// loadTagSuggestions 读取已有标签建议；失败不阻断资料列表，用户仍可手动输入后保存。
+async function loadTagSuggestions(searchValue = '') {
+  try {
+    tagSuggestions.value = (await api.listTags(searchValue)).data
+  } catch {
+    tagSuggestions.value = []
   }
 }
 
@@ -94,7 +114,9 @@ async function checkSession() {
     // 会话检查失败（包括网络错误）时先显示登录页；列表请求错误由列表自己报告。
     username.value = ''
   } finally {
-    if (username.value) await loadResources()
+    if (username.value) {
+      await Promise.all([loadResources(), loadTagSuggestions()])
+    }
     loadingSession.value = false
   }
 }
@@ -107,7 +129,7 @@ async function login() {
   try {
     username.value = (await api.login(loginName.value, password.value)).username
     password.value = ''
-    await loadResources()
+    await Promise.all([loadResources(), loadTagSuggestions()])
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '登录失败'
   } finally {
@@ -124,8 +146,11 @@ async function logout() {
     listRequestId++
     searching.value = false
     username.value = ''
-    selected.value = null
+    closeDetail()
     resources.value = []
+    tagFilter.value = ''
+    draftTags.value = []
+    tagSuggestions.value = []
     notice.value = ''
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '退出失败'
@@ -162,15 +187,119 @@ async function upload(event: Event) {
   }
 }
 
+// closeDetail 关闭详情并使尚未返回的详情请求失效，避免关闭后旧响应重新打开抽屉。
+function closeDetail() {
+  detailRequestId++
+  selected.value = null
+}
+
 // selectResource 从服务端重新获取详情，避免依赖可能已过期的列表快照。
 async function selectResource(resource: Resource) {
+  const requestId = ++detailRequestId
   error.value = ''
   detailError.value = ''
   try {
-    selected.value = (await api.get(resource.id)).data
+    const detail = (await api.get(resource.id)).data
+    if (requestId !== detailRequestId) return
+    selected.value = detail
+    nameDraft.value = selected.value.name
+    draftTags.value = [...(selected.value.tags || [])]
+    tagInput.value = ''
+    await loadTagSuggestions()
   } catch (reason) {
+    if (requestId !== detailRequestId) return
     error.value = reason instanceof Error ? reason.message : '无法打开资料'
   }
+}
+
+// saveName 保存展示名称，不改变原始上传名称；失败时保留输入内容方便修正后重试。
+async function saveName() {
+  const resource = selected.value
+  if (!resource || savingName.value) return
+  savingName.value = true
+  detailError.value = ''
+  try {
+    const updated = (await api.setName(resource.id, nameDraft.value)).data
+    if (selected.value?.id === updated.id) selected.value = updated
+    resources.value = resources.value.map((item) => item.id === updated.id ? updated : item)
+  } catch (reason) {
+    detailError.value = reason instanceof Error ? reason.message : '名称保存失败'
+  } finally {
+    savingName.value = false
+  }
+}
+
+// deleteResource 二次确认后删除资料；成功时从列表移除并关闭详情，避免继续展示已删除内容。
+async function deleteResource() {
+  const resource = selected.value
+  if (!resource || deleting.value || !window.confirm(`确定删除“${resource.name}”吗？删除后原件不可恢复。`)) return
+  deleting.value = true
+  detailError.value = ''
+  try {
+    await api.deleteResource(resource.id)
+    resources.value = resources.value.filter((item) => item.id !== resource.id)
+    closeDetail()
+    notice.value = '资料已删除'
+  } catch (reason) {
+    detailError.value = reason instanceof Error ? reason.message : '删除失败'
+  } finally {
+    deleting.value = false
+  }
+}
+
+// previewURL 生成同源预览地址；权限仍由服务端会话校验，浏览器不会直连存储目录。
+function previewURL(id: string) {
+  return `/api/resources/${encodeURIComponent(id)}/preview`
+}
+
+// addTag 只更新详情草稿，不立即写数据库；保存时一次性提交，失败仍能继续编辑。
+function addTag() {
+  const value = tagInput.value.trim().toLowerCase()
+  if (!value) return
+  if (value.length > 24 || !/^[\p{L}\p{N}._\-/]+$/u.test(value)) {
+    detailError.value = '标签只能包含中文、字母、数字和 - _ . /，长度不超过 24 个字符'
+    return
+  }
+  if (draftTags.value.includes(value)) {
+    tagInput.value = ''
+    return
+  }
+  if (draftTags.value.length >= 10) {
+    detailError.value = '一份资料最多设置 10 个标签'
+    return
+  }
+  draftTags.value = [...draftTags.value, value].sort()
+  tagInput.value = ''
+  detailError.value = ''
+}
+
+// removeTag 从未保存草稿中移除一个标签，真正的删除在保存按钮确认后发生。
+function removeTag(tag: string) {
+  draftTags.value = draftTags.value.filter((item) => item !== tag)
+}
+
+// saveTags 以完整标签数组提交服务端，成功后同步详情和当前列表中的同一条资料。
+async function saveTags() {
+  const resource = selected.value
+  if (!resource || savingTags.value) return
+  savingTags.value = true
+  detailError.value = ''
+  try {
+    const updated = (await api.setTags(resource.id, draftTags.value)).data
+    if (selected.value?.id === updated.id) selected.value = updated
+    resources.value = resources.value.map((item) => item.id === updated.id ? updated : item)
+    tagSuggestions.value = (await api.listTags()).data
+  } catch (reason) {
+    detailError.value = reason instanceof Error ? reason.message : '标签保存失败'
+  } finally {
+    savingTags.value = false
+  }
+}
+
+// chooseTag 设置单个精确标签筛选；再次点击当前标签即可清除筛选。
+function chooseTag(value: string) {
+  tagFilter.value = tagFilter.value === value ? '' : value
+  page.value = 1
 }
 
 // setFavorite 将详情中的目标状态提交服务端，成功后同步当前列表；失败保留原状态并在抽屉内提示。
@@ -200,15 +329,24 @@ function chooseKind(value: string) {
   page.value = 1
 }
 
+// clearFilters 清除关键词、类型和标签筛选，并把焦点还给搜索框。
+function clearFilters() {
+  search.value = ''
+  kind.value = ''
+  tagFilter.value = ''
+  page.value = 1
+  searchInput.value?.focus()
+}
+
 // trapDetailFocus 处理 Escape 与 Tab 循环，让模态详情不把键盘焦点漏到背景。
 function trapDetailFocus(event: KeyboardEvent) {
   // 详情抽屉作为模态层，键盘焦点不能落到背后的资料列表。
   if (event.key === 'Escape') {
-    selected.value = null
+    closeDetail()
     return
   }
   if (event.key !== 'Tab') return
-  const focusable = detailPanel.value?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]')
+  const focusable = detailPanel.value?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled])')
   if (!focusable?.length) return
   if (event.shiftKey && document.activeElement === focusable[0]) {
     event.preventDefault()
@@ -219,26 +357,31 @@ function trapDetailFocus(event: KeyboardEvent) {
   }
 }
 
+// restoreDetailFocus 在抽屉退场完成后把焦点还给打开详情的资料行。
+function restoreDetailFocus() {
+  previousFocus?.focus()
+  previousFocus = null
+}
+
 // 详情回调只在打开/关闭时移动焦点；收藏后替换详情对象不能把焦点从按钮抢走。
 watch(selected, async (current, previous) => {
   if (current && !previous) {
+    nameDraft.value = current.name
+    draftTags.value = [...(current.tags || [])]
     previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     await nextTick()
     if (selected.value) closeButton.value?.focus()
-  } else if (!current && previous) {
-    previousFocus?.focus()
-    previousFocus = null
   }
 })
 
 // 筛选回调立即作废旧请求，并用可清理的短延迟合并连续输入。
-watch([search, kind, page], (_current, _previous, onCleanup) => {
+watch([search, kind, tagFilter, page], (_current, _previous, onCleanup) => {
   if (!username.value) return
   // 筛选变化立即让旧响应失效；输入停止后再请求，避免短暂显示不匹配的资料。
   listRequestId++
   resources.value = []
   hasMore.value = false
-  selected.value = null
+  closeDetail()
   error.value = ''
   searching.value = true
   const timeout = window.setTimeout(loadResources, 250)
@@ -303,6 +446,7 @@ onMounted(checkSession)
     <main class="content">
       <div class="content-inner">
         <section class="welcome" aria-labelledby="page-title">
+          <span class="welcome-orbit" aria-hidden="true"><span>M.</span></span>
           <p class="eyebrow">MIZUKI · PERSONAL ARCHIVE</p>
           <h1 id="page-title">每一份资料，<br />都有自己的位置。</h1>
           <p>从这里整理、查找和取回你的文件。你的内容只在登录后可见。</p>
@@ -319,6 +463,18 @@ onMounted(checkSession)
             @click="chooseKind(item.value)"
           ><span class="nav-label">{{ item.label }}</span><span class="nav-short">{{ item.short }}</span></button>
         </nav>
+        <div v-if="tagSuggestions.length" class="tag-filter" aria-label="按标签筛选">
+          <span class="tag-filter-label">标签</span>
+          <button
+            v-for="tag in tagSuggestions"
+            :key="tag"
+            type="button"
+            class="tag-filter-item"
+            :class="{ active: tagFilter === tag }"
+            :aria-pressed="tagFilter === tag"
+            @click="chooseTag(tag)"
+          >#{{ tag }}</button>
+        </div>
 
         <section class="library-section" aria-labelledby="library-title">
           <div class="section-heading">
@@ -340,41 +496,50 @@ onMounted(checkSession)
             <label class="search-box">
               <span aria-hidden="true">⌕</span>
               <span class="visually-hidden">搜索文件名</span>
-              <input v-model="search" type="search" placeholder="搜索文件名…" maxlength="100" />
+              <input ref="searchInput" v-model="search" type="search" placeholder="搜索文件名…" maxlength="100" />
             </label>
             <span class="toolbar-hint">支持 PDF、图片、Markdown 与文本 · 单文件 ≤ 50 MB</span>
           </div>
           <p v-if="error" class="message error" role="alert">{{ error }}</p>
           <p v-if="notice" class="message success" role="status">{{ notice }}</p>
 
-          <div v-if="searching && resources.length === 0" class="empty-state" role="status">正在查找资料…</div>
-          <div v-else-if="resources.length === 0 && !error" class="empty-state">
-            <div class="empty-illustration" aria-hidden="true"><span>＋</span></div>
-            <h3>{{ search || kind ? '没有找到匹配的资料' : '这里还没有资料' }}</h3>
-            <p>{{ search || kind ? '试试其他关键词，或切换资料类型。' : '上传第一份文件，让你的个人资料库从这里开始。' }}</p>
-            <button v-if="!search && !kind" class="secondary-button" type="button" @click="fileInput?.click()">
-              上传第一份资料 <span aria-hidden="true">↗</span>
-            </button>
-          </div>
-          <div v-else-if="resources.length" class="resource-list" aria-label="资料列表">
-            <button
-              v-for="resource in resources"
-              :key="resource.id"
-              type="button"
-              class="resource-row"
-              :class="{ selected: selected?.id === resource.id }"
-              @click="selectResource(resource)"
-            >
-              <span class="file-icon" :class="resource.kind">{{ resource.kind === 'image' ? '◈' : resource.kind === 'pdf' ? 'PDF' : resource.kind === 'markdown' ? 'MD' : 'TXT' }}</span>
-              <span class="file-main">
-                <strong>{{ resource.name }}</strong>
-                <small>{{ kindLabel(resource.kind) }} <span aria-hidden="true">·</span> {{ formatSize(resource.size) }}</small>
-              </span>
-              <span v-if="resource.favorite" class="favorite-marker" aria-label="已收藏" title="已收藏">★</span>
-              <span class="file-date">{{ formatDate(resource.created_at) }}</span>
-              <span class="row-arrow" aria-hidden="true">↗</span>
-            </button>
-          </div>
+          <Transition name="content-swap" mode="out-in">
+            <div v-if="searching && resources.length === 0" key="loading" class="empty-state loading-state" role="status">
+              <div class="empty-illustration" aria-hidden="true"><span>⌕</span></div>
+              <h3>正在查找资料…</h3>
+              <p>在你的资料库中寻找合适的内容。</p>
+            </div>
+            <div v-else-if="resources.length === 0 && !error" key="empty" class="empty-state" role="status">
+              <div class="empty-illustration" aria-hidden="true"><span>＋</span></div>
+              <h3>{{ search || kind || tagFilter ? '没有找到匹配的资料' : '这里还没有资料' }}</h3>
+              <p>{{ search || kind || tagFilter ? '试试其他关键词，或切换资料类型。' : '上传第一份文件，让你的个人资料库从这里开始。' }}</p>
+              <button v-if="search || kind || tagFilter" class="secondary-button" type="button" @click="clearFilters">清除筛选 <span aria-hidden="true">↗</span></button>
+              <button v-else class="secondary-button" type="button" @click="fileInput?.click()">
+                上传第一份资料 <span aria-hidden="true">↗</span>
+              </button>
+            </div>
+            <div v-else-if="resources.length" key="list" class="resource-list" aria-label="资料列表">
+              <button
+                v-for="(resource, index) in resources"
+                :key="resource.id"
+                type="button"
+                class="resource-row"
+                :class="{ selected: selected?.id === resource.id }"
+                :style="{ '--row-index': Math.min(index, 9) }"
+                @click="selectResource(resource)"
+              >
+                <span class="file-icon" :class="resource.kind">{{ resource.kind === 'image' ? '◈' : resource.kind === 'pdf' ? 'PDF' : resource.kind === 'markdown' ? 'MD' : 'TXT' }}</span>
+                <span class="file-main">
+                  <strong>{{ resource.name }}</strong>
+                  <small>{{ kindLabel(resource.kind) }} <span aria-hidden="true">·</span> {{ formatSize(resource.size) }}</small>
+                  <span v-if="resource.tags.length" class="file-tags" aria-label="资料标签">{{ resource.tags.map((tag) => `#${tag}`).join(' · ') }}</span>
+                </span>
+                <span v-if="resource.favorite" class="favorite-marker" aria-label="已收藏" title="已收藏">★</span>
+                <span class="file-date">{{ formatDate(resource.created_at) }}</span>
+                <span class="row-arrow" aria-hidden="true">↗</span>
+              </button>
+            </div>
+          </Transition>
           <div v-if="resources.length" class="pagination">
             <button type="button" :disabled="page <= 1" @click="page--">上一页</button>
             <span>第 {{ page }} 页</span>
@@ -385,42 +550,84 @@ onMounted(checkSession)
     </main>
 
     <!-- 详情是模态抽屉：焦点限制与关闭后的焦点恢复由脚本统一处理。 -->
-    <div v-if="selected" class="detail-backdrop" @click.self="selected = null">
-      <section
-        ref="detailPanel"
-        class="detail-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="detail-title"
-        @keydown="trapDetailFocus"
-      >
-        <button ref="closeButton" type="button" class="close-button" aria-label="关闭资料详情" @click="selected = null">×</button>
-        <p class="eyebrow">资料详情</p>
-        <div class="detail-icon" :class="selected.kind">{{ selected.kind === 'image' ? '◈' : kindLabel(selected.kind) }}</div>
-        <h2 id="detail-title">{{ selected.name }}</h2>
-        <p class="detail-description">这份资料已安全保存在你的私人资料库中。</p>
-        <dl class="detail-meta">
-          <div><dt>类型</dt><dd>{{ kindLabel(selected.kind) }}</dd></div>
-          <div><dt>大小</dt><dd>{{ formatSize(selected.size) }}</dd></div>
-          <div><dt>加入时间</dt><dd>{{ formatDate(selected.created_at) }}</dd></div>
-          <div><dt>文件指纹</dt><dd class="hash">{{ selected.sha256.slice(0, 18) }}…</dd></div>
-        </dl>
-        <button
-          type="button"
-          class="secondary-button favorite-button"
-          :aria-pressed="selected.favorite"
-          :aria-disabled="savingFavorite"
-          @click="setFavorite"
+    <Transition name="drawer" @after-leave="restoreDetailFocus">
+      <div v-if="selected" class="detail-backdrop" @click.self="selected = null">
+        <section
+          ref="detailPanel"
+          class="detail-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="detail-title"
+          @keydown="trapDetailFocus"
         >
-          <span aria-hidden="true">{{ selected.favorite ? '★' : '☆' }}</span>
-          {{ savingFavorite ? '正在保存…' : selected.favorite ? '已收藏 · 点击取消' : '加入收藏' }}
-        </button>
-        <p v-if="detailError" class="message error" role="alert">{{ detailError }}</p>
-        <a class="primary-button download-button" :href="`/api/resources/${selected.id}/download`">
-          下载原文件 <span aria-hidden="true">↗</span>
-        </a>
-        <p class="detail-footnote">预览与处理记录将在后续阶段加入。</p>
-      </section>
-    </div>
+          <button ref="closeButton" type="button" class="close-button" aria-label="关闭资料详情" @click="selected = null">×</button>
+          <p class="eyebrow">资料详情</p>
+          <div class="detail-icon" :class="selected.kind">{{ selected.kind === 'image' ? '◈' : kindLabel(selected.kind) }}</div>
+          <form class="name-editor" aria-labelledby="detail-title" @submit.prevent="saveName">
+            <label class="visually-hidden" for="resource-name">资料展示名称</label>
+            <input id="resource-name" v-model="nameDraft" maxlength="180" aria-describedby="name-help" />
+            <button type="submit" class="secondary-button" :aria-disabled="savingName">{{ savingName ? '保存中…' : '保存名称' }}</button>
+          </form>
+          <p id="name-help" class="detail-name-help">仅修改展示名称，原始上传名称保持不变。</p>
+          <p class="detail-description">这份资料已安全保存在你的私人资料库中。</p>
+          <div v-if="selected.kind === 'image'" class="preview-frame">
+            <img :src="previewURL(selected.id)" :alt="`预览：${selected.name}`" />
+          </div>
+          <iframe
+            v-else-if="selected.kind === 'text' || selected.kind === 'markdown'"
+            class="preview-frame text-preview"
+            :src="previewURL(selected.id)"
+            :title="`文本预览：${selected.name}`"
+            sandbox=""
+          ></iframe>
+          <p v-else class="preview-note">此格式暂不在线预览，请下载原文件查看。</p>
+          <section class="detail-tags" aria-labelledby="detail-tags-title">
+            <div class="detail-tags-heading">
+              <h3 id="detail-tags-title">标签</h3>
+              <span>{{ draftTags.length }}/10</span>
+            </div>
+            <div v-if="draftTags.length" class="tag-list" aria-label="当前标签">
+              <span v-for="tag in draftTags" :key="tag" class="tag-chip">
+                #{{ tag }}
+                <button type="button" :aria-label="`移除标签 ${tag}`" @click="removeTag(tag)">×</button>
+              </span>
+            </div>
+            <form class="tag-editor" @submit.prevent="addTag">
+              <label class="visually-hidden" for="tag-input">添加标签</label>
+              <input id="tag-input" v-model="tagInput" list="tag-suggestions" maxlength="24" placeholder="输入标签后按回车" />
+              <datalist id="tag-suggestions"><option v-for="tag in tagSuggestions" :key="`suggestion-${tag}`" :value="tag" /></datalist>
+              <button type="submit" class="secondary-button">添加</button>
+            </form>
+            <button type="button" class="primary-button save-tags-button" :aria-disabled="savingTags" @click="saveTags">
+              {{ savingTags ? '正在保存…' : '保存标签' }}
+            </button>
+          </section>
+          <dl class="detail-meta">
+            <div><dt>类型</dt><dd>{{ kindLabel(selected.kind) }}</dd></div>
+            <div><dt>大小</dt><dd>{{ formatSize(selected.size) }}</dd></div>
+            <div><dt>加入时间</dt><dd>{{ formatDate(selected.created_at) }}</dd></div>
+            <div><dt>文件指纹</dt><dd class="hash">{{ selected.sha256.slice(0, 18) }}…</dd></div>
+          </dl>
+          <button
+            type="button"
+            class="secondary-button favorite-button"
+            :aria-pressed="selected.favorite"
+            :aria-disabled="savingFavorite"
+            @click="setFavorite"
+          >
+            <span aria-hidden="true">{{ selected.favorite ? '★' : '☆' }}</span>
+            {{ savingFavorite ? '正在保存…' : selected.favorite ? '已收藏 · 点击取消' : '加入收藏' }}
+          </button>
+          <p v-if="detailError" class="message error" role="alert">{{ detailError }}</p>
+          <a class="primary-button download-button" :href="`/api/resources/${selected.id}/download`">
+            下载原文件 <span aria-hidden="true">↗</span>
+          </a>
+          <button type="button" class="danger-button" :aria-disabled="deleting" @click="deleteResource">
+            {{ deleting ? '正在删除…' : '删除资料' }}
+          </button>
+          <p class="detail-footnote">预览与处理记录将在后续阶段加入。</p>
+        </section>
+      </div>
+    </Transition>
   </div>
 </template>

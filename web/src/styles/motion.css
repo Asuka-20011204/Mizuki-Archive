@@ -1,0 +1,137 @@
+/* 动效有明确层次：封面叙事、状态切换、操作反馈；只复用主题的节奏，不复制主题代码。 */
+:root { --motion-ease: cubic-bezier(.22, 1, .36, 1); }
+
+.login-art::before { animation: atmosphere-turn 30s linear infinite; }
+.login-art::after { animation: atmosphere-turn 38s linear infinite reverse; }
+.login-art-content { animation: scene-reveal 1.1s var(--motion-ease) both; }
+.login-art-symbol { animation: monogram-enter 1.15s .1s var(--motion-ease) both; }
+.login-art-content p { animation: headline-reveal 1s .25s var(--motion-ease) both; }
+.login-art-index, .login-art-foot { animation: fade-arrive .85s .6s var(--motion-ease) both; }
+.login-card { animation: card-arrive .95s .35s var(--motion-ease) both; }
+.login-card .brand, .login-card .eyebrow, .login-card h1, .login-description, .login-form, .login-footnote {
+  animation: fade-arrive .65s var(--motion-ease) both;
+}
+.login-card .brand { animation-delay: .55s; }
+.login-card .eyebrow { animation-delay: .63s; }
+.login-card h1 { animation-delay: .71s; }
+.login-description { animation-delay: .79s; }
+.login-form { animation-delay: .87s; }
+.login-footnote { animation-delay: .95s; }
+
+.site-header-inner { animation: header-arrive .9s var(--motion-ease) both; }
+.welcome { isolation: isolate; animation: scene-reveal 1s .1s var(--motion-ease) both; }
+.welcome::before {
+  position: absolute;
+  z-index: 1;
+  inset: -30% auto -30% 50%;
+  width: 32%;
+  background: linear-gradient(90deg, transparent, #ffffff70, transparent);
+  content: '';
+  pointer-events: none;
+  transform: translateX(-650%) skewX(-18deg);
+  animation: light-pass 1.7s .75s var(--motion-ease) both;
+}
+.welcome::after { animation: atmosphere-turn 34s linear infinite; }
+.welcome-orbit { animation: orbit-float 7s ease-in-out infinite; }
+.welcome-orbit::after { animation: atmosphere-turn 26s linear infinite; }
+.welcome-orbit span { animation: orbit-letter 1.1s .35s var(--motion-ease) both; }
+.welcome .eyebrow { animation: fade-arrive .7s .26s var(--motion-ease) both; }
+.welcome h1 { animation: headline-reveal 1.05s .38s var(--motion-ease) both; }
+.welcome > p:last-child { animation: fade-arrive .8s .65s var(--motion-ease) both; }
+
+.filter-nav { animation: filter-arrive .85s .45s var(--motion-ease) both; }
+.nav-item { position: relative; isolation: isolate; }
+.nav-item::before {
+  position: absolute;
+  z-index: -1;
+  inset: 2px;
+  border-radius: inherit;
+  background: linear-gradient(120deg, #dcecf0, #edf7f6);
+  content: '';
+  opacity: 0;
+  transform: scale(.76);
+  transition: opacity .4s var(--motion-ease), transform .5s var(--motion-ease);
+}
+.nav-item.active { background: transparent; }
+.nav-item.active::before { opacity: 1; transform: scale(1); }
+.nav-item:active, .primary-button:active:not(:disabled), .secondary-button:active:not(:disabled) { transform: translateY(1px) scale(.97); }
+.primary-button, .secondary-button { position: relative; overflow: hidden; isolation: isolate; }
+.primary-button::after, .secondary-button::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 25%, #ffffff65 50%, transparent 75%);
+  content: '';
+  pointer-events: none;
+  transform: translateX(-130%);
+  transition: transform .7s var(--motion-ease);
+}
+.primary-button:hover::after, .secondary-button:hover::after { transform: translateX(130%); }
+
+.library-section { animation: fade-arrive .8s .6s var(--motion-ease) both; }
+.content-swap-enter-active { transition: opacity .55s var(--motion-ease), transform .65s var(--motion-ease); }
+.content-swap-leave-active { transition: opacity .2s ease, transform .2s ease; }
+.content-swap-enter-from { opacity: 0; transform: translateY(24px) scale(.985); }
+.content-swap-leave-to { opacity: 0; transform: translateY(-10px); }
+.resource-row { position: relative; animation: row-arrive .68s var(--motion-ease) backwards; animation-delay: calc(140ms + var(--row-index) * 75ms); }
+.resource-row::before {
+  position: absolute;
+  inset: 18px auto 18px -10px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+  content: '';
+  transform: scaleY(0);
+  transition: transform .4s var(--motion-ease);
+}
+.resource-row:hover::before, .resource-row:focus-visible::before { transform: scaleY(1); }
+.file-icon { transition: transform .5s var(--motion-ease), box-shadow .5s var(--motion-ease); }
+.resource-row:hover .file-icon, .resource-row:focus-visible .file-icon { transform: rotate(-7deg) translateY(-3px); box-shadow: 0 8px 18px #456d7b22; }
+.row-arrow { transition: transform .45s var(--motion-ease), color .45s var(--motion-ease); }
+.resource-row:hover .row-arrow, .resource-row:focus-visible .row-arrow { transform: translate(4px, -4px); color: var(--accent-hover); }
+.favorite-marker { animation: favorite-arrive .55s var(--motion-ease) both; }
+.search-box > span:first-child { transition: transform .45s var(--motion-ease); }
+.search-box:focus-within > span:first-child { transform: rotate(-18deg) scale(1.15); }
+
+.empty-illustration { animation: empty-float 5s ease-in-out infinite; }
+.empty-illustration::after { animation: atmosphere-turn 24s linear infinite; }
+.empty-illustration span { transition: transform .6s var(--motion-ease); }
+.empty-state:hover .empty-illustration span { transform: rotate(90deg); }
+.loading-state .empty-illustration { animation: loading-breathe 1.8s ease-in-out infinite; }
+.loading-state .empty-illustration span { animation: loading-search 1.8s ease-in-out infinite; }
+
+.drawer-enter-active, .drawer-leave-active { transition: opacity .48s ease; }
+.drawer-enter-from, .drawer-leave-to { opacity: 0; }
+.drawer-enter-active .detail-panel, .drawer-leave-active .detail-panel { transition: transform .7s var(--motion-ease); }
+.drawer-enter-from .detail-panel, .drawer-leave-to .detail-panel { transform: translateX(102%); }
+.drawer-enter-active .detail-panel > * { animation: fade-arrive .65s var(--motion-ease) backwards; }
+.drawer-enter-active .detail-panel > :nth-child(1) { animation-delay: .2s; }
+.drawer-enter-active .detail-panel > :nth-child(2) { animation-delay: .25s; }
+.drawer-enter-active .detail-panel > :nth-child(3) { animation-delay: .3s; }
+.drawer-enter-active .detail-panel > :nth-child(4) { animation-delay: .37s; }
+.drawer-enter-active .detail-panel > :nth-child(n+5) { animation-delay: .44s; }
+.detail-icon { transition: transform .5s var(--motion-ease), box-shadow .5s var(--motion-ease); }
+.detail-icon:hover { transform: rotate(-6deg); box-shadow: 0 12px 24px #456d7b22; }
+.close-button { transition: transform .45s var(--motion-ease), background-color .45s var(--motion-ease); }
+.close-button:hover { transform: rotate(90deg); }
+
+@keyframes scene-reveal { from { opacity: 0; clip-path: inset(8% 0 18% 0 round 18px); transform: translateY(32px) scale(.97); } to { opacity: 1; clip-path: inset(0 0 0 0 round 18px); transform: translateY(0) scale(1); } }
+@keyframes header-arrive { from { opacity: 0; transform: translateY(-26px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes card-arrive { from { opacity: 0; transform: translateY(52px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes headline-reveal { from { opacity: 0; clip-path: inset(0 0 100% 0); transform: translateY(28px); } to { opacity: 1; clip-path: inset(0 0 0 0); transform: translateY(0); } }
+@keyframes fade-arrive { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes filter-arrive { from { opacity: 0; transform: translateY(30px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes row-arrive { from { transform: translateX(-14px) translateY(8px); } to { transform: translateX(0) translateY(0); } }
+@keyframes monogram-enter { from { opacity: 0; transform: rotate(-18deg) scale(.6); } to { opacity: 1; transform: rotate(0) scale(1); } }
+@keyframes orbit-letter { from { opacity: 0; transform: rotate(-25deg) scale(.7); } to { opacity: 1; transform: rotate(0) scale(1); } }
+@keyframes orbit-float { 0%, 100% { transform: translateY(-50%); } 50% { transform: translateY(calc(-50% - 12px)); } }
+@keyframes atmosphere-turn { to { transform: rotate(360deg); } }
+@keyframes light-pass { from { transform: translateX(-650%) skewX(-18deg); } to { transform: translateX(650%) skewX(-18deg); } }
+@keyframes empty-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
+@keyframes loading-breathe { 0%, 100% { transform: scale(.95); opacity: .7; } 50% { transform: scale(1.05); opacity: 1; } }
+@keyframes loading-search { 0%, 100% { transform: rotate(-22deg); } 50% { transform: rotate(22deg); } }
+@keyframes favorite-arrive { from { opacity: 0; transform: scale(.4) rotate(-45deg); } to { opacity: 1; transform: scale(1) rotate(0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .content-swap-enter-from, .content-swap-leave-to, .drawer-enter-from, .drawer-leave-to { opacity: 1; transform: none; }
+  .drawer-enter-from .detail-panel, .drawer-leave-to .detail-panel { transform: none; }
+}

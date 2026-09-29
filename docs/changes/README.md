@@ -12,4 +12,6 @@
 - [2026-09-29 · 本地 Docker MySQL 改用 3307 主机端口](2026-09-29-local-mysql-port.md)
 - [2026-09-29 · Go API 自动读取本地 .env](2026-09-29-dotenv-loading.md)
 - [2026-09-29 · 资料收藏编辑闭环](2026-09-29-favorite-resource.md)
+- [2026-09-29 · 资料库动效与空状态重排](2026-09-29-motion-and-empty-state.md)
 - [2026-09-29 · 下一阶段手动标签设计](2026-09-29-next-tag-design.md)
+- [2026-09-29 · V1 资料管理闭环](2026-09-29-v1-resource-management.md)

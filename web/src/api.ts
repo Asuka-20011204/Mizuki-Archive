@@ -8,6 +8,7 @@ export interface Resource {
   size: number
   sha256: string
   favorite: boolean
+  tags: string[]
   created_at: string
 }
 
@@ -42,12 +43,21 @@ export const api = {
   // logout 请求服务端撤销会话，单纯隐藏页面不足以完成退出。
   logout: () => request<void>('/logout', { method: 'POST' }),
   // list 显式编码筛选和页码，避免文件名关键词破坏查询字符串。
-  list: (search: string, kind: string, page: number) =>
+  list: (search: string, kind: string, tag: string, page: number) =>
     request<{ data: Resource[]; meta: { page: number; has_more: boolean } }>(
-      `/resources?${new URLSearchParams({ q: search, kind, page: String(page) })}`,
+      `/resources?${new URLSearchParams({ q: search, kind, tag, page: String(page) })}`,
     ),
+  // listTags 只读取已有标签，用于建议和筛选，不把用户输入直接当作可信标签。
+  listTags: (search = '') => request<{ data: string[] }>(`/tags?${new URLSearchParams({ q: search })}`),
   // get 对路径 ID 编码并读取最新元数据，供详情抽屉展示。
   get: (id: string) => request<{ data: Resource }>(`/resources/${encodeURIComponent(id)}`),
+  // setName 只更新展示名称，原始上传名称和服务端存储键由后端保留。
+  setName: (id: string, name: string) =>
+    request<{ data: Resource }>(`/resources/${encodeURIComponent(id)}/name`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
   // setFavorite 发送明确的目标状态，网络重试不会把已收藏资料意外取消。
   setFavorite: (id: string, favorite: boolean) =>
     request<{ data: Resource }>(`/resources/${encodeURIComponent(id)}/favorite`, {
@@ -55,6 +65,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ favorite }),
     }),
+  // setTags 以完整数组替换标签，空数组表示清空，网络重试不会产生重复关联。
+  setTags: (id: string, tags: string[]) =>
+    request<{ data: Resource }>(`/resources/${encodeURIComponent(id)}/tags`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags }),
+    }),
+  // deleteResource 请求服务端软删除元数据并清理受控原件，不直接操作浏览器文件系统。
+  deleteResource: (id: string) => request<void>(`/resources/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // upload 用 FormData 交给浏览器设置 multipart 边界，不能手写 Content-Type。
   upload: (file: File) => {
     const body = new FormData()

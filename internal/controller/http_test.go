@@ -26,6 +26,7 @@ type memoryStore struct {
 	sessions      map[string]time.Time
 	saveError     error
 	favoriteError error
+	tags          []string
 }
 
 // SaveResource 保存 HTTP 测试资料；失败注入用于验证接口错误与文件清理。
@@ -60,11 +61,56 @@ func (store *memoryStore) SetFavorite(_ context.Context, id string, favorite boo
 	return resource, nil
 }
 
+// ReplaceResourceTags 模拟事务完成后的整组标签替换，供 HTTP 错误映射测试复用。
+func (store *memoryStore) ReplaceResourceTags(_ context.Context, id string, tags []string) (model.Resource, error) {
+	resource, exists := store.resources[id]
+	if !exists {
+		return model.Resource{}, repository.ErrNotFound
+	}
+	resource.Tags = append([]string(nil), tags...)
+	store.resources[id] = resource
+	store.tags = append([]string(nil), tags...)
+	return resource, nil
+}
+
+// ListTags 返回内存测试仓储的已有标签建议。
+func (store *memoryStore) ListTags(_ context.Context, _ string) ([]string, error) {
+	return append([]string(nil), store.tags...), nil
+}
+
+// UpdateResourceName 模拟展示名更新，测试接口不会改动原始文件名。
+func (store *memoryStore) UpdateResourceName(_ context.Context, id, name string) (model.Resource, error) {
+	resource, exists := store.resources[id]
+	if !exists {
+		return model.Resource{}, repository.ErrNotFound
+	}
+	resource.Name = name
+	store.resources[id] = resource
+	return resource, nil
+}
+
+// DeleteResource 模拟数据库软删除并返回资料，文件删除由 Service 负责。
+func (store *memoryStore) DeleteResource(_ context.Context, id string) (model.Resource, error) {
+	resource, exists := store.resources[id]
+	if !exists {
+		return model.Resource{}, repository.ErrNotFound
+	}
+	delete(store.resources, id)
+	return resource, nil
+}
+
 // ListResources 模拟名称与类型筛选，隔离 HTTP 行为和真实 MySQL 查询。
 func (store *memoryStore) ListResources(_ context.Context, query model.ListQuery) ([]model.Resource, error) {
 	resources := make([]model.Resource, 0)
 	for _, resource := range store.resources {
-		if strings.Contains(strings.ToLower(resource.Name), strings.ToLower(query.Search)) && (query.Kind == "" || resource.Kind == query.Kind) {
+		matchesTag := query.Tag == ""
+		for _, tag := range resource.Tags {
+			if tag == query.Tag {
+				matchesTag = true
+				break
+			}
+		}
+		if strings.Contains(strings.ToLower(resource.Name), strings.ToLower(query.Search)) && (query.Kind == "" || resource.Kind == query.Kind) && matchesTag {
 			resources = append(resources, resource)
 		}
 	}
@@ -291,6 +337,32 @@ func favoriteResponse(server http.Handler, cookie *http.Cookie, id, body string)
 	return response
 }
 
+// tagsResponse 向测试服务提交完整标签数组，统一携带登录 Cookie 和同源来源。
+func tagsResponse(server http.Handler, cookie *http.Cookie, id, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPut, "/api/resources/"+id+"/tags", strings.NewReader(body))
+	request.Header.Set("Origin", "http://localhost:5173")
+	request.Header.Set("Content-Type", "application/json")
+	if cookie != nil {
+		request.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	return response
+}
+
+// nameResponse 向测试服务提交展示名，统一携带登录 Cookie 和同源来源。
+func nameResponse(server http.Handler, cookie *http.Cookie, id, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPatch, "/api/resources/"+id+"/name", strings.NewReader(body))
+	request.Header.Set("Origin", "http://localhost:5173")
+	request.Header.Set("Content-Type", "application/json")
+	if cookie != nil {
+		request.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	return response
+}
+
 // TestFavoriteFlow 验证收藏只能由已登录同源请求设置，失败不改变数据，重复设置仍成功。
 func TestFavoriteFlow(t *testing.T) {
 	server, store, _ := testServer(t)
@@ -331,5 +403,98 @@ func TestFavoriteFlow(t *testing.T) {
 	store.favoriteError = errors.New("database unavailable")
 	if response := favoriteResponse(server, cookie, id, `{"favorite":true}`); response.Code != http.StatusInternalServerError || store.resources[id].Favorite {
 		t.Fatalf("failed update returned %d and persisted favorite=%t", response.Code, store.resources[id].Favorite)
+	}
+}
+
+// TestTagsFlow 验证标签替换的认证、规范化、清空、筛选和严格输入边界。
+func TestTagsFlow(t *testing.T) {
+	server, store, _ := testServer(t)
+	id := strings.Repeat("a", 32)
+	store.resources[id] = model.Resource{ID: id, Name: "notes.txt", Kind: "text"}
+	if response := tagsResponse(server, nil, id, `{"tags":["go"]}`); response.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous update returned %d", response.Code)
+	}
+	cookie := login(t, server)
+	request := httptest.NewRequest(http.MethodPut, "/api/resources/"+id+"/tags", strings.NewReader(`{"tags":["go"]}`))
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin update returned %d", response.Code)
+	}
+	for _, body := range []string{`{}`, `{"tags":null}`, `{"tags":["bad\nname"]}`, `{"tags":["one","two","three","four","five","six","seven","eight","nine","ten","eleven"]}`, `{"tags":["go"],"extra":1}`, `{"tags":["go"]}{"tags":[]}`, strings.Repeat(" ", 1025)} {
+		if response := tagsResponse(server, cookie, id, body); response.Code != http.StatusBadRequest {
+			t.Fatalf("invalid body returned %d: %q", response.Code, body)
+		}
+	}
+	if response := tagsResponse(server, cookie, "invalid", `{"tags":["go"]}`); response.Code != http.StatusNotFound {
+		t.Fatalf("invalid ID returned %d", response.Code)
+	}
+	response = tagsResponse(server, cookie, id, `{"tags":[" Redis ","面试","redis","go-1"]}`)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"tags":["go-1","redis","面试"]`) {
+		t.Fatalf("normalized tags returned %d: %s", response.Code, response.Body.String())
+	}
+	list := httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/resources?tag=redis", nil)
+	request.AddCookie(cookie)
+	server.ServeHTTP(list, request)
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), id) {
+		t.Fatalf("tag filter returned %d: %s", list.Code, list.Body.String())
+	}
+	suggestions := httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/tags?q=red", nil)
+	request.AddCookie(cookie)
+	server.ServeHTTP(suggestions, request)
+	if suggestions.Code != http.StatusOK || !strings.Contains(suggestions.Body.String(), "redis") {
+		t.Fatalf("tag suggestions returned %d: %s", suggestions.Code, suggestions.Body.String())
+	}
+	if response := tagsResponse(server, cookie, id, `{"tags":[]}`); response.Code != http.StatusOK || len(store.resources[id].Tags) != 0 {
+		t.Fatalf("clear tags returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
+// TestResourceNamePreviewAndDelete 验证展示名编辑、纯文本预览和删除后的资源不可见性。
+func TestResourceNamePreviewAndDelete(t *testing.T) {
+	server, store, dataDir := testServer(t)
+	id := strings.Repeat("c", 32)
+	store.resources[id] = model.Resource{ID: id, Name: "old.md", OriginalName: "upload.md", Kind: "markdown", MIME: "text/plain; charset=utf-8", StorageKey: id, SHA256: strings.Repeat("0", 64)}
+	path := filepath.Join(dataDir, id)
+	content := []byte("<script>alert(1)</script>\n# safe text")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cookie := login(t, server)
+	if response := nameResponse(server, cookie, id, `{"name":"整理后的资料.md"}`); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "整理后的资料.md") {
+		t.Fatalf("name update returned %d: %s", response.Code, response.Body.String())
+	}
+	for _, body := range []string{`{}`, `{"name":"bad/name"}`, `{"name":"bad\nname"}`, `{"name":"ok","extra":1}`, `{"name":"ok"}{"name":"again"}`} {
+		if response := nameResponse(server, cookie, id, body); response.Code != http.StatusBadRequest {
+			t.Fatalf("invalid name returned %d: %q", response.Code, body)
+		}
+	}
+	preview := httptest.NewRequest(http.MethodGet, "/api/resources/"+id+"/preview", nil)
+	preview.AddCookie(cookie)
+	previewResponse := httptest.NewRecorder()
+	server.ServeHTTP(previewResponse, preview)
+	if previewResponse.Code != http.StatusOK || previewResponse.Header().Get("Content-Type") != "text/plain; charset=utf-8" || previewResponse.Body.String() != string(content) {
+		t.Fatalf("preview returned %d, %q, %q", previewResponse.Code, previewResponse.Header().Get("Content-Type"), previewResponse.Body.String())
+	}
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/resources/"+id, nil)
+	deleteRequest.Header.Set("Origin", "http://localhost:5173")
+	deleteRequest.AddCookie(cookie)
+	deleted := httptest.NewRecorder()
+	server.ServeHTTP(deleted, deleteRequest)
+	if deleted.Code != http.StatusNoContent {
+		t.Fatalf("delete returned %d: %s", deleted.Code, deleted.Body.String())
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("deleted file exists: %v", err)
+	}
+	missing := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/resources/"+id, nil)
+	request.AddCookie(cookie)
+	server.ServeHTTP(missing, request)
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("deleted resource returned %d", missing.Code)
 	}
 }

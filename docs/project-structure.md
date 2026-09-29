@@ -1,6 +1,6 @@
 # 项目目录导览
 
-> 这是当前代码的导航图，不是未来功能清单。V1 首个切片仍未经过 MySQL 实库端到端验证。
+> 这是当前代码的导航图，不是未来功能清单。V1 资料管理闭环已通过 Go 测试、构建和隔离 MySQL 迁移/持久化验证。
 
 ## 先找 `main`
 
@@ -22,7 +22,7 @@ Mizuki Archive/
 │   ├── controller/
 │   │   ├── router.go                   # Gin 路由、Origin 校验、统一错误格式
 │   │   ├── auth_controller.go         # 登录、会话中间件、退出
-│   │   ├── resource_controller.go     # 上传、查询、详情、收藏、下载的 HTTP 接口
+│   │   ├── resource_controller.go     # 上传、查询、详情、标签、名称、预览、删除、下载接口
 │   │   ├── limiter.go                 # 单进程登录失败限流
 │   │   └── http_test.go               # HTTP 流程测试
 │   ├── service/
@@ -32,9 +32,12 @@ Mizuki Archive/
 │   └── repository/
 │       ├── repository.go              # 持久化接口与未找到错误
 │       ├── mysql_gorm.go              # GORM 的 MySQL 实现
-│       ├── mysql_gorm_integration_test.go # 隔离 MySQL 下的收藏持久化验证
-│       ├── migration.go               # 内嵌初始 SQL 迁移
-│       └── migrations/001_init.sql    # 资料与会话表
+│       ├── mysql_gorm_integration_test.go # 隔离 MySQL 下的迁移、标签、名称、删除验证
+│       ├── migration.go               # 内嵌版本化 SQL 迁移
+│       └── migrations/
+│           ├── 001_init.sql             # 资料与会话表
+│           ├── 002_manual_tags.sql     # 标签与资料关联
+│           └── 003_soft_delete.sql     # 软删除字段与索引
 ├── web/
 │   ├── src/main.ts                    # Vue 浏览器入口
 │   ├── src/App.vue                    # 登录、资料库、详情视图与交互
@@ -42,6 +45,7 @@ Mizuki Archive/
 │   ├── src/styles/base.css           # 设计变量、基础组件与焦点样式
 │   ├── src/styles/login.css          # 登录页布局与装饰
 │   ├── src/styles/library.css        # 资料库与详情样式
+│   ├── src/styles/motion.css         # 封面、列表与抽屉的动效层
 │   ├── src/styles/responsive.css     # 屏幕断点与减少动态效果
 │   ├── package.json                   # 前端依赖与 dev/build 命令
 │   └── vite.config.ts                 # 开发时 /api 代理到 Go
@@ -64,7 +68,7 @@ Mizuki Archive/
                                                         └── repository/mysql_gorm.go → MySQL resources
 ```
 
-**以上传为例：** `web/src/App.vue` 接受文件，`web/src/api.ts` 发送 `POST /api/resources`；`router.go` 的私有路由先检查会话，`resource_controller.go` 解析 multipart 和 HTTP 错误，`service/resource.go` 校验格式/大小、流式落盘、生成 ID 和哈希，再通过 `repository/mysql_gorm.go` 写入资料元数据。数据库写入失败时 Service 尝试删除已移动的文件。由于文件系统和 MySQL 不是同一个事务，异常崩溃后的孤儿文件巡检仍是后续工作。
+**以上传为例：** `web/src/App.vue` 接受文件，`web/src/api.ts` 发送 `POST /api/resources`；`router.go` 的私有路由先检查会话，`resource_controller.go` 解析 multipart 和 HTTP 错误，`service/resource.go` 校验格式/大小、流式落盘、生成 ID 和哈希，再通过 `repository/mysql_gorm.go` 写入资料元数据。数据库写入失败时 Service 尝试删除已移动的文件。由于文件系统和 MySQL 不是同一个事务，异常崩溃后的孤儿文件巡检仍是后续工作；备份与恢复必须同时覆盖两者，具体步骤见 [备份恢复演练](backup-restore.md)。
 
 **以登录为例：** `auth_controller.go` 限制请求体和尝试次数，`service/auth.go` 验证密码并生成随机令牌，Repository 只保存令牌哈希；浏览器通过 HttpOnly Cookie 携带原令牌。`router.go` 对需要认证的路由检查会话和请求来源。
 
@@ -75,7 +79,7 @@ Mizuki Archive/
 | 页面布局与文案 | `web/src/App.vue`、`web/src/styles/` | `docs/design.md` |
 | 新增一个资料 HTTP 接口 | `internal/controller/router.go`、`resource_controller.go` | Service 测试、`docs/architecture.md` |
 | 文件格式/上传限制 | `internal/service/resource.go` | Controller 测试、`docs/security.md` |
-| 数据库字段/查询 | `internal/model/resource.go`、`internal/repository/mysql_gorm.go`、`migrations/` | 迁移/回滚设计、`docs/architecture.md` |
+| 数据库字段/查询 | `internal/model/resource.go`、`internal/repository/mysql_gorm.go`、`migrations/` | 迁移/回滚设计、`docs/architecture.md`、`docs/backup-restore.md` |
 | 本地启动配置 | `cmd/server/main.go`、`.env.example`、`compose.yaml` | `README.md` |
 
 不建议在 `main()` 中写业务逻辑，也不应在 Controller 中直接写 GORM 查询。中文注释重点解释安全边界、失败补偿和架构取舍；简单赋值不逐行复述。

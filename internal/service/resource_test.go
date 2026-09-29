@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,7 @@ type fakeStore struct {
 	sessions      map[string]time.Time
 	saveError     error
 	favoriteError error
+	tags          []string
 }
 
 // SaveResource 模拟写入资源；可注入失败以检查文件系统补偿。
@@ -52,6 +54,44 @@ func (store *fakeStore) SetFavorite(_ context.Context, id string, favorite bool)
 	}
 	resource.Favorite = favorite
 	store.resources[id] = resource
+	return resource, nil
+}
+
+// ReplaceResourceTags 模拟整组标签替换，资源不存在时不创建任何关联。
+func (store *fakeStore) ReplaceResourceTags(_ context.Context, id string, tags []string) (model.Resource, error) {
+	resource, exists := store.resources[id]
+	if !exists {
+		return model.Resource{}, repository.ErrNotFound
+	}
+	resource.Tags = append([]string(nil), tags...)
+	store.resources[id] = resource
+	store.tags = append(store.tags[:0], tags...)
+	return resource, nil
+}
+
+// ListTags 返回测试仓储中的标签建议，不引入数据库查询细节。
+func (store *fakeStore) ListTags(_ context.Context, _ string) ([]string, error) {
+	return append([]string(nil), store.tags...), nil
+}
+
+// UpdateResourceName 模拟展示名更新，原始名和存储键保持不变。
+func (store *fakeStore) UpdateResourceName(_ context.Context, id, name string) (model.Resource, error) {
+	resource, exists := store.resources[id]
+	if !exists {
+		return model.Resource{}, repository.ErrNotFound
+	}
+	resource.Name = name
+	store.resources[id] = resource
+	return resource, nil
+}
+
+// DeleteResource 模拟软删除并返回存储键，文件清理由 Service 测试单独验证。
+func (store *fakeStore) DeleteResource(_ context.Context, id string) (model.Resource, error) {
+	resource, exists := store.resources[id]
+	if !exists {
+		return model.Resource{}, repository.ErrNotFound
+	}
+	delete(store.resources, id)
 	return resource, nil
 }
 
@@ -156,6 +196,58 @@ func TestResourceServiceUploadAndRead(t *testing.T) {
 	stored.StorageKey = "../outside"
 	if _, err := resources.Open(stored); !errors.Is(err, ErrFileUnavailable) {
 		t.Fatalf("unsafe storage key returned %v", err)
+	}
+}
+
+// TestNormalizeTags 验证标签去空格、大小写统一、排序、去重和边界拒绝。
+func TestNormalizeTags(t *testing.T) {
+	tags, err := NormalizeTags([]string{" Redis ", "面试", "redis", "go-1"})
+	if err != nil || strings.Join(tags, ",") != "go-1,redis,面试" {
+		t.Fatalf("normalized tags = %#v, error=%v", tags, err)
+	}
+	if _, err := NormalizeTags([]string{"bad\nname"}); !errors.Is(err, ErrInvalidTag) {
+		t.Fatalf("control character returned %v", err)
+	}
+	tooMany := make([]string, 11)
+	for index := range tooMany {
+		tooMany[index] = fmt.Sprintf("tag-%d", index)
+	}
+	if _, err := NormalizeTags(tooMany); !errors.Is(err, ErrTooManyTags) {
+		t.Fatalf("too many tags returned %v", err)
+	}
+}
+
+// TestResourceNameAndDelete 验证展示名边界、原始名不变以及删除后原件被清理。
+func TestResourceNameAndDelete(t *testing.T) {
+	store := newFakeStore()
+	dataDir := t.TempDir()
+	resources, err := NewResources(store, dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := strings.Repeat("c", 32)
+	path := filepath.Join(dataDir, id)
+	if err := os.WriteFile(path, []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store.resources[id] = model.Resource{ID: id, Name: "old.txt", OriginalName: "upload.txt", StorageKey: id}
+	updated, err := resources.SetName(context.Background(), id, "整理后的资料.txt")
+	if err != nil || updated.Name != "整理后的资料.txt" || updated.OriginalName != "upload.txt" {
+		t.Fatalf("name update returned %#v, %v", updated, err)
+	}
+	for _, value := range []string{"", "..", "bad/name", "bad\\name", "bad\nname"} {
+		if _, err := resources.SetName(context.Background(), id, value); !errors.Is(err, ErrInvalidName) {
+			t.Fatalf("name %q returned %v", value, err)
+		}
+	}
+	if err := resources.Delete(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := store.resources[id]; exists {
+		t.Fatal("deleted resource remains in store")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("deleted file still exists: %v", err)
 	}
 }
 

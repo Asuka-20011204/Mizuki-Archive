@@ -66,12 +66,18 @@ func (handler *Controller) list(ctx *gin.Context) {
 	}
 	search := strings.TrimSpace(ctx.Query("q"))
 	kind := ctx.Query("kind")
+	tag := strings.TrimSpace(ctx.Query("tag"))
+	normalizedTag, tagErr := service.NormalizeTag(tag)
+	if tag != "" && tagErr != nil {
+		failure(ctx, http.StatusBadRequest, "invalid_filter", "标签筛选条件无效")
+		return
+	}
 	if utf8.RuneCountInString(search) > 100 || (kind != "" && kind != "pdf" && kind != "image" && kind != "markdown" && kind != "text") {
 		failure(ctx, http.StatusBadRequest, "invalid_filter", "筛选条件无效")
 		return
 	}
 	// 多取一条记录判断是否有下一页，不单独跑一次 COUNT 查询。
-	query := model.ListQuery{Search: search, Kind: kind, Limit: 31, Offset: (page - 1) * 30}
+	query := model.ListQuery{Search: search, Kind: kind, Tag: normalizedTag, Limit: 31, Offset: (page - 1) * 30}
 	resources, err := handler.config.Resources.List(ctx.Request.Context(), query)
 	if err != nil {
 		failure(ctx, http.StatusInternalServerError, "internal", "无法读取资料")
@@ -82,6 +88,25 @@ func (handler *Controller) list(ctx *gin.Context) {
 		resources = resources[:30]
 	}
 	ctx.JSON(http.StatusOK, gin.H{"data": resources, "meta": gin.H{"page": page, "has_more": hasMore}})
+}
+
+// listTags 返回已存在的标签建议；搜索值只用于缩小建议范围，不创建新标签。
+func (handler *Controller) listTags(ctx *gin.Context) {
+	search := strings.TrimSpace(ctx.Query("q"))
+	if search != "" && utf8.RuneCountInString(search) > 24 {
+		failure(ctx, http.StatusBadRequest, "invalid_tag", "标签搜索条件无效")
+		return
+	}
+	tags, err := handler.config.Resources.ListTags(ctx.Request.Context(), search)
+	if errors.Is(err, service.ErrInvalidTag) {
+		failure(ctx, http.StatusBadRequest, "invalid_tag", "标签搜索条件无效")
+		return
+	}
+	if err != nil {
+		failure(ctx, http.StatusInternalServerError, "internal", "无法读取标签")
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"data": tags})
 }
 
 // resource 是详情与下载共用的资料查找入口，统一处理不存在与内部错误。
@@ -103,6 +128,74 @@ func (handler *Controller) resource(ctx *gin.Context) (model.Resource, bool) {
 func (handler *Controller) get(ctx *gin.Context) {
 	resource, ok := handler.resource(ctx)
 	if ok {
+		ctx.JSON(http.StatusOK, gin.H{"data": resource})
+	}
+}
+
+// setName 严格解析展示名并交给 Service 校验，原始文件名和磁盘存储键不会被请求修改。
+func (handler *Controller) setName(ctx *gin.Context) {
+	if ctx.ContentType() != "application/json" {
+		failure(ctx, http.StatusBadRequest, "invalid_name", "名称请求格式无效")
+		return
+	}
+	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, 1024)
+	decoder := json.NewDecoder(ctx.Request.Body)
+	decoder.DisallowUnknownFields()
+	var input struct {
+		Name *string `json:"name"`
+	}
+	if err := decoder.Decode(&input); err != nil || input.Name == nil {
+		failure(ctx, http.StatusBadRequest, "invalid_name", "名称请求格式无效")
+		return
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		failure(ctx, http.StatusBadRequest, "invalid_name", "名称请求格式无效")
+		return
+	}
+	resource, err := handler.config.Resources.SetName(ctx.Request.Context(), ctx.Param("id"), *input.Name)
+	switch {
+	case errors.Is(err, repository.ErrNotFound):
+		failure(ctx, http.StatusNotFound, "not_found", "资料不存在")
+	case errors.Is(err, service.ErrInvalidName):
+		failure(ctx, http.StatusBadRequest, "invalid_name", "资料名称无效")
+	case err != nil:
+		failure(ctx, http.StatusInternalServerError, "internal", "无法保存资料名称")
+	default:
+		ctx.JSON(http.StatusOK, gin.H{"data": resource})
+	}
+}
+
+// setTags 严格解析完整标签数组，并把规范化、事务替换和错误映射交给 Service。
+func (handler *Controller) setTags(ctx *gin.Context) {
+	if ctx.ContentType() != "application/json" {
+		failure(ctx, http.StatusBadRequest, "invalid_tags", "标签请求格式无效")
+		return
+	}
+	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, 1024)
+	decoder := json.NewDecoder(ctx.Request.Body)
+	decoder.DisallowUnknownFields()
+	var input struct {
+		Tags *[]string `json:"tags"`
+	}
+	if err := decoder.Decode(&input); err != nil || input.Tags == nil {
+		failure(ctx, http.StatusBadRequest, "invalid_tags", "标签请求格式无效")
+		return
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		failure(ctx, http.StatusBadRequest, "invalid_tags", "标签请求格式无效")
+		return
+	}
+	resource, err := handler.config.Resources.SetTags(ctx.Request.Context(), ctx.Param("id"), *input.Tags)
+	switch {
+	case errors.Is(err, repository.ErrNotFound):
+		failure(ctx, http.StatusNotFound, "not_found", "资料不存在")
+	case errors.Is(err, service.ErrInvalidTag), errors.Is(err, service.ErrTooManyTags):
+		failure(ctx, http.StatusBadRequest, "invalid_tags", "标签内容无效")
+	case err != nil:
+		failure(ctx, http.StatusInternalServerError, "internal", "无法保存标签")
+	default:
 		ctx.JSON(http.StatusOK, gin.H{"data": resource})
 	}
 }
@@ -138,6 +231,54 @@ func (handler *Controller) setFavorite(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"data": resource})
+}
+
+// delete 将资料标记为删除并清理受控原件；删除后的资料不再出现在任何正常查询中。
+func (handler *Controller) delete(ctx *gin.Context) {
+	err := handler.config.Resources.Delete(ctx.Request.Context(), ctx.Param("id"))
+	switch {
+	case errors.Is(err, repository.ErrNotFound):
+		failure(ctx, http.StatusNotFound, "not_found", "资料不存在")
+	case err != nil:
+		failure(ctx, http.StatusInternalServerError, "internal", "资料已隐藏，但原件清理未完成")
+	default:
+		ctx.Status(http.StatusNoContent)
+	}
+}
+
+// preview 只内联渲染 PNG/JPEG/WebP 与纯文本内容；Markdown 按纯文本返回，避免用户内容变成本站 HTML。
+func (handler *Controller) preview(ctx *gin.Context) {
+	resource, ok := handler.resource(ctx)
+	if !ok {
+		return
+	}
+	file, err := handler.config.Resources.Open(resource)
+	if err != nil {
+		failure(ctx, http.StatusInternalServerError, "internal", "文件不可用")
+		return
+	}
+	defer file.Close()
+	ctx.Header("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": resource.Name}))
+	switch resource.Kind {
+	case "image":
+		ctx.Header("Content-Type", resource.MIME)
+		http.ServeContent(ctx.Writer, ctx.Request, resource.Name, resource.CreatedAt, file)
+	case "text", "markdown":
+		const previewLimit = 1 << 20
+		content, err := io.ReadAll(io.LimitReader(file, previewLimit+1))
+		if err != nil {
+			failure(ctx, http.StatusInternalServerError, "internal", "无法读取预览")
+			return
+		}
+		if int64(len(content)) > previewLimit {
+			failure(ctx, http.StatusRequestEntityTooLarge, "preview_too_large", "文件预览超过 1 MB，请下载原文件")
+			return
+		}
+		ctx.Header("Content-Type", "text/plain; charset=utf-8")
+		_, _ = ctx.Writer.Write(content)
+	default:
+		failure(ctx, http.StatusUnsupportedMediaType, "preview_unavailable", "此格式暂不支持在线预览")
+	}
 }
 
 // download 从受控目录取回原件并强制附件下载，避免活动内容在本站源内联执行。

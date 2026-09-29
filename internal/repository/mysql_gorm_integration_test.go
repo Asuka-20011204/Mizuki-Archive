@@ -40,6 +40,13 @@ func TestMySQLSetFavorite(t *testing.T) {
 	if err := NewMySQL(database).Migrate(ctx); err != nil {
 		t.Fatalf("建立测试表失败: %v", err)
 	}
+	if err := NewMySQL(database).Migrate(ctx); err != nil {
+		t.Fatalf("重复执行迁移失败: %v", err)
+	}
+	var migrationCount int64
+	if err := database.Table("schema_migrations").Count(&migrationCount).Error; err != nil || migrationCount != 3 {
+		t.Fatalf("迁移记录数量 = %d, error=%v", migrationCount, err)
+	}
 	transaction := database.Begin()
 	if transaction.Error != nil {
 		t.Fatal(transaction.Error)
@@ -64,5 +71,33 @@ func TestMySQLSetFavorite(t *testing.T) {
 	}
 	if _, err := store.SetFavorite(ctx, strings.Repeat("f", 32), true); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("缺失资料应返回 ErrNotFound，得到 %v", err)
+	}
+	updated, err := store.ReplaceResourceTags(ctx, id, []string{"go", "redis"})
+	if err != nil || strings.Join(updated.Tags, ",") != "go,redis" {
+		t.Fatalf("保存标签得到 %#v, %v", updated.Tags, err)
+	}
+	filtered, err := store.ListResources(ctx, model.ListQuery{Tag: "redis", Limit: 10})
+	if err != nil || len(filtered) != 1 || filtered[0].ID != id {
+		t.Fatalf("标签筛选得到 %#v, %v", filtered, err)
+	}
+	cleared, err := store.ReplaceResourceTags(ctx, id, nil)
+	if err != nil || len(cleared.Tags) != 0 {
+		t.Fatalf("清空标签得到 %#v, %v", cleared.Tags, err)
+	}
+	renamed, err := store.UpdateResourceName(ctx, id, "renamed.txt")
+	if err != nil || renamed.Name != "renamed.txt" || renamed.OriginalName != "example.txt" {
+		t.Fatalf("修改名称得到 %#v, %v", renamed, err)
+	}
+	if _, err := store.DeleteResource(ctx, id); err != nil {
+		t.Fatalf("软删除失败: %v", err)
+	}
+	if _, err := store.DeleteResource(ctx, id); err != nil {
+		t.Fatalf("重复软删除应可用于重试文件清理: %v", err)
+	}
+	if _, err := store.GetResource(ctx, id); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("软删除后仍可读取: %v", err)
+	}
+	if resources, err := store.ListResources(ctx, model.ListQuery{Limit: 10}); err != nil || len(resources) != 0 {
+		t.Fatalf("软删除资料仍在列表: %#v, %v", resources, err)
 	}
 }

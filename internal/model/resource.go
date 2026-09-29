@@ -14,6 +14,7 @@ type Resource struct {
 	SHA256       string    `json:"sha256"`
 	StorageKey   string    `json:"-"`
 	Favorite     bool      `json:"favorite"`
+	Tags         []string  `json:"tags"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -21,6 +22,7 @@ type Resource struct {
 type ListQuery struct {
 	Search string
 	Kind   string
+	Tag    string
 	Limit  int
 	Offset int
 }
