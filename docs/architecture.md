@@ -18,7 +18,7 @@
 - 耗时处理通过 RabbitMQ + 多 Worker 解耦，使用持久任务、Outbox、租约、幂等和有限重试，避免请求线程被文件处理拖住。
 - MySQL、Redis、RabbitMQ、文件存储和入口网关分别设计健康检查、故障转移、备份与恢复，不把单机 Docker 演练写成高可用承诺。
 
-当前已验证的是本机隔离部署、固定负载、有限 Worker 并发、Redis/RabbitMQ 故障回退、备份恢复，以及两个模拟 API 实例共享 MySQL 会话和用户归属状态；这说明系统已经按多用户和可扩展方向建立基础，但不等于完成生产级高并发高可用。跨进程 API、多副本 Worker、MySQL 主从/故障切换、Redis Sentinel/Cluster、RabbitMQ 集群、对象存储和真实持续压测尚未验收。任何吞吐、延迟和可用性数字都必须绑定测试环境与负载说明。
+当前已验证的是本机隔离部署、固定负载、有限 Worker 并发、Redis/RabbitMQ 故障回退、备份恢复、两个模拟 API 实例共享 MySQL 会话和用户归属状态，以及隔离 Compose 项目中 2 个 API/2 个 Worker 的单副本 API 停止演练；这说明系统已经按多用户和可扩展方向建立基础，但不等于完成生产级高并发高可用。跨进程 API、多副本 Worker、MySQL 主从/故障切换、Redis Sentinel/Cluster、RabbitMQ 集群、对象存储和真实持续压测尚未验收。任何吞吐、延迟和可用性数字都必须绑定测试环境与负载说明。
 
 ## 逻辑视图
 

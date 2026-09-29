@@ -14,11 +14,12 @@
 
 - `docker compose --env-file .env -f compose.deploy.yaml config --quiet` 通过。
 - 使用进程级占位 SMTP 变量渲染 Compose，确认 SMTP 环境只进入 API，不进入 Worker。
-- 本轮尚未启动完整多副本部署，也未验证 MySQL/Redis/RabbitMQ 集群或跨节点故障切换。
+- 使用隔离 Compose 项目真实启动 2 个 API、2 个 Worker、MySQL 和 Web；停止一个 API 副本后连续 5 次 `/readyz` 均返回 204，随后清理专用容器、网络和卷。
+- 本轮未验证 MySQL/Redis/RabbitMQ 集群或跨节点故障切换；单机多进程结果不等于生产级高可用。
 
 ## 遗留风险与下一步
 
-- 需要在隔离部署项目中实际启动多个 API/Worker，模拟停止一个 API 和一个 Worker，并验证读请求、任务租约和会话继续工作。
+- 后续需要继续验证停止一个 Worker 后的任务租约接管、会话读写闭环和跨副本任务一致性。
 - 需要为跨节点部署引入共享对象存储、数据库高可用、Redis Sentinel/Cluster、RabbitMQ 集群和 TLS 入口。
 - 需要以混合 PDF、图片、TXT/Markdown 和多用户负载形成容量基线。
 
