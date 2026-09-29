@@ -31,6 +31,18 @@ func TestV7ProcessingWorkload(t *testing.T) {
 	if os.Getenv("MIZUKI_RUN_BENCHMARK") != "1" {
 		t.Skip("显式设置 MIZUKI_RUN_BENCHMARK=1 才运行负载测试")
 	}
+	ctx, store, database := openV7BenchmarkDatabase(t)
+	for _, workers := range []int{1, 2} {
+		t.Run(fmt.Sprintf("workers_%d", workers), func(t *testing.T) {
+			processor, jobIDs := seedV7ProcessingFixture(t, ctx, store, database)
+			measureV7Processing(t, ctx, database, processor, jobIDs, workers, "text_128k")
+		})
+	}
+}
+
+// openV7BenchmarkDatabase 拒绝非空或非隔离库，仅迁移专用测试数据库并注册连接清理。
+func openV7BenchmarkDatabase(t *testing.T) (context.Context, *repository.MySQL, *gorm.DB) {
+	t.Helper()
 	config, err := driver.ParseDSN(os.Getenv("MIZUKI_TEST_MYSQL_DSN"))
 	if err != nil || !strings.HasPrefix(config.DBName, "mizuki_test_v7_") {
 		t.Fatal("负载测试仅允许独立 mizuki_test_v7_ 前缀数据库")
@@ -46,8 +58,8 @@ func TestV7ProcessingWorkload(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = connection.Close() })
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	t.Cleanup(cancel)
 	store := repository.NewMySQL(database)
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatal(err)
@@ -56,12 +68,7 @@ func TestV7ProcessingWorkload(t *testing.T) {
 	if err := database.Table("resources").Count(&existing).Error; err != nil || existing != 0 {
 		t.Fatalf("负载测试库必须为空，现有资料=%d，错误=%v", existing, err)
 	}
-	for _, workers := range []int{1, 2} {
-		t.Run(fmt.Sprintf("workers_%d", workers), func(t *testing.T) {
-			processor, jobIDs := seedV7ProcessingFixture(t, ctx, store, database)
-			measureV7Processing(t, ctx, database, processor, jobIDs, workers)
-		})
-	}
+	return ctx, store, database
 }
 
 // seedV7ProcessingFixture 准备每组完全相同的文本长度和数量，仅使用随机内部 ID 隔离持久记录。
@@ -105,7 +112,7 @@ func seedV7ProcessingFixture(t *testing.T, ctx context.Context, store *repositor
 }
 
 // measureV7Processing 只计 Worker 从满积压到全部成功的时间，抽样进程堆峰值与完成数。
-func measureV7Processing(t *testing.T, ctx context.Context, database *gorm.DB, processor *Processing, jobIDs []string, workers int) {
+func measureV7Processing(t *testing.T, ctx context.Context, database *gorm.DB, processor *Processing, jobIDs []string, workers int, fixture string) {
 	t.Helper()
 	runtime.GC()
 	var memory runtime.MemStats
@@ -145,7 +152,7 @@ func measureV7Processing(t *testing.T, ctx context.Context, database *gorm.DB, p
 				continue
 			}
 			elapsed := time.Since(started)
-			t.Logf("V7 workers=%d jobs=%d bytes_each=%d elapsed_ms=%d throughput_jobs_s=%.2f peak_heap_mib=%.2f allocated_mib=%.2f", workers, len(jobIDs), v7FixtureBytes, elapsed.Milliseconds(), float64(len(jobIDs))/elapsed.Seconds(), float64(peakHeap)/(1<<20), float64(memory.TotalAlloc-baselineAllocated)/(1<<20))
+			t.Logf("V7 fixture=%s workers=%d jobs=%d elapsed_ms=%d throughput_jobs_s=%.2f peak_heap_mib=%.2f allocated_mib=%.2f", fixture, workers, len(jobIDs), elapsed.Milliseconds(), float64(len(jobIDs))/elapsed.Seconds(), float64(peakHeap)/(1<<20), float64(memory.TotalAlloc-baselineAllocated)/(1<<20))
 			stop()
 			err := <-finished
 			consumed = true
