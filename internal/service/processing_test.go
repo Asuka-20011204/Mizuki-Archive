@@ -254,6 +254,50 @@ type blockingClaimStore struct {
 	entered chan struct{}
 }
 
+// completionSignalStore 在真实任务完成后发信号，避免测试在另一个协程读取非并发安全的假仓储。
+type completionSignalStore struct {
+	*processingFakeStore
+	completed chan struct{}
+}
+
+// CompleteProcessingJob 转发最终提交并告知测试，无需读取正在变化的任务映射。
+func (store *completionSignalStore) CompleteProcessingJob(ctx context.Context, id, token string, asset model.DerivedAsset) error {
+	if err := store.processingFakeStore.CompleteProcessingJob(ctx, id, token, asset); err != nil {
+		return err
+	}
+	store.completed <- struct{}{}
+	return nil
+}
+
+// TestRunLoopDrainsBacklogWithoutIdlePause 验证有积压时连续处理，间隔只用于空队列轮询。
+func TestRunLoopDrainsBacklogWithoutIdlePause(t *testing.T) {
+	resourceStore := newFakeStore()
+	dataDir := t.TempDir()
+	jobs := &completionSignalStore{processingFakeStore: &processingFakeStore{jobs: map[string]model.ProcessingJob{}, assets: map[string]model.DerivedAsset{}, resources: resourceStore.resources}, completed: make(chan struct{}, 2)}
+	for _, id := range []string{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"} {
+		if err := os.WriteFile(filepath.Join(dataDir, id), []byte("synthetic text"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		resourceStore.resources[id] = model.Resource{ID: id, Name: "test.txt", Kind: "text", StorageKey: id, SHA256: "fixture-hash"}
+		jobs.jobs[id] = model.ProcessingJob{ID: id, ResourceID: id, Type: model.ProcessingTypeExtractText, SourceSHA256: "fixture-hash", Status: model.ProcessingStatusPending, MaxAttempts: 3}
+	}
+	processor, err := NewProcessing(resourceStore, jobs, dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	finished := make(chan error, 1)
+	go func() { finished <- processor.RunLoop(ctx, 2*time.Second) }()
+	defer func() { stop(); <-finished }()
+	for count := 0; count < 2; count++ {
+		select {
+		case <-jobs.completed:
+		case <-time.After(time.Second):
+			t.Fatal("有积压时不应等待完整轮询间隔")
+		}
+	}
+}
+
 // ClaimNextProcessingJob 只报告领取尝试，不修改共享测试数据。
 func (store *blockingClaimStore) ClaimNextProcessingJob(ctx context.Context, _ time.Time) (model.ProcessingJob, error) {
 	select {

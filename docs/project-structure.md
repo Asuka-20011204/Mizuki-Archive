@@ -84,6 +84,7 @@ Mizuki Archive/
 | 数据库字段/查询 | `internal/model/resource.go`、`internal/repository/mysql_gorm.go`、`migrations/` | 迁移/回滚设计、`docs/architecture.md`、`docs/backup-restore.md` |
 | 本地启动配置 | `cmd/server/main.go`、`.env.example`、`compose.yaml` | `README.md` |
 | 独立 Docker 部署/恢复 | `compose.deploy.yaml`、`Dockerfile`、`web/nginx.conf` | `docs/deployment.md`、`docs/security.md` |
+| V7 固定负载复现 | `internal/service/processing_benchmark_integration_test.go`、`internal/controller/performance_integration_test.go` | `docs/changes/2026-09-29-v7-fixed-workload.md` |
 
 不建议在 `main()` 中写业务逻辑，也不应在 Controller 中直接写 GORM 查询。中文注释重点解释安全边界、失败补偿和架构取舍；简单赋值不逐行复述。
 

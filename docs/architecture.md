@@ -53,6 +53,8 @@ V5 背压在 MySQL 中执行：新任务创建事务先锁 `processing_capacity`
 
 V6 本地 Docker 使用独立 Compose 项目隔离开发库。Web 在本机环回端口同源代理 API，API/Worker 不暴露宿主端口、共用原件/派生产物卷；数据库卷独立。`/healthz` 只看 HTTP 进程，`/readyz` 限时检查 MySQL。容器非 root 且只读根目录，数据库访问不是 root，但启动迁移仍需项目库内的 DDL 权限；公网生产需拆分迁移账号及 TLS/网关/密钥管理。参见 [部署与恢复](deployment.md)。
 
+V7 固定文本任务负载发现数据库 Worker 即使有积压也每完成一条休眠 1 秒；现调整为领取到任务后连续处理，只有空队列才等待下一轮询间隔。固定 24 条文本任务的排空耗时、单双 Worker 差异和带鉴权列表读取的 p50/p95 见 [量化记录](changes/2026-09-29-v7-fixed-workload.md)。这不是 PDF/图片混合负载的容量承诺。
+
 ## 领域草模
 
 | 实体 | 关键内容 | 约束 |

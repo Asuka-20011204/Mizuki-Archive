@@ -344,18 +344,20 @@ func (service *Processing) retryClaimedJob(ctx context.Context, job model.Proces
 	return service.jobs.FailProcessingJob(ctx, job.ID, job.LeaseToken, message, &retryAt)
 }
 
-// RunLoop 按固定间隔执行单 Worker 循环；停止信号由 cmd/worker 的 Context 传入。
+// RunLoop 有积压时连续领取，只有队列空闲才按间隔轮询，避免每个已处理任务额外等待一秒。
 func (service *Processing) RunLoop(ctx context.Context, interval time.Duration) error {
 	if interval <= 0 {
 		interval = time.Second
 	}
 	for {
-		_, err := service.RunOnce(ctx)
-		if err != nil && !errors.Is(err, context.Canceled) {
+		processed, err := service.RunOnce(ctx)
+		if err != nil {
 			return err
 		}
-		if err := waitForProcessingTick(ctx, interval); err != nil {
-			return err
+		if !processed {
+			if err := waitForProcessingTick(ctx, interval); err != nil {
+				return err
+			}
 		}
 	}
 }
