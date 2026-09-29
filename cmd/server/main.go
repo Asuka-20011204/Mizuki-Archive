@@ -22,6 +22,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"mizuki-archive/internal/cache"
+	appconfig "mizuki-archive/internal/config"
 	"mizuki-archive/internal/controller"
 	"mizuki-archive/internal/notification"
 	"mizuki-archive/internal/repository"
@@ -53,6 +54,18 @@ func required(name string) string {
 	return value
 }
 
+// requiredSecret 读取必需秘密，支持直接环境变量和 Docker Secrets 文件两种部署方式。
+func requiredSecret(name string) string {
+	value, err := appconfig.ReadSecret(name)
+	if err != nil {
+		log.Fatalf("cannot read secret configuration %s: %v", name, err)
+	}
+	if value == "" {
+		log.Fatalf("missing required secret configuration: %s", name)
+	}
+	return value
+}
+
 // main 是 API 服务的启动入口：读取配置、接入 MySQL、装配 MVC 依赖并优雅停机。
 // 前端入口在 web/src/main.ts；生成管理员密码哈希的独立命令在 cmd/hash-password。
 func main() {
@@ -74,7 +87,7 @@ func main() {
 	}
 	dataDir := required("APP_DATA_DIR")
 	// 只解析 DSN 再交给 GORM，不在日志中输出可能包含数据库密码的原始字符串。
-	dsn, err := mysql.ParseDSN(required("MYSQL_DSN"))
+	dsn, err := mysql.ParseDSN(requiredSecret("MYSQL_DSN"))
 	if err != nil {
 		log.Fatal("invalid MYSQL_DSN")
 	}
@@ -104,7 +117,7 @@ func main() {
 	var adminUserID string
 	if autoMigrateEnabled() {
 		// 本地开发默认允许 API 自动迁移；生产编排关闭此开关，由一次性 migrate 服务使用独立账号执行。
-		adminPasswordHash = []byte(required("APP_ADMIN_PASSWORD_HASH"))
+		adminPasswordHash = []byte(requiredSecret("APP_ADMIN_PASSWORD_HASH"))
 		if err := repository.ValidatePasswordHash(adminPasswordHash); err != nil {
 			log.Fatal("invalid admin password hash")
 		}
@@ -218,8 +231,30 @@ func trustProxyHeadersEnabled() bool {
 
 // buildEmailAuth 仅在完整配置 SMTP 和验证码密钥时启用邮箱功能，避免暴露无法工作的注册入口。
 func buildEmailAuth(store *repository.MySQL, auth *service.Auth) (*service.EmailAuth, error) {
-	host, portValue, username, password, from := os.Getenv("SMTP_HOST"), os.Getenv("SMTP_PORT"), os.Getenv("SMTP_USERNAME"), os.Getenv("SMTP_PASSWORD"), os.Getenv("SMTP_FROM")
-	secret := os.Getenv("EMAIL_CODE_SECRET")
+	host, err := appconfig.ReadSecret("SMTP_HOST")
+	if err != nil {
+		return nil, err
+	}
+	portValue, err := appconfig.ReadSecret("SMTP_PORT")
+	if err != nil {
+		return nil, err
+	}
+	username, err := appconfig.ReadSecret("SMTP_USERNAME")
+	if err != nil {
+		return nil, err
+	}
+	password, err := appconfig.ReadSecret("SMTP_PASSWORD")
+	if err != nil {
+		return nil, err
+	}
+	from, err := appconfig.ReadSecret("SMTP_FROM")
+	if err != nil {
+		return nil, err
+	}
+	secret, err := appconfig.ReadSecret("EMAIL_CODE_SECRET")
+	if err != nil {
+		return nil, err
+	}
 	configured := host != "" || portValue != "" || username != "" || password != "" || from != "" || secret != ""
 	if !configured {
 		return nil, nil
@@ -236,7 +271,7 @@ func buildEmailAuth(store *repository.MySQL, auth *service.Auth) (*service.Email
 	if caPath != "" {
 		caBytes, readErr := os.ReadFile(filepath.Clean(caPath))
 		if readErr != nil {
-			return nil, fmt.Errorf("read SMTP_CA_FILE: %w", readErr)
+			return nil, errors.New("read SMTP_CA_FILE failed")
 		}
 		sender, err = notification.NewSMTPWithRootCA(host, port, username, password, from, caBytes)
 	} else {

@@ -61,10 +61,13 @@ Mizuki Archive/
 ├── docs/                              # 产品、架构、安全、设计和变更记录
 ├── compose.yaml                       # MySQL 与可选 RabbitMQ/Redis 容器
 ├── compose.deploy.yaml                # V6 独立单机编排：Web/API/Worker/MySQL
+├── compose.tls.yaml                   # V14 可选 TLS 入口覆盖（证书只读挂载）
+├── compose.secrets.yaml               # V14 可选 Docker Secrets 覆盖
 ├── Dockerfile                         # Go API、Worker 与 migrate 的非 root 镜像
-├── web/Dockerfile、web/nginx.conf      # Vue 静态构建、同源反向代理和入口限流
+├── web/Dockerfile、web/nginx*.conf     # Vue 静态构建、HTTP/TLS 同源反向代理和入口限流
 ├── .env.example                       # 仅示例变量，真实 .env 不入库
 ├── scripts/generate-mailpit-cert.ps1   # 生成仓库外的本地 SMTP 测试证书
+├── scripts/scan-images.ps1             # Trivy 镜像漏洞门禁
 └── go.mod / go.sum                    # Go 模块与依赖校验
 ```
 
@@ -93,7 +96,7 @@ Mizuki Archive/
 | 文件格式/上传限制 | `internal/service/resource.go` | Controller 测试、`docs/security.md` |
 | 数据库字段/查询 | `internal/model/resource.go`、`internal/repository/mysql_gorm.go`、`migrations/` | 迁移/回滚设计、`docs/architecture.md`、`docs/backup-restore.md` |
 | 本地启动配置 | `cmd/server/main.go`、`.env.example`、`compose.yaml` | `README.md` |
-| 独立 Docker 部署/恢复 | `compose.deploy.yaml`、`Dockerfile`、`web/nginx.conf` | `docs/deployment.md`、`docs/security.md` |
+| 独立 Docker 部署/恢复 | `compose.deploy.yaml`、`compose.tls.yaml`、`compose.secrets.yaml`、`Dockerfile`、`web/nginx*.conf` | `docs/deployment.md`、`docs/security.md` |
 | 邮箱本地验收 | `compose.yaml` 的 `mailpit` profile、`internal/notification/smtp.go` | `docs/local-development.md`、`docs/roadmap.md` |
 | V7 固定负载复现 | `internal/service/processing_benchmark_integration_test.go`、`internal/controller/performance_integration_test.go` | `docs/changes/2026-09-29-v7-fixed-workload.md` |
 

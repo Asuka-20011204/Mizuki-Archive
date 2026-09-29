@@ -65,3 +65,6 @@
 - Redis 不存原件、正文、文件路径和 Cookie；私有资料列表、详情与下载仍回查 MySQL。最近访问最多 20 个 ID、90 天到期，删除时清除关联成员；Redis AOF 和备份也按可能含过期 ID 的敏感数据处理。
 - Redis 共享登录限流仅在可用时生效；故障时回退单进程失败尝试限制。生产部署仍需入口层限流、故障告警以及 Redis/Broker 网络隔离。
 - 可选容器密码为空即启动失败；本地 `.env` 不入库。Redis 运行配置写入受控临时文件，不把密码放在服务器命令参数中。
+- V14 的 `compose.secrets.yaml` 只把秘密文件以只读方式挂载到需要它的服务；程序支持 `NAME_FILE`，当非空 `NAME` 与 `NAME_FILE` 同时存在时拒绝启动，避免运维误用旧凭据。Secrets 文件必须位于仓库外、限制文件权限，并在轮换后重建相关容器。
+- `compose.tls.yaml` 只读取外部 `TLS_CERT_FILE` 和 `TLS_KEY_FILE`，证书私钥不进入 Git、镜像或普通日志。TLS 配置使用 TLS 1.2/1.3、关闭 session ticket，并启用 HSTS；本地 HTTP 编排不因该覆盖而改变。
+- `scripts/scan-images.ps1` 是发布前门禁，使用 Trivy 检查 Compose 解析出的镜像并对未修复的 HIGH/CRITICAL 漏洞失败；未安装 Trivy 或未执行扫描时不得声称镜像已通过漏洞验收。

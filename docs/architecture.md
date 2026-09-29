@@ -38,6 +38,7 @@ V2：Go Worker ← 持久任务记录
 V3：Go API → MySQL processing_jobs + processing_outbox（同一事务）→ RabbitMQ → Go Worker
 V4：Go API ↔ Redis（标签/任务短缓存、最近访问 ID、共享限流）
 V6：本机 Docker Web(Nginx) → API + Worker → MySQL + 共用数据卷
+V14（可选覆盖）：TLS Web(Nginx) → API + Worker；证书由宿主机或外部密钥系统只读挂载，不复制进镜像。
 ```
 
 V1 不依赖消息队列或缓存；V2 可先用数据库持久任务与受控 Worker 验证处理能力。V3 接入 MQ 时不能假设“写数据库 + 发消息”天然原子化：采用事务性 outbox 或等效方案，发布确认后再标记已投递；消费至少一次，处理结果必须幂等。
@@ -67,9 +68,9 @@ V4 Redis 可丢失：标签和任务状态短时缓存，资源详情/文件下�
 
 V5 背压在 MySQL 中执行：新任务创建事务先锁 `processing_capacity` 的单行，再锁来源资料，优先识别同来源/类型/哈希的可复用任务，最后统计全局 `pending + processing`。超过 `PROCESSING_MAX_OUTSTANDING`（默认 100，允许 1–1000）时回滚并返回 429；任务与 RabbitMQ Outbox 事件必须同时提交。这个上限针对待处理任务数量，不是每个用户的存储配额，也不限制已经上传的原件。数据库 Worker Pool 每进程允许 1–4 个槽位（默认 2），RabbitMQ prefetch 限于槽位数；多进程部署时总并发数是各实例槽位之和，须在压测中重新评估。任务完成或失败释放容量，过期租约继续由 Worker 接管。
 
-V6 本地 Docker 使用独立 Compose 项目隔离开发库。Web 在本机环回端口同源代理 API，API/Worker 不暴露宿主端口、共用原件/派生产物卷；数据库卷独立。`/healthz` 只看 HTTP 进程，`/readyz` 限时检查 MySQL。容器非 root 且只读根目录；生产编排已将迁移账号与 Nginx 边缘限流基线分离出来，但 TLS、密钥托管和镜像漏洞扫描仍未完成。参见 [部署与恢复](deployment.md)。
+V6 本地 Docker 使用独立 Compose 项目隔离开发库。Web 在本机环回端口同源代理 API，API/Worker 不暴露宿主端口、共用原件/派生产物卷；数据库卷独立。`/healthz` 只看 HTTP 进程，`/readyz` 限时检查 MySQL。容器非 root 且只读根目录；V14 已提供可选 TLS 入口和 Docker Secrets 文件注入，镜像漏洞门禁仍需在安装 Trivy 的环境执行。参见 [部署与恢复](deployment.md)。
 
-入口限流分为两层：Nginx 按 `$binary_remote_addr` 对认证入口和 API 入口做边缘限流，Gin/Redis 再按业务接口和用户输入做应用级限流。API 默认不信任转发头；只有独立部署中 API 不直接暴露且 Nginx 覆盖 `X-Real-IP` 时，才通过 `APP_TRUST_PROXY_HEADERS=true` 使用该地址。若代理链不是本项目可控的单层入口，必须保持关闭，否则客户端可伪造限流身份。
+入口限流分为两层：Nginx 按 `$binary_remote_addr` 对认证入口和 API 入口做边缘限流，Gin/Redis 再按业务接口和用户输入做应用级限流。API 默认不信任转发头；只有独立部署中 API 不直接暴露且 Nginx 覆盖 `X-Real-IP` 时，才通过 `APP_TRUST_PROXY_HEADERS=true` 使用该地址。若代理链不是本项目可控的单层入口，必须保持关闭，否则客户端可伪造限流身份。TLS 覆盖还会传递 `X-Forwarded-Proto: https`，使 API 根据 `APP_ORIGIN=https://...` 设置安全 Cookie。
 
 V7 固定文本任务负载发现数据库 Worker 即使有积压也每完成一条休眠 1 秒；现调整为领取到任务后连续处理，只有空队列才等待下一轮询间隔。固定 24 条文本任务的排空耗时、单双 Worker 差异和带鉴权列表读取的 p50/p95 见 [量化记录](changes/2026-09-29-v7-fixed-workload.md)。这不是 PDF/图片混合负载的容量承诺。
 

@@ -1,0 +1,8 @@
+services:
+  web:
+    command: ["nginx", "-c", "/etc/nginx/nginx.tls.conf", "-g", "daemon off;"]
+    ports: !reset
+      - "127.0.0.1:${DEPLOY_TLS_PORT:-18443}:8443"
+    volumes:
+      - ${TLS_CERT_FILE:?set TLS_CERT_FILE}:/etc/nginx/tls/fullchain.pem:ro
+      - ${TLS_KEY_FILE:?set TLS_KEY_FILE}:/etc/nginx/tls/privkey.pem:ro

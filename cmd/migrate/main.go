@@ -13,6 +13,7 @@ import (
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	appconfig "mizuki-archive/internal/config"
 	"mizuki-archive/internal/repository"
 )
 
@@ -41,12 +42,24 @@ func required(name string) string {
 	return value
 }
 
+// requiredSecret 读取迁移所需的秘密，支持环境变量和 Docker Secrets 文件。
+func requiredSecret(name string) string {
+	value, err := appconfig.ReadSecret(name)
+	if err != nil {
+		log.Fatalf("cannot read secret configuration %s: %v", name, err)
+	}
+	if value == "" {
+		log.Fatalf("missing required secret configuration: %s", name)
+	}
+	return value
+}
+
 // main 使用独立迁移 DSN 执行数据库结构和初始管理员归属准备，完成后退出。
 func main() {
 	if err := loadEnvironment(); err != nil {
 		log.Fatalf("cannot load environment file: %v", err)
 	}
-	dsn, err := mysql.ParseDSN(required("MIGRATION_DSN"))
+	dsn, err := mysql.ParseDSN(requiredSecret("MIGRATION_DSN"))
 	if err != nil {
 		log.Fatal("invalid MIGRATION_DSN")
 	}
@@ -70,7 +83,7 @@ func main() {
 	}
 	store := repository.NewMySQL(database)
 	adminUsername := required("APP_ADMIN_USERNAME")
-	adminPasswordHash := []byte(required("APP_ADMIN_PASSWORD_HASH"))
+	adminPasswordHash := []byte(requiredSecret("APP_ADMIN_PASSWORD_HASH"))
 	if err := repository.ValidatePasswordHash(adminPasswordHash); err != nil {
 		log.Fatal("invalid admin password hash")
 	}

@@ -19,6 +19,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"mizuki-archive/internal/cache"
+	appconfig "mizuki-archive/internal/config"
 	"mizuki-archive/internal/queue"
 	"mizuki-archive/internal/repository"
 	"mizuki-archive/internal/service"
@@ -45,6 +46,18 @@ func required(name string) string {
 	return value
 }
 
+// requiredSecret 读取 Worker 所需秘密，支持环境变量和 Docker Secrets 文件。
+func requiredSecret(name string) string {
+	value, err := appconfig.ReadSecret(name)
+	if err != nil {
+		log.Fatalf("cannot read secret configuration %s: %v", name, err)
+	}
+	if value == "" {
+		log.Fatalf("missing required secret configuration: %s", name)
+	}
+	return value
+}
+
 // main 连接 MySQL、执行迁移并启动单 Worker 循环；任务状态以数据库为唯一真相源。
 func main() {
 	if err := loadEnvironment(); err != nil {
@@ -54,7 +67,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dsn, err := mysql.ParseDSN(required("MYSQL_DSN"))
+	dsn, err := mysql.ParseDSN(requiredSecret("MYSQL_DSN"))
 	if err != nil {
 		log.Fatal("invalid MYSQL_DSN")
 	}
@@ -141,11 +154,15 @@ func runRabbitWorker(ctx context.Context, processor *service.Processing, workers
 			return errors.New("RABBITMQ_PREFETCH must be between 1 and PROCESSING_WORKERS")
 		}
 	}
-	if os.Getenv("RABBITMQ_URL") == "" {
+	rabbitURL, err := appconfig.ReadSecret("RABBITMQ_URL")
+	if err != nil {
+		return err
+	}
+	if rabbitURL == "" {
 		return errors.New("missing RABBITMQ_URL")
 	}
 	for ctx.Err() == nil {
-		broker, err := queue.NewRabbitMQ(os.Getenv("RABBITMQ_URL"), os.Getenv("RABBITMQ_EXCHANGE"), os.Getenv("RABBITMQ_QUEUE"), os.Getenv("RABBITMQ_DEAD_QUEUE"))
+		broker, err := queue.NewRabbitMQ(rabbitURL, os.Getenv("RABBITMQ_EXCHANGE"), os.Getenv("RABBITMQ_QUEUE"), os.Getenv("RABBITMQ_DEAD_QUEUE"))
 		if err == nil {
 			session, cancel := context.WithCancel(ctx)
 			published := make(chan struct{})
