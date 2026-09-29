@@ -17,7 +17,7 @@
 - `gofmt`：已执行。
 - `docker compose ... config --quiet`：使用临时非敏感变量验证基础、TLS 和 Secrets 组合语法通过；真实部署仍须使用仓库外变量和证书文件。
 - Web 镜像构建后挂载临时自签名证书执行 `nginx -t -c /etc/nginx/nginx.tls.conf`：通过。
-- Trivy：当前机器未安装，未声称镜像扫描通过，路线图对应项保持未完成。
+- Trivy 0.74.0：使用 GHCR 数据库源扫描；升级 Go 依赖后 API 镜像为 0 个 HIGH/CRITICAL，Web 切换 Alpine 3.24 后为 0 个 HIGH/CRITICAL。官方 `mysql:8.4` 仍报告 `gosu` 标准库以及 MySQL Shell Python 依赖的 HIGH/CRITICAL 结果，整体门禁仍失败。
 
 ## 遗留风险
 
@@ -27,6 +27,6 @@
 
 ## 下一步
 
-- 在安装 Trivy 的环境完成 API/Web/MySQL 基础镜像扫描并记录结果。
+- 评估官方 MySQL 镜像的供应链修复路径；在没有明确例外和上游修复前，不把整体镜像漏洞门禁标记为通过。
 - 使用真实 SMTP 测试账号完成浏览器注册、登录、退出和两账号资料隔离；不提交账号和验证码。
 - 再评估持续混合负载和跨节点高可用，不将本机 Compose 演练扩写成生产承诺。

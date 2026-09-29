@@ -62,7 +62,7 @@ V2 已完成文本提取和图片缩略图两个处理切片，设计与取舍�
 - [x] 生产化加固第二步：Web Nginx 对登录、验证码和 API 请求按客户端地址做边缘限流；部署编排通过受控 `X-Real-IP` 让 API 的业务限流按真实客户端区分。
 - [x] 生产化加固后续：提供独立 TLS Web 配置和 `compose.tls.yaml` 覆盖；TLS 编排只挂载外部证书私钥，基础 HTTP 开发编排保持不变。
 - [x] 生产化加固后续：提供 `compose.secrets.yaml` 覆盖和 `NAME_FILE` 读取约定，数据库 DSN、管理员哈希、SMTP 密码和验证码密钥可不经普通环境变量注入。
-- [ ] 生产化加固后续：使用 Trivy 对最终 API/Web/依赖镜像执行 HIGH/CRITICAL 漏洞门禁；扫描脚本已提供，但当前机器尚未安装 Trivy，不能标记为已验收。
+- [ ] 生产化加固后续：使用 Trivy 对最终 API/Web/依赖镜像执行 HIGH/CRITICAL 漏洞门禁；API 与 Web 镜像已通过扫描，但官方 `mysql:8.4` 仍报告 `gosu`/MySQL Shell 相关高危结果，需等待上游修复或制定经过评审的供应链例外后才能验收。
 
 ## V7 固定负载（2026-09-29）
 

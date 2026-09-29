@@ -53,7 +53,7 @@ Invoke-WebRequest https://localhost:18443/readyz
 发布前在安装 Trivy 的机器执行 `scripts/scan-images.ps1`；脚本只扫描 `compose.deploy.yaml` 解析出的镜像，对未修复的 HIGH/CRITICAL 漏洞返回失败：
 
 ```powershell
-pwsh -File .\scripts\scan-images.ps1 -ComposeEnvFile $config -Build
+pwsh -File .\scripts\scan-images.ps1 -ComposeEnvFile $config -DBRepository ghcr.io/aquasecurity/trivy-db -Build
 ```
 
 未安装 Trivy、镜像未构建或扫描失败都应阻止发布；不要把“脚本存在”当作扫描通过。

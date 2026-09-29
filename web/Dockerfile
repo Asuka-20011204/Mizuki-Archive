@@ -6,7 +6,7 @@ COPY index.html tsconfig*.json vite.config.ts ./
 COPY src ./src
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+FROM nginxinc/nginx-unprivileged:1-alpine3.24
 COPY --from=build /web/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY nginx.tls.conf /etc/nginx/nginx.tls.conf

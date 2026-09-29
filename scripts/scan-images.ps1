@@ -1,5 +1,6 @@
 param(
     [string]$ComposeEnvFile = '',
+    [string]$DBRepository = '',
     [switch]$Build
 )
 
@@ -43,8 +44,13 @@ if ($uniqueImages.Count -eq 0) {
 
 foreach ($image in $uniqueImages) {
     Write-Output "Scanning $image"
-    & trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --format table $image
+    $trivyArguments = @('image', '--scanners', 'vuln', '--severity', 'HIGH,CRITICAL', '--ignore-unfixed', '--exit-code', '1', '--format', 'table')
+    if (-not [string]::IsNullOrWhiteSpace($DBRepository)) {
+        $trivyArguments += @('--db-repository', $DBRepository)
+    }
+    $trivyArguments += $image
+    & trivy @trivyArguments
     if ($LASTEXITCODE -ne 0) {
-        throw "Trivy found high or critical vulnerabilities in $image"
+        throw "Trivy scan failed or found high/critical vulnerabilities in $image; inspect the Trivy output above"
     }
 }
