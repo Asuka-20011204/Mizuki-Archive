@@ -195,7 +195,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	router, err := controller.New(controller.Config{Resources: resources, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
+	externalResources, err := service.NewExternalResources(store)
+	if err != nil {
+		log.Fatal("cannot prepare external resource service")
+	}
+	router, err := controller.New(controller.Config{Resources: resources, ExternalResources: externalResources, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}

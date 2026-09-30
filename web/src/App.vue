@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import ExternalResourcePanel from './ExternalResourcePanel.vue'
 import { api, type ProcessingJob, type Resource } from './api'
 
 // 登录状态、列表筛选和详情面板分别在本视图中管理；服务端始终是权限与资料的权威来源。
@@ -815,6 +816,8 @@ onUnmounted(() => {
           <div class="archive-brief-copy"><p class="eyebrow">ARCHIVE PULSE</p><h2>让整理变成一种轻盈的习惯。</h2><p>当前数字来自已加载的资料视图，列表筛选后会同步变化。</p></div>
           <div class="archive-stats"><div v-for="stat in archiveStats" :key="stat.label" class="archive-stat"><strong>{{ stat.value }}</strong><span>{{ stat.label }}</span></div></div>
         </section>
+
+        <ExternalResourcePanel />
 
         <nav class="filter-nav" aria-label="按资料类型筛选">
           <button

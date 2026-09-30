@@ -12,6 +12,23 @@ export interface Resource {
   created_at: string
 }
 
+// ExternalResource 只描述站外位置卡片；服务器不保管或下载站外文件。
+export interface ExternalResource {
+  id: string
+  title: string
+  location: string
+  resource_type: string
+  version: string
+  note: string
+  status: 'pending' | 'available' | 'uncertain' | 'broken' | 'downloaded'
+  tags: string[]
+  created_at: string
+  updated_at: string
+}
+
+// ExternalResourceInput 只提交可编辑字段，身份、ID 和时间由服务端决定。
+export type ExternalResourceInput = Pick<ExternalResource, 'title' | 'location' | 'resource_type' | 'version' | 'note' | 'status' | 'tags'>
+
 // DerivedAsset 描述成功任务生成的可下载派生文件，不把服务端存储键交给浏览器。
 export interface DerivedAsset {
   id: string
@@ -76,6 +93,18 @@ async function requestText(path: string, options?: RequestInit): Promise<string>
 }
 
 export const api = {
+  // listExternalResources 只查询当前用户卡片，服务器限制返回数量。
+  listExternalResources: (query = '') => request<{ data: ExternalResource[] }>(`/external-resources?${new URLSearchParams({ q: query })}`),
+  // createExternalResource 保存资源位置文本，绝不上传或自动访问外部链接。
+  createExternalResource: (value: ExternalResourceInput) => request<{ data: ExternalResource }>('/external-resources', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+  }),
+  // updateExternalResource 使用完整字段替换卡片，标签与卡片在同一事务变更。
+  updateExternalResource: (id: string, value: ExternalResourceInput) => request<{ data: ExternalResource }>(`/external-resources/${encodeURIComponent(id)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+  }),
+  // deleteExternalResource 仅删除本站卡片，不触碰站外原件。
+  deleteExternalResource: (id: string) => request<void>(`/external-resources/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // authCapabilities 读取运行时认证能力；能力开关由服务端配置决定，浏览器不自行猜测。
   authCapabilities: () => request<AuthCapabilities>('/auth/capabilities'),
   // me 由服务端会话确认当前身份，不读取浏览器可伪造的本地用户名。

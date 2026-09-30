@@ -23,6 +23,7 @@ Mizuki Archive/
 │   └── migrate/main.go                # 使用独立账号执行生产数据库迁移
 ├── internal/
 │   ├── model/resource.go              # 资料模型、用户归属与列表筛选条件
+│   ├── model/external_resource.go     # 站外资源卡片模型（不含原件）
 │   ├── model/user.go                  # 多用户身份模型
 │   ├── model/processing.go            # 任务与派生产物模型
 │   ├── processing/text.go             # PDF/TXT/Markdown 文本处理器
@@ -34,15 +35,18 @@ Mizuki Archive/
 │   │   ├── router.go                  # Gin 路由、Origin 校验、统一错误格式
 │   │   ├── auth_controller.go         # 登录、会话中间件、退出
 │   │   ├── resource_controller.go     # 资料上传、查询、标签、预览、删除和下载
+│   │   ├── external_resource_controller.go # 站外卡片 CRUD HTTP 边界
 │   │   └── processing_controller.go   # 任务创建、任务查看和派生文件下载
 │   ├── service/
 │   │   ├── auth.go                    # 兼容密码校验、用户会话和身份上下文
 │   │   ├── email_auth.go              # 邮箱验证码注册/登录
 │   │   ├── resource.go                # 文件校验、存储、元数据流程
+│   │   ├── external_resource.go       # 卡片校验、人工状态与身份约束
 │   │   └── processing.go              # 任务幂等、Worker 执行和派生文件
 │   └── repository/
 │       ├── repository.go              # 资料/会话/处理任务持久化接口
 │       ├── mysql_gorm.go              # GORM 的 MySQL 资料实现
+│       ├── external_resource.go       # 按用户限定的卡片与标签事务
 │       ├── processing.go              # GORM 的任务与派生产物实现
 │       ├── outbox.go                  # 事务 Outbox 及孤儿任务补偿
 │       ├── migration.go               # 内嵌版本化 SQL 迁移
@@ -56,8 +60,10 @@ Mizuki Archive/
 │           ├── 006_processing_capacity.sql # 全局任务容量锁
 │           ├── 007_multi_user_identity.sql # 用户、验证码、资料/会话归属
 │           ├── 008_multi_user_compatibility.sql # 兼容已应用旧版本迁移
-│           └── 009_multi_user_identity_indexes.sql # 可重试的用户范围索引迁移
+│           ├── 009_multi_user_identity_indexes.sql # 可重试的用户范围索引迁移
+│           └── 010_external_resources.sql # 卡片与独立标签表
 ├── web/                               # Vue 3 + TypeScript View
+│   └── src/ExternalResourcePanel.vue  # 独立卡片录入、搜索和人工维护
 ├── docs/                              # 产品、架构、安全、设计和变更记录
 ├── compose.yaml                       # MySQL 与可选 RabbitMQ/Redis 容器
 ├── compose.deploy.yaml                # V6 独立单机编排：Web/API/Worker/MySQL

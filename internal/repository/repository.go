@@ -16,6 +16,15 @@ var ErrProcessingJobExists = errors.New("processing job already exists")
 var ErrProcessingQueueFull = errors.New("processing queue is full")
 var ErrUserExists = errors.New("user already exists")
 
+// ExternalResourceStore 单独管理外部卡片，避免修改已有文件仓储和测试替身的契约。
+type ExternalResourceStore interface {
+	CreateExternalResource(context.Context, model.ExternalResource) error
+	GetExternalResource(context.Context, string) (model.ExternalResource, error)
+	ListExternalResources(context.Context, string) ([]model.ExternalResource, error)
+	UpdateExternalResource(context.Context, model.ExternalResource) error
+	DeleteExternalResource(context.Context, string) error
+}
+
 // Store 包含首期资料和会话的持久化操作，测试可用内存实现替换 MySQL。
 type Store interface {
 	SaveResource(context.Context, model.Resource) error

@@ -1,0 +1,22 @@
+.external-panel { max-width: 1200px; margin: 40px auto; padding: 32px; border: 1px solid var(--line); border-radius: 28px; background: #fff; box-shadow: 0 12px 32px #72899412; }
+.external-heading, .external-card { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+.external-heading h2 { margin: 4px 0 8px; }
+.external-heading p { color: var(--muted); }
+.external-heading .primary-button { flex-shrink: 0; }
+.external-search { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 24px 0; }
+.external-search input, .external-form input, .external-form textarea, .external-form select { min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; color: inherit; font: inherit; }
+.external-search input { flex: 1; min-width: 180px; }
+.external-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 22px 0; padding: 24px; border-radius: 20px; background: #f5f9fa; }
+.external-form h3, .external-form .external-note, .external-form .external-actions { grid-column: 1 / -1; }
+.external-form label { display: grid; gap: 6px; }
+.external-form textarea { resize: vertical; width: 100%; }
+.external-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.external-list { display: grid; gap: 12px; padding: 0; list-style: none; }
+.external-card { border: 1px solid var(--line); border-radius: 18px; padding: 18px; overflow-wrap: anywhere; }
+.external-card h3 { margin: 5px 0; }
+.external-card p { margin: 6px 0; }
+.external-card small, .external-status, .external-location, .external-empty { color: var(--muted); }
+.external-card-main { min-width: 0; }
+.external-location { white-space: pre-wrap; }
+.external-form textarea:focus-visible, .external-form select:focus-visible { outline: 3px solid #426e80; outline-offset: 3px; }
+@media (max-width: 640px) { .external-panel { padding: 20px; margin: 24px auto; } .external-heading, .external-card { flex-direction: column; } .external-form { grid-template-columns: 1fr; padding: 16px; } }

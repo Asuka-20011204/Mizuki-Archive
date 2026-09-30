@@ -15,12 +15,13 @@ import (
 
 // Config 由 cmd/server 组装；Controller 不自行创建数据库或文件服务。
 type Config struct {
-	Resources    *service.Resources
-	Processing   *service.Processing
-	Auth         *service.Auth
-	EmailAuth    *service.EmailAuth
-	Origin       string
-	SecureCookie bool
+	Resources         *service.Resources
+	ExternalResources *service.ExternalResources
+	Processing        *service.Processing
+	Auth              *service.Auth
+	EmailAuth         *service.EmailAuth
+	Origin            string
+	SecureCookie      bool
 	// TrustProxyHeaders 仅应在 API 不直接暴露、且前置代理会覆盖 X-Real-IP 时开启。
 	TrustProxyHeaders bool
 	RateLimiter       cache.RateLimiter
@@ -80,6 +81,13 @@ func New(config Config) (*gin.Engine, error) {
 	})
 	private.POST("/logout", handler.logout)
 	private.POST("/resources", handler.upload)
+	if config.ExternalResources != nil {
+		private.POST("/external-resources", handler.createExternalResource)
+		private.GET("/external-resources", handler.listExternalResources)
+		private.GET("/external-resources/:id", handler.getExternalResource)
+		private.PUT("/external-resources/:id", handler.updateExternalResource)
+		private.DELETE("/external-resources/:id", handler.deleteExternalResource)
+	}
 	private.GET("/resources", handler.list)
 	private.GET("/resources/recent", handler.recent)
 	private.GET("/tags", handler.listTags)

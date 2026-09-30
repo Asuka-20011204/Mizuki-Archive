@@ -30,3 +30,8 @@ var multiUserCompatibilityMigration string
 
 //go:embed migrations/009_multi_user_identity_indexes.sql
 var multiUserIdentityIndexesMigration string
+
+// 外部资源卡片独立于上传文件，不允许其参与文件处理任务。
+//
+//go:embed migrations/010_external_resources.sql
+var externalResourcesMigration string
