@@ -16,6 +16,7 @@ type externalResourceRow struct {
 	UserID             string    `gorm:"column:user_id"`
 	Title              string    `gorm:"column:title"`
 	Location           string    `gorm:"column:location"`
+	LocationKey        *string   `gorm:"column:location_key"`
 	ResourceType       string    `gorm:"column:resource_type"`
 	Version            string    `gorm:"column:version"`
 	Note               string    `gorm:"column:note"`
@@ -81,7 +82,8 @@ func (store *MySQL) CreateExternalResource(ctx context.Context, resource model.E
 	if err != nil {
 		return err
 	}
-	row := externalResourceRow{ID: resource.ID, UserID: owner, Title: resource.Title, Location: resource.Location, ResourceType: resource.ResourceType, Version: resource.Version, Note: resource.Note, Status: resource.Status, OrganizationStatus: "pending", CreatedAt: resource.CreatedAt, UpdatedAt: resource.UpdatedAt}
+	key := model.ExternalLinkKey(resource.Location)
+	row := externalResourceRow{ID: resource.ID, UserID: owner, Title: resource.Title, Location: resource.Location, LocationKey: &key, ResourceType: resource.ResourceType, Version: resource.Version, Note: resource.Note, Status: resource.Status, OrganizationStatus: "pending", CreatedAt: resource.CreatedAt, UpdatedAt: resource.UpdatedAt}
 	return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Table("external_resources").Create(&row).Error; err != nil {
 			return fmt.Errorf("create external resource: %w", err)
@@ -150,7 +152,7 @@ func (store *MySQL) UpdateExternalResource(ctx context.Context, resource model.E
 	}
 	return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Table("external_resources").Where("id = ? AND user_id = ?", resource.ID, owner).Updates(map[string]any{
-			"title": resource.Title, "location": resource.Location, "resource_type": resource.ResourceType,
+			"title": resource.Title, "location": resource.Location, "location_key": model.ExternalLinkKey(resource.Location), "resource_type": resource.ResourceType,
 			"version": resource.Version, "note": resource.Note, "status": resource.Status, "updated_at": resource.UpdatedAt,
 		})
 		if result.Error != nil {

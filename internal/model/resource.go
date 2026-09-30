@@ -5,19 +5,21 @@ import "time"
 
 // Resource 描述资料元数据。原始文件保存在受控目录，JSON 不暴露内部存储键。
 type Resource struct {
-	ID                 string    `json:"id"`
-	OwnerID            string    `json:"-"`
-	Name               string    `json:"name"`
-	OriginalName       string    `json:"original_name"`
-	Kind               string    `json:"kind"`
-	MIME               string    `json:"mime"`
-	Size               int64     `json:"size"`
-	SHA256             string    `json:"sha256"`
-	StorageKey         string    `json:"-"`
-	Favorite           bool      `json:"favorite"`
-	OrganizationStatus string    `json:"organization_status"`
-	Tags               []string  `json:"tags"`
-	CreatedAt          time.Time `json:"created_at"`
+	ID                        string         `json:"id"`
+	OwnerID                   string         `json:"-"`
+	Name                      string         `json:"name"`
+	OriginalName              string         `json:"original_name"`
+	Kind                      string         `json:"kind"`
+	MIME                      string         `json:"mime"`
+	Size                      int64          `json:"size"`
+	SHA256                    string         `json:"sha256"`
+	Duplicate                 *DuplicateHint `json:"duplicate,omitempty"`
+	DuplicateCheckUnavailable bool           `json:"duplicate_check_unavailable,omitempty"`
+	StorageKey                string         `json:"-"`
+	Favorite                  bool           `json:"favorite"`
+	OrganizationStatus        string         `json:"organization_status"`
+	Tags                      []string       `json:"tags"`
+	CreatedAt                 time.Time      `json:"created_at"`
 }
 
 // ListQuery 由 Controller 校验后传给 Service，再交给 Repository 做分页查询。

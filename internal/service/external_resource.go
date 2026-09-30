@@ -98,6 +98,7 @@ func (resources *ExternalResources) Create(ctx context.Context, value model.Exte
 	if err := resources.store.CreateExternalResource(ctx, value); err != nil {
 		return model.ExternalResource{}, err
 	}
+	resources.attachDuplicate(ctx, &value)
 	return value, nil
 }
 
@@ -141,7 +142,27 @@ func (resources *ExternalResources) Update(ctx context.Context, id string, value
 	if err := resources.store.UpdateExternalResource(ctx, value); err != nil {
 		return model.ExternalResource{}, err
 	}
-	return resources.Get(ctx, id)
+	updated, err := resources.Get(ctx, id)
+	if err != nil {
+		return model.ExternalResource{}, err
+	}
+	resources.attachDuplicate(ctx, &updated)
+	return updated, nil
+}
+
+// attachDuplicate 只比较 HTTP(S) 地址；查重故障不改变已保存卡片的成功结果。
+func (resources *ExternalResources) attachDuplicate(ctx context.Context, value *model.ExternalResource) {
+	key := model.ExternalLinkKey(value.Location)
+	if key == "" {
+		return
+	}
+	if duplicates, ok := resources.store.(repository.DuplicateStore); ok {
+		if hint, err := duplicates.FindExternalDuplicate(ctx, key, value.ID); err == nil {
+			value.Duplicate = hint
+		} else {
+			value.DuplicateCheckUnavailable = true
+		}
+	}
 }
 
 // Delete 删除当前用户的卡片及其标签，不触碰用户所指向的外部原件。

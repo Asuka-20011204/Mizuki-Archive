@@ -149,6 +149,14 @@ func (resources *Resources) Upload(ctx context.Context, filename string, source 
 		return model.Resource{}, fmt.Errorf("save resource: %w", err)
 	}
 	resources.invalidateResourceCaches(ctx, resource.ID)
+	if duplicates, ok := resources.store.(repository.DuplicateStore); ok {
+		// 提示是附加信息；查询失败不能让已经成功保存的上传被客户端误认为失败并重试。
+		if hint, err := duplicates.FindFileDuplicate(ctx, resource.SHA256, resource.ID); err == nil {
+			resource.Duplicate = hint
+		} else {
+			resource.DuplicateCheckUnavailable = true
+		}
+	}
 	return resource, nil
 }
 

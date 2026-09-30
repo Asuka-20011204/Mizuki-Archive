@@ -364,7 +364,14 @@ async function upload(event: Event) {
     await loadResources()
     // 上传成功后复用详情加载流程，确保文本预览、标签建议和任务记录与服务端最新状态同步。
     const detailLoaded = await selectResource(result.data)
-    notice.value = detailLoaded ? '资料已安全存入资料库' : '资料已上传，但详情暂时无法加载'
+    if (result.data.duplicate) {
+      notice.value = `资料已保存；疑似与「${result.data.duplicate.name}」内容重复。不会自动删除。`
+    } else if (result.data.duplicate_check_unavailable) {
+      notice.value = '资料已保存，但重复检查暂不可用，请稍后自行核对。'
+    } else {
+      notice.value = '资料已安全存入资料库'
+    }
+    if (!detailLoaded) notice.value += '；详情暂时无法加载'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '上传失败'
   } finally {

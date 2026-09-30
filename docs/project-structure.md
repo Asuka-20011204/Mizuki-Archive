@@ -24,6 +24,7 @@ Mizuki Archive/
 ├── internal/
 │   ├── model/resource.go              # 资料模型、用户归属与列表筛选条件
 │   ├── model/external_resource.go     # 站外资源卡片模型（不含原件）
+│   ├── model/duplicate.go             # 纯文本链接规范化与同账号重复提示模型
 │   ├── model/user.go                  # 多用户身份模型
 │   ├── model/phone.go                 # 大陆手机号一次性挑战模型
 │   ├── model/inbox.go                 # 批量整理条目的来源与 ID
@@ -59,6 +60,7 @@ Mizuki Archive/
 │       ├── migration.go               # 内嵌版本化 SQL 迁移
 │       ├── email.go                   # 用户、验证码与会话归属持久化
 │       ├── phone.go                   # 手机号唯一身份、挑战和可重试迁移准备
+│       ├── duplicate.go               # 同账号查重、用户范围索引和旧卡片回填
 │       └── migrations/
 │           ├── 001_init.sql           # 资料与会话表
 │           ├── 002_manual_tags.sql    # 标签与资料关联
@@ -71,7 +73,8 @@ Mizuki Archive/
 │           ├── 009_multi_user_identity_indexes.sql # 可重试的用户范围索引迁移
 │           ├── 010_external_resources.sql # 卡片与独立标签表
 │           ├── 011_inbox.sql          # 整理状态迁移登记，DDL 在迁移锁内按需执行
-│           └── 012_mainland_phone_identity.sql # 手机挑战表；用户列和索引可重试创建
+│           ├── 012_mainland_phone_identity.sql # 手机挑战表；用户列和索引可重试创建
+│           └── 013_duplicate_hints.sql # 查重迁移登记；DDL 和回填由准备函数执行
 ├── web/                               # Vue 3 + TypeScript View
 │   ├── src/InboxPanel.vue             # 统一查看两类待整理条目
 │   ├── src/ExternalResourcePanel.vue  # 独立卡片录入、搜索和人工维护

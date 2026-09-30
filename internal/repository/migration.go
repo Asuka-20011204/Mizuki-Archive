@@ -45,3 +45,8 @@ var inboxMigration string
 //
 //go:embed migrations/012_mainland_phone_identity.sql
 var mainlandPhoneIdentityMigration string
+
+// 重复提醒为现有文件哈希和外部位置摘要建立用户范围索引，不改变原件或卡片内容。
+//
+//go:embed migrations/013_duplicate_hints.sql
+var duplicateHintsMigration string

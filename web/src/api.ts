@@ -7,6 +7,8 @@ export interface Resource {
   mime: string
   size: number
   sha256: string
+  duplicate?: DuplicateHint
+  duplicate_check_unavailable?: boolean
   favorite: boolean
   organization_status: 'pending' | 'organized'
   tags: string[]
@@ -18,6 +20,8 @@ export interface ExternalResource {
   id: string
   title: string
   location: string
+  duplicate?: DuplicateHint
+  duplicate_check_unavailable?: boolean
   resource_type: string
   version: string
   note: string
@@ -27,6 +31,9 @@ export interface ExternalResource {
   created_at: string
   updated_at: string
 }
+
+// DuplicateHint 仅指出当前账号已有的疑似重复项，保存仍由用户自行决定。
+export interface DuplicateHint { id: string; name: string }
 
 // ExternalResourceInput 只提交可编辑字段，身份、ID 和时间由服务端决定。
 export type ExternalResourceInput = Pick<ExternalResource, 'title' | 'location' | 'resource_type' | 'version' | 'note' | 'status' | 'tags'>

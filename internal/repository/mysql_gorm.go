@@ -336,6 +336,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 10, name: "external_resources", sql: externalResourcesMigration},
 		{version: 11, name: "inbox", sql: inboxMigration, prepare: ensureInboxSchema},
 		{version: 12, name: "mainland_phone_identity", sql: mainlandPhoneIdentityMigration, prepare: ensurePhoneIdentitySchema},
+		{version: 13, name: "duplicate_hints", sql: duplicateHintsMigration, prepare: ensureDuplicateSchema},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int

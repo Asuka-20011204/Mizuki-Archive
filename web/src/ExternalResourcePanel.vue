@@ -83,14 +83,18 @@ async function saveCard() {
   error.value = ''
   try {
     const value = { ...draft.value, tags: tagText.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean) }
-    if (editingId.value) {
-      await api.updateExternalResource(editingId.value, value)
-    } else {
-      await api.createExternalResource(value)
-    }
+    const result = editingId.value
+      ? await api.updateExternalResource(editingId.value, value)
+      : await api.createExternalResource(value)
     formOpen.value = false
     pastedText.value = ''
-    notice.value = '卡片已保存'
+    if (result.data.duplicate) {
+      notice.value = `卡片已保存；疑似与「${result.data.duplicate.name}」链接重复。不会自动删除。`
+    } else if (result.data.duplicate_check_unavailable) {
+      notice.value = '卡片已保存，但重复检查暂不可用，请稍后自行核对。'
+    } else {
+      notice.value = '卡片已保存'
+    }
     emit('changed')
     await loadExternalCards()
   } catch (reason) {

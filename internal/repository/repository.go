@@ -34,6 +34,12 @@ type ExternalResourceStore interface {
 	DeleteExternalResource(context.Context, string) error
 }
 
+// DuplicateStore 只查同账号可见的疑似重复项；不存在时返回 nil，不自动合并资料。
+type DuplicateStore interface {
+	FindFileDuplicate(context.Context, string, string) (*model.DuplicateHint, error)
+	FindExternalDuplicate(context.Context, string, string) (*model.DuplicateHint, error)
+}
+
 // Store 包含首期资料和会话的持久化操作，测试可用内存实现替换 MySQL。
 type Store interface {
 	SaveResource(context.Context, model.Resource) error
