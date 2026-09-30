@@ -55,3 +55,8 @@ var duplicateHintsMigration string
 //
 //go:embed migrations/014_saved_search_views.sql
 var savedSearchViewsMigration string
+
+// 外部卡片收藏与站内文件保持同一条用户维护属性，不改变外部链接状态。
+//
+//go:embed migrations/015_external_resource_favorite.sql
+var externalResourceFavoriteMigration string

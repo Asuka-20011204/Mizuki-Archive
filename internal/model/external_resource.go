@@ -13,6 +13,7 @@ type ExternalResource struct {
 	Version                   string         `json:"version"`
 	Note                      string         `json:"note"`
 	Status                    string         `json:"status"`
+	Favorite                  bool           `json:"favorite"`
 	OrganizationStatus        string         `json:"organization_status"`
 	Tags                      []string       `json:"tags"`
 	CreatedAt                 time.Time      `json:"created_at"`

@@ -18,6 +18,9 @@ const batchTag = ref('')
 const batchTagMode = ref<'add' | 'remove'>('add')
 const tagUndoValue = ref('')
 const tagUndoMode = ref<'add' | 'remove'>('remove')
+const favoriteUndoItems = ref<InboxSelection[]>([])
+const batchFavoriteValue = ref(true)
+const favoriteUndoValue = ref(false)
 const error = ref('')
 const notice = ref('')
 let requestVersion = 0
@@ -164,6 +167,46 @@ async function undoLastTagBatch() {
   }
 }
 
+// updateSelectedFavorites 用明确的目标状态批量收藏或取消收藏，返回项才进入一次反向入口。
+async function updateSelectedFavorites() {
+  const chosen = visibleItems.value.filter((item) => selectedKeys.value.includes(selectionKey(item.source, item.id)))
+  const action = batchFavoriteValue.value ? '收藏' : '取消收藏'
+  if (!chosen.length || !window.confirm(`将${action} ${chosen.length} 项资料？`)) return
+  batchBusy.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const result = await api.batchUpdateFavorites(chosen, batchFavoriteValue.value)
+    favoriteUndoItems.value = result.changed
+    favoriteUndoValue.value = !batchFavoriteValue.value
+    notice.value = result.count ? `已${action} ${result.count} 项资料，可反向恢复。` : `所选资料已经是“${action}”状态。`
+    await loadInbox(page.value)
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '批量收藏操作失败，未修改所选资料'
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+// undoLastFavoriteBatch 通过明确目标状态反向恢复收藏；网络重试不会把状态再次翻转。
+async function undoLastFavoriteBatch() {
+  if (!favoriteUndoItems.value.length || batchBusy.value) return
+  if (!window.confirm(`将反向修改 ${favoriteUndoItems.value.length} 项资料的收藏状态；若其他设备随后更改过收藏，可能覆盖其修改。是否继续？`)) return
+  batchBusy.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const result = await api.batchUpdateFavorites(favoriteUndoItems.value, favoriteUndoValue.value)
+    notice.value = `已反向修改 ${result.count} 项资料的收藏状态。`
+    favoriteUndoItems.value = []
+    await loadInbox(page.value)
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '反向恢复收藏失败，请重试'
+  } finally {
+    batchBusy.value = false
+  }
+}
+
 // changePage 只允许进入已知存在的下一页或前一页，翻页时不修改任何资料。
 function changePage(target: number) {
   if (target < 1 || loading.value || batchBusy.value || (target > page.value && !hasMore.value)) return
@@ -183,13 +226,29 @@ onMounted(() => { void loadInbox(1) })
     <p v-if="notice" class="message success" role="status">{{ notice }}</p>
     <div v-if="undoItems.length" class="inbox-batch-undo"><button class="secondary-button" type="button" :disabled="batchBusy || !!busyId" @click="undoLastBatch">撤销上一次批量整理（{{ undoItems.length }} 项）</button></div>
     <div v-if="tagUndoItems.length" class="inbox-batch-undo"><button class="secondary-button" type="button" :disabled="batchBusy || !!busyId" @click="undoLastTagBatch">反向恢复标签（{{ tagUndoItems.length }} 项，需确认）</button></div>
+    <div v-if="favoriteUndoItems.length" class="inbox-batch-undo"><button class="secondary-button" type="button" :disabled="batchBusy || !!busyId" @click="undoLastFavoriteBatch">反向恢复收藏（{{ favoriteUndoItems.length }} 项）</button></div>
     <p v-if="loading && !files.length && !externals.length" role="status">正在加载待整理内容…</p>
     <p v-else-if="!files.length && !externals.length && !error" class="inbox-empty">{{ page === 1 ? '目前没有待整理条目。新上传文件或新建外部卡片会出现在这里。' : '本页暂无条目，可返回上一页。' }}</p>
     <div v-if="files.length || externals.length" class="inbox-groups">
-      <div v-if="files.length"><h3>站内文件 <small>{{ files.length }} 项</small></h3><ul class="inbox-list"><li v-for="file in files" :key="file.id"><div><label class="inbox-select"><input type="checkbox" :checked="isSelected('file', file.id)" :disabled="loading || batchBusy || !!busyId || (selectedKeys.length >= 50 && !isSelected('file', file.id))" @change="toggleSelection('file', file.id)" /><span class="inbox-select-name">选择文件：{{ file.name }}</span></label><small>站内文件 · {{ file.kind }}</small></div><div class="inbox-actions"><button class="secondary-button" type="button" @click="emit('openFile', file)">查看并整理</button><button class="secondary-button" type="button" :disabled="!!busyId || batchBusy" @click="completeItem('file', file.id)">{{ busyId === file.id ? '保存中…' : '完成整理' }}</button></div></li></ul></div>
-      <div v-if="externals.length"><h3>外部卡片 <small>{{ externals.length }} 项</small></h3><ul class="inbox-list"><li v-for="item in externals" :key="item.id"><div><label class="inbox-select"><input type="checkbox" :checked="isSelected('external', item.id)" :disabled="loading || batchBusy || !!busyId || (selectedKeys.length >= 50 && !isSelected('external', item.id))" @change="toggleSelection('external', item.id)" /><span class="inbox-select-name">选择卡片：{{ item.title }}</span></label><small>{{ item.resource_type }} · {{ item.location }}</small></div><div class="inbox-actions"><button class="secondary-button" type="button" @click="emit('editExternal', item)">编辑卡片</button><button class="secondary-button" type="button" :disabled="!!busyId || batchBusy" @click="completeItem('external', item.id)">{{ busyId === item.id ? '保存中…' : '完成整理' }}</button></div></li></ul></div>
+      <div v-if="files.length"><h3>站内文件 <small>{{ files.length }} 项</small></h3><ul class="inbox-list"><li v-for="file in files" :key="file.id"><div><label class="inbox-select"><input type="checkbox" :checked="isSelected('file', file.id)" :disabled="loading || batchBusy || !!busyId || (selectedKeys.length >= 50 && !isSelected('file', file.id))" @change="toggleSelection('file', file.id)" /><span class="inbox-select-name">选择文件：{{ file.name }}</span></label><small>站内文件 · {{ file.kind }}<span v-if="file.favorite" class="inbox-favorite" aria-label="已收藏"> · ★ 已收藏</span></small></div><div class="inbox-actions"><button class="secondary-button" type="button" @click="emit('openFile', file)">查看并整理</button><button class="secondary-button" type="button" :disabled="!!busyId || batchBusy" @click="completeItem('file', file.id)">{{ busyId === file.id ? '保存中…' : '完成整理' }}</button></div></li></ul></div>
+      <div v-if="externals.length"><h3>外部卡片 <small>{{ externals.length }} 项</small></h3><ul class="inbox-list"><li v-for="item in externals" :key="item.id"><div><label class="inbox-select"><input type="checkbox" :checked="isSelected('external', item.id)" :disabled="loading || batchBusy || !!busyId || (selectedKeys.length >= 50 && !isSelected('external', item.id))" @change="toggleSelection('external', item.id)" /><span class="inbox-select-name">选择卡片：{{ item.title }}</span></label><small>{{ item.resource_type }} · {{ item.location }}<span v-if="item.favorite" class="inbox-favorite" aria-label="已收藏"> · ★ 已收藏</span></small></div><div class="inbox-actions"><button class="secondary-button" type="button" @click="emit('editExternal', item)">编辑卡片</button><button class="secondary-button" type="button" :disabled="!!busyId || batchBusy" @click="completeItem('external', item.id)">{{ busyId === item.id ? '保存中…' : '完成整理' }}</button></div></li></ul></div>
     </div>
-    <div v-if="files.length || externals.length" class="inbox-batch-actions" role="group" aria-label="批量操作当前页"><button class="secondary-button" type="button" :disabled="loading || batchBusy || !!busyId" @click="selectVisible">选中本页前 50 项</button><button class="secondary-button" type="button" :disabled="!selectedKeys.length || batchBusy || loading || !!busyId" @click="selectedKeys = []">清空选择</button><button class="primary-button" type="button" :disabled="!selectedKeys.length || batchBusy || loading || !!busyId" @click="completeSelected">{{ batchBusy ? '整理中…' : `批量完成整理（${selectedKeys.length} 项）` }}</button><label class="inbox-batch-tag">标签<input v-model="batchTag" maxlength="24" placeholder="例如：课程" /><select v-model="batchTagMode" aria-label="批量标签动作"><option value="add">添加</option><option value="remove">移除</option></select><button class="secondary-button" type="button" :disabled="!selectedKeys.length || !batchTag.trim() || batchBusy || loading || !!busyId" @click="updateSelectedTags">执行标签</button></label></div>
+    <div v-if="files.length || externals.length" class="inbox-batch-actions" role="group" aria-label="批量操作当前页">
+      <button class="secondary-button" type="button" :disabled="loading || batchBusy || !!busyId" @click="selectVisible">选中本页前 50 项</button>
+      <button class="secondary-button" type="button" :disabled="!selectedKeys.length || batchBusy || loading || !!busyId" @click="selectedKeys = []">清空选择</button>
+      <button class="primary-button" type="button" :disabled="!selectedKeys.length || batchBusy || loading || !!busyId" @click="completeSelected">{{ batchBusy ? '整理中…' : `批量完成整理（${selectedKeys.length} 项）` }}</button>
+      <div class="inbox-batch-tag">
+        <label for="batch-tag-input">标签</label>
+        <input id="batch-tag-input" v-model="batchTag" maxlength="24" placeholder="例如：课程" />
+        <select v-model="batchTagMode" aria-label="批量标签动作"><option value="add">添加</option><option value="remove">移除</option></select>
+        <button class="secondary-button" type="button" :disabled="!selectedKeys.length || !batchTag.trim() || batchBusy || loading || !!busyId" @click="updateSelectedTags">执行标签</button>
+      </div>
+      <div class="inbox-batch-favorite">
+        <label for="batch-favorite-mode">收藏</label>
+        <select id="batch-favorite-mode" v-model="batchFavoriteValue"><option :value="true">收藏</option><option :value="false">取消收藏</option></select>
+        <button class="secondary-button" type="button" :disabled="!selectedKeys.length || batchBusy || loading || !!busyId" @click="updateSelectedFavorites">{{ batchFavoriteValue ? '批量收藏' : '批量取消收藏' }}</button>
+      </div>
+    </div>
     <div v-if="page > 1 || hasMore" class="inbox-pages"><button type="button" class="secondary-button" :disabled="page === 1 || loading" @click="changePage(page - 1)">上一页</button><span>第 {{ page }} 页 · 每类最多 50 项</span><button type="button" class="secondary-button" :disabled="!hasMore || loading" @click="changePage(page + 1)">下一页</button></div>
   </section>
 </template>

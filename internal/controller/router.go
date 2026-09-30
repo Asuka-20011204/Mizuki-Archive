@@ -21,6 +21,7 @@ type Config struct {
 	Search            *service.Search
 	SavedSearches     *service.SavedSearches
 	BatchTags         *service.BatchTags
+	BatchFavorites    *service.BatchFavorites
 	Processing        *service.Processing
 	Auth              *service.Auth
 	EmailAuth         *service.EmailAuth
@@ -105,6 +106,9 @@ func New(config Config) (*gin.Engine, error) {
 	}
 	if config.BatchTags != nil {
 		private.PATCH("/batch/tags", handler.batchUpdateTags)
+	}
+	if config.BatchFavorites != nil {
+		private.PATCH("/batch/favorites", handler.batchUpdateFavorites)
 	}
 	if config.Inbox != nil {
 		private.GET("/inbox", handler.listInbox)

@@ -21,6 +21,7 @@ type externalResourceRow struct {
 	Version            string    `gorm:"column:version"`
 	Note               string    `gorm:"column:note"`
 	Status             string    `gorm:"column:status"`
+	Favorite           bool      `gorm:"column:favorite"`
 	OrganizationStatus string    `gorm:"column:organization_status"`
 	CreatedAt          time.Time `gorm:"column:created_at"`
 	UpdatedAt          time.Time `gorm:"column:updated_at"`
@@ -42,7 +43,7 @@ func externalOwner(ctx context.Context) (string, error) {
 
 // externalFromRow 把数据库行转换为 API 模型，确保空标签始终序列化为数组。
 func externalFromRow(row externalResourceRow) model.ExternalResource {
-	return model.ExternalResource{ID: row.ID, Title: row.Title, Location: row.Location, ResourceType: row.ResourceType, Version: row.Version, Note: row.Note, Status: row.Status, OrganizationStatus: row.OrganizationStatus, Tags: []string{}, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	return model.ExternalResource{ID: row.ID, Title: row.Title, Location: row.Location, ResourceType: row.ResourceType, Version: row.Version, Note: row.Note, Status: row.Status, Favorite: row.Favorite, OrganizationStatus: row.OrganizationStatus, Tags: []string{}, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
 }
 
 // writeExternalTags 在同一事务写入已校验的标签，任何一步失败都回滚卡片变动。
@@ -83,7 +84,7 @@ func (store *MySQL) CreateExternalResource(ctx context.Context, resource model.E
 		return err
 	}
 	key := model.ExternalLinkKey(resource.Location)
-	row := externalResourceRow{ID: resource.ID, UserID: owner, Title: resource.Title, Location: resource.Location, LocationKey: &key, ResourceType: resource.ResourceType, Version: resource.Version, Note: resource.Note, Status: resource.Status, OrganizationStatus: "pending", CreatedAt: resource.CreatedAt, UpdatedAt: resource.UpdatedAt}
+	row := externalResourceRow{ID: resource.ID, UserID: owner, Title: resource.Title, Location: resource.Location, LocationKey: &key, ResourceType: resource.ResourceType, Version: resource.Version, Note: resource.Note, Status: resource.Status, Favorite: resource.Favorite, OrganizationStatus: "pending", CreatedAt: resource.CreatedAt, UpdatedAt: resource.UpdatedAt}
 	return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Table("external_resources").Create(&row).Error; err != nil {
 			return fmt.Errorf("create external resource: %w", err)
@@ -153,6 +154,7 @@ func (store *MySQL) UpdateExternalResource(ctx context.Context, resource model.E
 	var updated model.ExternalResource
 	err = store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Table("external_resources").Where("id = ? AND user_id = ?", resource.ID, owner).Updates(map[string]any{
+			// 收藏由独立接口维护，普通编辑不写入 favorite，防止旧表单覆盖并发收藏。
 			"title": resource.Title, "location": resource.Location, "location_key": model.ExternalLinkKey(resource.Location), "resource_type": resource.ResourceType,
 			"version": resource.Version, "note": resource.Note, "status": resource.Status, "updated_at": resource.UpdatedAt,
 		})

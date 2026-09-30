@@ -33,6 +33,11 @@ type BatchTagStore interface {
 	BatchUpdateTags(context.Context, []model.InboxSelection, string, string) ([]model.InboxSelection, error)
 }
 
+// BatchFavoriteStore 同时处理两类条目的收藏状态，并让调用方只对真实变化项显示反向入口。
+type BatchFavoriteStore interface {
+	BatchUpdateFavorites(context.Context, []model.InboxSelection, bool) ([]model.InboxSelection, error)
+}
+
 // ExternalResourceStore 单独管理外部卡片，避免修改已有文件仓储和测试替身的契约。
 type ExternalResourceStore interface {
 	CreateExternalResource(context.Context, model.ExternalResource) error

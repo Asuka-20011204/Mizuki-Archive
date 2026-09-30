@@ -339,6 +339,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 12, name: "mainland_phone_identity", sql: mainlandPhoneIdentityMigration, prepare: ensurePhoneIdentitySchema},
 		{version: 13, name: "duplicate_hints", sql: duplicateHintsMigration, prepare: ensureDuplicateSchema},
 		{version: 14, name: "saved_search_views", sql: savedSearchViewsMigration},
+		{version: 15, name: "external_resource_favorite", prepare: ensureExternalResourceFavoriteSchema},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int
@@ -383,6 +384,27 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		}
 		return nil
 	})
+}
+
+// ensureExternalResourceFavoriteSchema 允许 015 在 DDL 已执行但迁移记录未写入时安全重试。
+func ensureExternalResourceFavoriteSchema(connection *gorm.DB) error {
+	var count int64
+	if err := connection.Raw(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'external_resources' AND column_name = 'favorite'`).Scan(&count).Error; err != nil {
+		return fmt.Errorf("check external favorite column: %w", err)
+	}
+	if count == 0 {
+		if err := connection.Exec(externalResourceFavoriteMigration).Error; err != nil {
+			return fmt.Errorf("add external favorite column: %w", err)
+		}
+	}
+	var columnType, nullable, defaultValue string
+	if err := connection.Raw(`SELECT column_type, is_nullable, COALESCE(column_default, '') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'external_resources' AND column_name = 'favorite'`).Row().Scan(&columnType, &nullable, &defaultValue); err != nil {
+		return fmt.Errorf("read external favorite column: %w", err)
+	}
+	if !strings.EqualFold(columnType, "tinyint(1)") || !strings.EqualFold(nullable, "NO") || defaultValue != "0" {
+		return fmt.Errorf("incompatible external_resources.favorite: type=%s nullable=%s default=%s", columnType, nullable, defaultValue)
+	}
+	return nil
 }
 
 // ensureMultiUserIdentitySchema 在迁移锁内检查并补建归属列和索引，兼容 MySQL 8.4 并允许中断后安全重试。

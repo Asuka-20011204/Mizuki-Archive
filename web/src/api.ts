@@ -26,6 +26,7 @@ export interface ExternalResource {
   version: string
   note: string
   status: 'pending' | 'available' | 'uncertain' | 'broken' | 'downloaded'
+  favorite: boolean
   organization_status: 'pending' | 'organized'
   tags: string[]
   created_at: string
@@ -161,6 +162,11 @@ export const api = {
   batchUpdateTags: (items: InboxSelection[], tag: string, mode: 'add' | 'remove') =>
     request<{ count: number; changed: InboxSelection[] }>('/batch/tags', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, tag, mode }),
+    }),
+  // batchUpdateFavorites 以明确目标状态批量收藏或取消收藏，网络重试不会发生反向切换。
+  batchUpdateFavorites: (items: InboxSelection[], favorite: boolean) =>
+    request<{ count: number; changed: InboxSelection[] }>('/batch/favorites', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, favorite }),
     }),
   // listExternalResources 只查询当前用户卡片，服务器限制返回数量。
   listExternalResources: (query = '') => request<{ data: ExternalResource[] }>(`/external-resources?${new URLSearchParams({ q: query })}`),

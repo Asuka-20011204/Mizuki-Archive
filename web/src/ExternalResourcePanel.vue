@@ -121,6 +121,22 @@ async function removeCard(item: ExternalResource) {
   }
 }
 
+// setCardFavorite 使用单项批量接口设置明确状态，已有整理资料也可直接收藏。
+async function setCardFavorite(item: ExternalResource) {
+  if (busy.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    await api.batchUpdateFavorites([{ source: 'external', id: item.id }], !item.favorite)
+    await loadExternalCards()
+    emit('changed')
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '收藏状态更新失败'
+  } finally {
+    busy.value = false
+  }
+}
+
 // statusLabel 将服务端状态码映射成清楚的人工维护状态，不自动探测链接。
 function statusLabel(status: ExternalResource['status']) {
   return { pending: '未核对', available: '可用', uncertain: '待确认', broken: '链接失效', downloaded: '已下载' }[status]
@@ -167,7 +183,7 @@ defineExpose({ editCard })
     <ul v-else class="external-list">
       <li v-for="item in items" :key="item.id" class="external-card">
         <div class="external-card-main"><span class="external-status">{{ statusLabel(item.status) }}</span><h3>{{ item.title }}</h3><p class="external-location">{{ item.location }}</p><p v-if="item.note">{{ item.note }}</p><small>{{ item.resource_type }}<span v-if="item.version"> · {{ item.version }}</span><span v-for="tag in item.tags" :key="tag"> · #{{ tag }}</span></small></div>
-        <div class="external-actions"><button class="secondary-button" type="button" :disabled="busy" @click="editCard(item)">编辑</button><button class="secondary-button" type="button" :disabled="busy" @click="removeCard(item)">删除</button></div>
+        <div class="external-actions"><button class="secondary-button" type="button" :disabled="busy" :aria-pressed="item.favorite" @click="setCardFavorite(item)">{{ item.favorite ? '★ 已收藏' : '☆ 收藏' }}</button><button class="secondary-button" type="button" :disabled="busy" @click="editCard(item)">编辑</button><button class="secondary-button" type="button" :disabled="busy" @click="removeCard(item)">删除</button></div>
       </li>
     </ul>
   </section>

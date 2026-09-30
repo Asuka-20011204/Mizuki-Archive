@@ -20,4 +20,7 @@
 @media (max-width: 640px) { .inbox-panel { margin: 24px auto; padding: 20px; } .inbox-heading { flex-direction: column; } }
 .inbox-batch-tag { display: inline-flex; align-items: center; gap: 6px; }
 .inbox-batch-tag input, .inbox-batch-tag select { min-width: 100px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fff; color: inherit; }
+.inbox-batch-favorite { display: inline-flex; align-items: center; gap: 6px; }
+.inbox-batch-favorite select { min-width: 84px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fff; color: inherit; }
+.inbox-favorite { color: var(--accent, #c4774e); }
 @media (max-width: 760px) { .inbox-batch-tag { flex-wrap: wrap; } }
