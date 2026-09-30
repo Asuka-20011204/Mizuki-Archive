@@ -158,6 +158,35 @@
   .privacy-points article { grid-template-columns: 1fr; gap: 7px; padding: 15px 0; }
   .privacy-points article > span { padding: 0; }
 }
+
+@media (max-width: 900px) {
+  .hero-stage { min-height: 430px; border-radius: 18px; }
+  .public-principles-view .principles-list { gap: 12px; }
+  .public-principles-view .principles-list article + article { border-left: 0; }
+}
+
+@media (max-width: 680px) {
+  .public-shell { padding-right: 16px; padding-left: 16px; }
+  .public-header { min-height: 54px; }
+  .public-nav { gap: 13px; }
+  .public-nav a { font-size: 10px; }
+  .public-hero { padding-top: 54px; }
+  .hero-stage { min-height: 330px; border-radius: 16px; }
+  .stage-label { top: 19px; left: 19px; font-size: 9px; }
+  .stage-card-back { top: 53px; right: 16px; height: 190px; padding: 17px; }
+  .stage-card-main { top: 78px; left: 16px; min-height: 220px; padding: 17px; }
+  .stage-card-front { right: 17px; bottom: 21px; height: 124px; padding: 16px; }
+  .stage-card-back strong, .stage-card-front strong { font-size: 19px; }
+  .stage-card-file { margin-top: 30px; padding: 12px 0; }
+  .stage-card-tags { margin-top: 12px; }
+  .stage-card-tags i { padding: 5px 7px; }
+  .stage-caption { bottom: 14px; left: 18px; }
+  .public-feature-grid article,
+  .public-principles-view .principles-list article,
+  .contact-card { border-radius: 13px; box-shadow: none; }
+  .public-feature-grid article + article { border-left: 0; }
+  .public-footer { border-top: 1px solid #d9e5e7; }
+}
 @media (max-width: 380px) {
   .public-header .brand-button { flex: 0 0 32px; }
   .public-header .brand-button span:last-child { display: none; }

@@ -154,9 +154,9 @@
 
 @keyframes public-copy-enter { from { opacity: 0; clip-path: inset(0 0 18% 0); transform: translateY(34px); } to { opacity: 1; clip-path: inset(0); transform: translateY(0); } }
 @keyframes public-stage-enter { from { opacity: 0; transform: translateX(46px) rotate(2deg) scale(.94); } to { opacity: 1; transform: translateX(0) rotate(0) scale(1); } }
-@keyframes stage-card-float { 0%, 100% { transform: rotate(-5deg) translateY(0); } 50% { transform: rotate(-3deg) translateY(-9px); } }
-@keyframes stage-card-back-float { 0%, 100% { transform: rotate(9deg) translateY(0); } 50% { transform: rotate(7deg) translateY(12px); } }
-@keyframes stage-card-front-float { 0%, 100% { transform: rotate(6deg) translateY(0); } 50% { transform: rotate(8deg) translateY(-8px); } }
+@keyframes stage-card-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes stage-card-back-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(9px); } }
+@keyframes stage-card-front-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 @keyframes stat-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 .public-principles { animation: fade-arrive .9s .2s var(--motion-ease) both; }
 .principles-list article { animation: stat-rise .75s .35s var(--motion-ease) both; }
