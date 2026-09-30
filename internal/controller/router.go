@@ -26,6 +26,7 @@ type Config struct {
 	Archive           *service.Archive
 	BatchDelete       *service.BatchDelete
 	Relations         *service.Relations
+	Export            *service.PortableExport
 	Processing        *service.Processing
 	Auth              *service.Auth
 	EmailAuth         *service.EmailAuth
@@ -44,6 +45,8 @@ type Controller struct {
 	emailLimiter  *requestLimiter
 	searchLimiter *requestLimiter
 	batchLimiter  *requestLimiter
+	exportLimiter *requestLimiter
+	exportSlots   chan struct{}
 }
 
 // New 注册公开路由和需要会话的私有路由，是 HTTP 层的入口。
@@ -56,7 +59,7 @@ func New(config Config) (*gin.Engine, error) {
 		return nil, err
 	}
 	engine.Use(gin.Recovery())
-	handler := &Controller{config: config, limiter: newLoginLimiter(), emailLimiter: newRequestLimiter(), searchLimiter: newRequestLimiter(), batchLimiter: newRequestLimiter()}
+	handler := &Controller{config: config, limiter: newLoginLimiter(), emailLimiter: newRequestLimiter(), searchLimiter: newRequestLimiter(), batchLimiter: newRequestLimiter(), exportLimiter: newRequestLimiter(), exportSlots: make(chan struct{}, 2)}
 	engine.Use(handler.headersAndOrigin)
 	// 健康检查回调只报告进程存活，不查询数据库，也不返回私有资料或配置细节。
 	engine.GET("/healthz", func(ctx *gin.Context) { ctx.Status(http.StatusNoContent) })
@@ -139,6 +142,9 @@ func New(config Config) (*gin.Engine, error) {
 		private.DELETE("/external-resources/:id", handler.deleteExternalResource)
 	}
 	private.GET("/resources", handler.list)
+	if config.Export != nil {
+		private.GET("/export", handler.downloadPortableExport)
+	}
 	private.GET("/resources/recent", handler.recent)
 	private.GET("/tags", handler.listTags)
 	private.GET("/resources/:id", handler.get)

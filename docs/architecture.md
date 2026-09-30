@@ -62,6 +62,8 @@ V1 不依赖消息队列或缓存；V2 可先用数据库持久任务与受控 W
 
 私人笔记属于上传文件而非外部资源卡片；Repository 以会话用户和未删除文件双重限制读写，创建时锁文件行控制数量，Service 校验文字和仅 PDF 可填的页码。统一搜索只返回匹配的文件元数据，以文件范围 `EXISTS` 查询笔记正文、摘录和来源；详情按会话读取完整笔记。单项和批量删除文件的事务会同时清理在线笔记行；已生成的备份仍按独立保留策略处理。详见 [ADR 0012](decisions/0012-private-resource-notes.md)。
 
+`GET /api/export` 在会话下生成同账号的版本化 JSON：Repository 使用 MySQL 只读 REPEATABLE READ 快照，按固定顺序读取未删除文件、卡片、标签、笔记和两端可见的关联；Service 限制结果至 32 MiB，Controller 限制频率和同时导出数，并在完整生成后才写附件响应。超过每类行数或响应大小上限时返回明确错误，不输出部分 JSON；原件与派生产物既不从受控目录读取，也不访问外部卡片地址。格式与边界见 [ADR 0013](decisions/0013-portable-metadata-export.md)。
+
 外部资源不进入上传文件表，不触发处理队列，也不把卡片位置映射为服务端文件路径。`external_resources.user_id` 来自经验证的服务端会话；Get/List/Update/Delete 都在仓储层强制限定归属，缺失身份直接拒绝。标签与卡片在同一 GORM 事务创建或替换；状态仅由用户手动维护，服务端不访问链接。
 
 收件箱使用独立 `InboxStore`/Service/Controller；按会话归属分别查询待整理且未删除的站内文件、待整理的外部卡片，每来源每页最多 50 条。`organization_status` 独立于外部链接 `status`，`PATCH /api/inbox/:source/:id` 只修改前者；重复设置相同目标可安全重试，跨用户返回与不存在一致的 404。迁移默认历史资料待整理，需在升级前预估旧库条目数量；此操作不会更改原件或任务。

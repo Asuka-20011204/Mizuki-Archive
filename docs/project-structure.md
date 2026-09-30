@@ -26,6 +26,7 @@ Mizuki Archive/
 │   ├── model/resource_note.go         # 私人笔记、摘录与可选 PDF 页码
 │   ├── model/external_resource.go     # 站外资源卡片模型（不含原件）
 │   ├── model/relation.go              # 两类资料的双向关联列表模型
+│   ├── model/portable_export.go       # 可携带 JSON 的版本、清单和关联结构
 │   ├── model/duplicate.go             # 纯文本链接规范化与同账号重复提示模型
 │   ├── model/search.go                # 组合筛选、视图和分来源搜索结果模型
 │   ├── model/user.go                  # 多用户身份模型
@@ -45,6 +46,7 @@ Mizuki Archive/
 │   │   ├── resource_note_controller.go # 私人笔记的会话 HTTP 边界
 │   │   ├── external_resource_controller.go # 站外卡片 CRUD HTTP 边界
 │   │   ├── relations_controller.go    # 关联的列表、创建和解除 HTTP 边界
+│   │   ├── portable_export_controller.go # 下载限流、超限错误及附件响应
 │   │   ├── inbox_controller.go         # 待整理列表与状态更新 HTTP 边界
 │   │   ├── batch_tags_controller.go    # 当前用户混合来源批量标签 HTTP 边界
 │   │   ├── batch_favorites_controller.go # 混合来源收藏的目标状态与请求体校验
@@ -61,6 +63,7 @@ Mizuki Archive/
 │   │   ├── resource_note.go           # 笔记内容、页码与文件归属校验
 │   │   ├── external_resource.go       # 卡片校验、人工状态与身份约束
 │   │   ├── relations.go               # 关联的身份、来源、ID 与自关联校验
+│   │   ├── portable_export.go         # 会话身份、版本化 JSON 和 32 MiB 边界
 │   │   ├── inbox.go                   # 整理状态、分页与用户身份约束
 │   │   ├── batch_tags.go              # 批次/标签校验与真实变化项
 │   │   ├── batch_favorites.go         # 混合来源收藏的身份与选择校验
@@ -75,6 +78,7 @@ Mizuki Archive/
 │       ├── external_resource.go       # 按用户限定的卡片与标签事务
 │       ├── resource_note.go           # 按账号与文件限定的笔记读写及数量门禁
 │       ├── relations.go               # 双端归属锁定、双向查询和删除清理
+│       ├── portable_export.go         # 同账号只读快照、标签与笔记/关系清单
 │       ├── inbox.go                   # 两类待整理查询、可重试迁移与用户范围更新
 │       ├── batch_tags.go              # 文件与卡片标签的事务增删、归属与上限
 │       ├── batch_favorites.go         # 两类收藏在同一事务内更新

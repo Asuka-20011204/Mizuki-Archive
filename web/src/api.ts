@@ -168,6 +168,15 @@ async function requestText(path: string, options?: RequestInit): Promise<string>
 }
 
 export const api = {
+  // downloadPortableExport 只在服务器成功返回完整清单后交给浏览器保存；错误使用页面文字提示。
+  downloadPortableExport: async (): Promise<Blob> => {
+    const response = await fetch('/api/export', { credentials: 'same-origin' })
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as ApiError
+      throw new Error(body.error?.message || `导出失败（${response.status}）`)
+    }
+    return response.blob()
+  },
   // listRelations 读取当前资料的双向关联，服务端再次核验归属。
   listRelations: (source: InboxSelection) => request<{ data: ResourceRelation[] }>(`/relations/${source.source}/${encodeURIComponent(source.id)}`),
   // createRelation 两端都由当前用户拥有时才能成功，重复关联由服务端拒绝。

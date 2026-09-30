@@ -18,6 +18,13 @@ var ErrUserExists = errors.New("user already exists")
 var ErrSavedSearchConflict = errors.New("saved search name already exists")
 var ErrSavedSearchLimit = errors.New("saved search view limit reached")
 var ErrBatchTagLimit = errors.New("resource tag limit reached")
+var ErrPortableExportLimit = errors.New("portable export exceeds row limit")
+
+// PortableExportStore 在数据库快照中读取当前用户的完整可见元数据，不读取原件或验证码。
+type PortableExportStore interface {
+	ExportSnapshot(context.Context) (model.PortableArchive, error)
+}
+
 var ErrRelationExists = errors.New("resource relation already exists")
 var ErrRelationLimit = errors.New("resource relation limit reached")
 

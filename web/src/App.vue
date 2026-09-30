@@ -27,6 +27,8 @@ const codeRequested = ref(false)
 const loadingSession = ref(true)
 const loggingIn = ref(false)
 const uploading = ref(false)
+const exporting = ref(false)
+const exportError = ref('')
 const searching = ref(false)
 const savingFavorite = ref(false)
 const savingTags = ref(false)
@@ -396,6 +398,29 @@ async function upload(event: Event) {
   } finally {
     input.value = ''
     uploading.value = false
+  }
+}
+
+// downloadPortableArchive 成功后才保存完整 JSON；限流与容量错误留在页面供用户处理。
+async function downloadPortableArchive() {
+  if (exporting.value) return
+  exporting.value = true
+  exportError.value = ''
+  try {
+    const blob = await api.downloadPortableExport()
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `mizuki-archive-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.append(anchor)
+    anchor.click()
+    anchor.remove()
+    // 浏览器接管下载后立即释放只含当前账号私人资料的临时 URL。
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (reason) {
+    exportError.value = reason instanceof Error ? reason.message : '无法导出资料清单'
+  } finally {
+    exporting.value = false
   }
 }
 
@@ -1060,7 +1085,9 @@ onUnmounted(() => {
               <input ref="searchInput" v-model="search" type="search" placeholder="搜索名称或已提取正文…" maxlength="100" />
             </label>
             <span class="toolbar-hint">支持 PDF、图片、Markdown 与文本 · 单文件 ≤ 50 MB</span>
+            <button class="secondary-button" type="button" :disabled="exporting" title="仅导出当前账号资料清单、笔记和关联；不是原件备份" @click="downloadPortableArchive">{{ exporting ? '正在导出…' : '导出清单（不含原件）' }}</button>
           </div>
+          <p v-if="exportError" class="message error" role="alert">{{ exportError }}</p>
           <p v-if="error" class="message error" role="alert">{{ error }}</p>
           <p v-if="notice" class="message success" role="status">{{ notice }}</p>
 
