@@ -11,7 +11,9 @@ import (
 )
 
 type externalStoreFake struct {
-	items map[string]model.ExternalResource
+	items               map[string]model.ExternalResource
+	failReadAfterUpdate bool
+	updated             bool
 }
 
 // CreateExternalResource 保存测试卡片，不执行网络调用。
@@ -22,6 +24,9 @@ func (store *externalStoreFake) CreateExternalResource(_ context.Context, value 
 
 // GetExternalResource 返回已有测试卡片，不存在时模拟真实仓储的未找到错误。
 func (store *externalStoreFake) GetExternalResource(_ context.Context, id string) (model.ExternalResource, error) {
+	if store.failReadAfterUpdate && store.updated {
+		return model.ExternalResource{}, errors.New("read unavailable after update")
+	}
 	item, ok := store.items[id]
 	if !ok {
 		return model.ExternalResource{}, repository.ErrNotFound
@@ -39,12 +44,35 @@ func (store *externalStoreFake) ListExternalResources(context.Context, string) (
 }
 
 // UpdateExternalResource 替换测试卡片并模拟未找到响应。
-func (store *externalStoreFake) UpdateExternalResource(_ context.Context, value model.ExternalResource) error {
-	if _, ok := store.items[value.ID]; !ok {
-		return repository.ErrNotFound
+func (store *externalStoreFake) UpdateExternalResource(_ context.Context, value model.ExternalResource) (model.ExternalResource, error) {
+	previous, ok := store.items[value.ID]
+	if !ok {
+		return model.ExternalResource{}, repository.ErrNotFound
 	}
+	value.CreatedAt = previous.CreatedAt
+	value.OrganizationStatus = previous.OrganizationStatus
 	store.items[value.ID] = value
-	return nil
+	store.updated = true
+	return value, nil
+}
+
+// TestExternalUpdateDoesNotMisreportCommittedWrite 验证提交后普通读取故障不把成功更新误报为失败。
+func TestExternalUpdateDoesNotMisreportCommittedWrite(t *testing.T) {
+	store := &externalStoreFake{items: map[string]model.ExternalResource{}, failReadAfterUpdate: true}
+	resources, err := NewExternalResources(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := repository.WithUserID(context.Background(), "owner")
+	created, err := resources.Create(owner, model.ExternalResource{Title: "原卡片", Location: "local-path", ResourceType: "文档"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created.Note = "已更新"
+	updated, err := resources.Update(owner, created.ID, created)
+	if err != nil || updated.Note != "已更新" || !store.updated {
+		t.Fatalf("committed update reported failure: %+v, %v", updated, err)
+	}
 }
 
 // DeleteExternalResource 删除测试卡片并模拟未找到响应。

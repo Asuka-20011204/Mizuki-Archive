@@ -119,4 +119,4 @@ docker compose --env-file $config -f compose.deploy.yaml down
 
 ## 4. 回滚与界限
 
-新版本升级前暂停写入、创建数据库+文件一致的备份并保存旧镜像。若只改镜像且没有不可逆的迁移，可回退旧镜像并在恢复验证后开放访问；若迁移不兼容，必须隔离恢复数据库**及同一时点的文件目录**，不能只回退程序。数据库模式 Worker 和 RabbitMQ 模式 Worker 不得同时消费同一任务。本编排中的 `mysql_data` 与 `archive_data` 是长期数据，`docker compose down` 不会删除它们，`down -v` 会删除。
+新版本升级前暂停写入、创建数据库+文件一致的备份并保存旧镜像。升级 `013` 链接摘要迁移时，必须先停止旧版 API 的卡片写入；新旧实例并行写入会留下 `location_key` 空值，导致重复提醒漏报。切换后在维护窗口核查同一迁移范围内 `location_key IS NULL` 的卡片并按迁移回填逻辑修复，不删除卡片数据。若只改镜像且没有不可逆的迁移，可回退旧镜像并在恢复验证后开放访问；若迁移不兼容，必须隔离恢复数据库**及同一时点的文件目录**，不能只回退程序。数据库模式 Worker 和 RabbitMQ 模式 Worker 不得同时消费同一任务。本编排中的 `mysql_data` 与 `archive_data` 是长期数据，`docker compose down` 不会删除它们，`down -v` 会删除。

@@ -48,12 +48,15 @@ func (store *externalHTTPStore) ListExternalResources(ctx context.Context, _ str
 }
 
 // UpdateExternalResource 模拟按归属更新，确保越权写请求返回统一的未找到。
-func (store *externalHTTPStore) UpdateExternalResource(ctx context.Context, item model.ExternalResource) error {
-	if _, err := store.GetExternalResource(ctx, item.ID); err != nil {
-		return err
+func (store *externalHTTPStore) UpdateExternalResource(ctx context.Context, item model.ExternalResource) (model.ExternalResource, error) {
+	previous, err := store.GetExternalResource(ctx, item.ID)
+	if err != nil {
+		return model.ExternalResource{}, err
 	}
+	item.CreatedAt = previous.CreatedAt
+	item.OrganizationStatus = previous.OrganizationStatus
 	store.cards[item.ID] = item
-	return nil
+	return item, nil
 }
 
 // DeleteExternalResource 模拟按归属删除卡片，不影响其他用户。

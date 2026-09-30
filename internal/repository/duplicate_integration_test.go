@@ -118,7 +118,7 @@ func TestDuplicateMySQLIsolation(t *testing.T) {
 	if hint, err := store.FindExternalDuplicate(ctxA, key, secondCard); err != nil || hint == nil || hint.ID != firstCard {
 		t.Fatalf("backfilled card hint: %+v, %v", hint, err)
 	}
-	if err := store.UpdateExternalResource(ctxA, model.ExternalResource{ID: firstCard, Title: "已修改", Location: "local-folder", ResourceType: "doc", Status: "pending", UpdatedAt: time.Now().UTC()}); err != nil {
+	if _, err := store.UpdateExternalResource(ctxA, model.ExternalResource{ID: firstCard, Title: "已修改", Location: "local-folder", ResourceType: "doc", Status: "pending", UpdatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	if hint, err := store.FindExternalDuplicate(ctxA, key, secondCard); err != nil || hint != nil {

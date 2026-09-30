@@ -30,7 +30,7 @@ type ExternalResourceStore interface {
 	CreateExternalResource(context.Context, model.ExternalResource) error
 	GetExternalResource(context.Context, string) (model.ExternalResource, error)
 	ListExternalResources(context.Context, string) ([]model.ExternalResource, error)
-	UpdateExternalResource(context.Context, model.ExternalResource) error
+	UpdateExternalResource(context.Context, model.ExternalResource) (model.ExternalResource, error)
 	DeleteExternalResource(context.Context, string) error
 }
 

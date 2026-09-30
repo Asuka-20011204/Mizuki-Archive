@@ -77,7 +77,7 @@ func TestExternalResourceMySQLIsolation(t *testing.T) {
 	if list, err := store.ListExternalResources(ctxA, ""); err != nil || len(list) != 0 {
 		t.Fatalf("other user list: %+v, %v", list, err)
 	}
-	if err := store.UpdateExternalResource(ctxA, value); !errors.Is(err, ErrNotFound) {
+	if _, err := store.UpdateExternalResource(ctxA, value); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("other user update: %v", err)
 	}
 	if err := store.DeleteExternalResource(ctxA, value.ID); !errors.Is(err, ErrNotFound) {
@@ -85,7 +85,7 @@ func TestExternalResourceMySQLIsolation(t *testing.T) {
 	}
 	value.Tags = []string{"new"}
 	value.Note = "owner edit"
-	if err := store.UpdateExternalResource(ctxB, value); err != nil {
+	if updated, err := store.UpdateExternalResource(ctxB, value); err != nil || updated.Note != "owner edit" || len(updated.Tags) != 1 || updated.Tags[0] != "new" || updated.OrganizationStatus != "pending" {
 		t.Fatal(err)
 	}
 	owned, err := store.GetExternalResource(ctxB, value.ID)

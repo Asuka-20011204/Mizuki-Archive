@@ -144,13 +144,14 @@ func (store *MySQL) ListExternalResources(ctx context.Context, query string) ([]
 	return resources, nil
 }
 
-// UpdateExternalResource 在事务中限定归属、更新可编辑字段并替换标签；失败不会留下半更新。
-func (store *MySQL) UpdateExternalResource(ctx context.Context, resource model.ExternalResource) error {
+// UpdateExternalResource 在同一事务更新并读回卡片与标签；读回失败会回滚，不误报已提交更新。
+func (store *MySQL) UpdateExternalResource(ctx context.Context, resource model.ExternalResource) (model.ExternalResource, error) {
 	owner, err := externalOwner(ctx)
 	if err != nil {
-		return err
+		return model.ExternalResource{}, err
 	}
-	return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var updated model.ExternalResource
+	err = store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Table("external_resources").Where("id = ? AND user_id = ?", resource.ID, owner).Updates(map[string]any{
 			"title": resource.Title, "location": resource.Location, "location_key": model.ExternalLinkKey(resource.Location), "resource_type": resource.ResourceType,
 			"version": resource.Version, "note": resource.Note, "status": resource.Status, "updated_at": resource.UpdatedAt,
@@ -164,8 +165,24 @@ func (store *MySQL) UpdateExternalResource(ctx context.Context, resource model.E
 		if err := tx.Table("external_resource_tags").Where("resource_id = ?", resource.ID).Delete(&externalTagRow{}).Error; err != nil {
 			return fmt.Errorf("remove external tags: %w", err)
 		}
-		return writeExternalTags(tx, resource.ID, resource.Tags)
+		if err := writeExternalTags(tx, resource.ID, resource.Tags); err != nil {
+			return err
+		}
+		var row externalResourceRow
+		if err := tx.Table("external_resources").Where("id = ? AND user_id = ?", resource.ID, owner).Take(&row).Error; err != nil {
+			return fmt.Errorf("read updated external resource: %w", err)
+		}
+		items := []model.ExternalResource{externalFromRow(row)}
+		if err := attachExternalTags(ctx, tx, items); err != nil {
+			return err
+		}
+		updated = items[0]
+		return nil
 	})
+	if err != nil {
+		return model.ExternalResource{}, err
+	}
+	return updated, nil
 }
 
 // DeleteExternalResource 只删除当前用户的卡片；外部地址代表的真实文件永不被访问。

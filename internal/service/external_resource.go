@@ -125,7 +125,7 @@ func (resources *ExternalResources) List(ctx context.Context, query string) ([]m
 	return resources.store.ListExternalResources(ctx, query)
 }
 
-// Update 以完整卡片替换可编辑字段，持久层原子更新并保留创建时间和归属。
+// Update 以完整卡片替换可编辑字段；持久层在提交前读取最终内容，避免成功保存后再读失败。
 func (resources *ExternalResources) Update(ctx context.Context, id string, value model.ExternalResource) (model.ExternalResource, error) {
 	if err := verifiedExternalOwner(ctx); err != nil {
 		return model.ExternalResource{}, err
@@ -139,10 +139,7 @@ func (resources *ExternalResources) Update(ctx context.Context, id string, value
 	}
 	value.ID = id
 	value.UpdatedAt = time.Now().UTC()
-	if err := resources.store.UpdateExternalResource(ctx, value); err != nil {
-		return model.ExternalResource{}, err
-	}
-	updated, err := resources.Get(ctx, id)
+	updated, err := resources.store.UpdateExternalResource(ctx, value)
 	if err != nil {
 		return model.ExternalResource{}, err
 	}
