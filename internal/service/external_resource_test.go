@@ -103,6 +103,18 @@ func TestExternalResourceFlow(t *testing.T) {
 	if len(created.ID) != 32 || created.CreatedAt.IsZero() {
 		t.Fatalf("missing id or timestamp: %+v", created)
 	}
+	// 每次人工状态切换都要能再次读取，不能与资料的整理状态混淆。
+	for _, status := range []string{"available", "uncertain", "broken", "downloaded", "pending"} {
+		created.Status = status
+		updated, err := resources.Update(owner, created.ID, created)
+		if err != nil || updated.Status != status {
+			t.Fatalf("update link status %s: %+v, %v", status, updated, err)
+		}
+		readBack, err := resources.Get(owner, created.ID)
+		if err != nil || readBack.Status != status || readBack.OrganizationStatus != "pending" {
+			t.Fatalf("read link status %s: %+v, %v", status, readBack, err)
+		}
+	}
 	created.Note = "手动标记"
 	created.Tags = nil
 	updated, err := resources.Update(owner, created.ID, created)

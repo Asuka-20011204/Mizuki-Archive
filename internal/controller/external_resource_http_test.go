@@ -141,6 +141,20 @@ func TestExternalResourceHTTPIsolation(t *testing.T) {
 	if response := externalRequest(server, http.MethodGet, "/api/external-resources/"+id, "", userB); response.Code != http.StatusOK {
 		t.Fatalf("owner read: %d %s", response.Code, response.Body.String())
 	}
+	// 只有归属用户能标记链接失效，且该状态可从详情和列表重新读取。
+	statusUpdate := `{"title":"教程","location":"https://example.org/a","resource_type":"文档","status":"broken"}`
+	if response := externalRequest(server, http.MethodPut, "/api/external-resources/"+id, statusUpdate, userB); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"broken"`) {
+		t.Fatalf("owner status update: %d %s", response.Code, response.Body.String())
+	}
+	if response := externalRequest(server, http.MethodGet, "/api/external-resources/"+id, "", userB); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"broken"`) {
+		t.Fatalf("owner status read: %d %s", response.Code, response.Body.String())
+	}
+	if response := externalRequest(server, http.MethodGet, "/api/external-resources", "", userB); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"broken"`) {
+		t.Fatalf("owner status list: %d %s", response.Code, response.Body.String())
+	}
+	if response := externalRequest(server, http.MethodGet, "/api/external-resources", "", userA); response.Code != http.StatusOK || strings.Contains(response.Body.String(), `"status":"broken"`) {
+		t.Fatalf("other user status list: %d %s", response.Code, response.Body.String())
+	}
 	invalid := externalRequest(server, http.MethodPut, "/api/external-resources/"+id, `{"title":"","location":"x","resource_type":"doc"}`, userB)
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("invalid edit: %d", invalid.Code)

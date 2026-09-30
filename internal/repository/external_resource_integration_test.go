@@ -85,11 +85,12 @@ func TestExternalResourceMySQLIsolation(t *testing.T) {
 	}
 	value.Tags = []string{"new"}
 	value.Note = "owner edit"
-	if updated, err := store.UpdateExternalResource(ctxB, value); err != nil || updated.Note != "owner edit" || len(updated.Tags) != 1 || updated.Tags[0] != "new" || updated.OrganizationStatus != "pending" {
+	value.Status = "broken"
+	if updated, err := store.UpdateExternalResource(ctxB, value); err != nil || updated.Note != "owner edit" || updated.Status != "broken" || len(updated.Tags) != 1 || updated.Tags[0] != "new" || updated.OrganizationStatus != "pending" {
 		t.Fatal(err)
 	}
 	owned, err := store.GetExternalResource(ctxB, value.ID)
-	if err != nil || owned.Note != "owner edit" || len(owned.Tags) != 1 || owned.Tags[0] != "new" {
+	if err != nil || owned.Note != "owner edit" || owned.Status != "broken" || len(owned.Tags) != 1 || owned.Tags[0] != "new" {
 		t.Fatalf("owner get after edit: %+v, %v", owned, err)
 	}
 	if _, err := store.GetExternalResource(context.Background(), value.ID); err == nil {
@@ -132,7 +133,7 @@ func TestExternalResourceMySQLIsolation(t *testing.T) {
 	if external, err := store.ListPendingExternalResources(ctxB, 51, 0); err != nil || len(external) != 0 {
 		t.Fatalf("completed external still pending: %+v, %v", external, err)
 	}
-	if item, err := store.GetExternalResource(ctxB, value.ID); err != nil || item.Status != "pending" || item.OrganizationStatus != "organized" {
+	if item, err := store.GetExternalResource(ctxB, value.ID); err != nil || item.Status != "broken" || item.OrganizationStatus != "organized" {
 		t.Fatalf("link status changed after organization: %+v, %v", item, err)
 	}
 }
