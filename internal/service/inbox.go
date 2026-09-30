@@ -84,18 +84,8 @@ func (inbox *Inbox) BatchSetStatus(ctx context.Context, items []model.InboxSelec
 	if _, ok := repository.UserIDFromContext(ctx); !ok {
 		return ErrInboxIdentity
 	}
-	if len(items) == 0 || len(items) > 50 || (status != "pending" && status != "organized") {
+	if (status != "pending" && status != "organized") || validateBatchSelections(items) != nil {
 		return ErrInvalidInboxInput
-	}
-	seen := make(map[model.InboxSelection]struct{}, len(items))
-	for _, item := range items {
-		if (item.Source != "file" && item.Source != "external") || !validResourceID(item.ID) {
-			return ErrInvalidInboxInput
-		}
-		if _, duplicate := seen[item]; duplicate {
-			return ErrInvalidInboxInput
-		}
-		seen[item] = struct{}{}
 	}
 	return inbox.store.BatchSetOrganizationStatus(ctx, items, status)
 }

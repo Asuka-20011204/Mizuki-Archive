@@ -64,7 +64,9 @@ V1 不依赖消息队列或缓存；V2 可先用数据库持久任务与受控 W
 
 收件箱使用独立 `InboxStore`/Service/Controller；按会话归属分别查询待整理且未删除的站内文件、待整理的外部卡片，每来源每页最多 50 条。`organization_status` 独立于外部链接 `status`，`PATCH /api/inbox/:source/:id` 只修改前者；重复设置相同目标可安全重试，跨用户返回与不存在一致的 404。迁移默认历史资料待整理，需在升级前预估旧库条目数量；此操作不会更改原件或任务。
 
-`PATCH /api/inbox/batch` 接收至多 50 个 `{source,id}` 和明确的 `pending`/`organized` 目标状态。Service 拒绝重复和非法 ID；Repository 在一个 MySQL 事务内对文件和外部卡片分别锁定当前用户的所有行，缺失或越权即整批回滚，再更新状态。响应的 `count` 表示受理的选择数量而非实际变化的行数；UI 仅在成功后提供一次显式恢复到 `pending` 的撤销按钮。多标签/收藏/删除仍需单独设计，不能把本接口用作删除。
+`PATCH /api/inbox/batch` 接收至多 50 个 `{source,id}` 和明确的 `pending`/`organized` 目标状态。Service 拒绝重复和非法 ID；Repository 在一个 MySQL 事务内对文件和外部卡片分别锁定当前用户的所有行，缺失或越权即整批回滚，再更新状态。响应的 `count` 表示受理的选择数量而非实际变化的行数；UI 仅在成功后提供一次显式恢复到 `pending` 的撤销按钮。
+
+`PATCH /api/batch/tags` 同样仅接受已登录用户至多 50 项不同的 `{source,id}`，`tag` 经统一规范化，`mode` 限于 `add`/`remove`。仓储先按固定顺序锁定混合来源的全部本人条目，再在同一 MySQL 事务内修改文件关联表或卡片标签表；单文件替换标签也锁定文件主行。某项缺失/越权/软删除或达到 10 标签上限时整批失败。返回 `changed` 和其 `count`（真正发生变化的条目），重复增删返回空变化集。前端目前仅从待整理收件箱选择，标签“反向恢复”不是版本化撤销，其他设备若在此后编辑同一标签可能被覆盖；请求成功但响应丢失后的重试也不能恢复首次变化项，若需可靠撤销应增加操作 ID、持久结果及版本冲突检测。批量收藏、归档和删除仍需分别设计。
 
 生产编排通过 `db-access-bootstrap` 创建独立迁移账号，并把 API/Worker 的运行账号权限收窄为当前业务所需的 `SELECT`、`INSERT`、`UPDATE`、`DELETE`。一次性 `migrate` 容器使用 `MIGRATION_DSN` 执行 DDL、管理员初始化和旧数据归属回填；API/Worker 设置 `APP_AUTO_MIGRATE=false`，启动时只读取已存在的管理员身份。这样可以把“发布应用”和“修改数据库结构”分开审计与回滚，但仍需要后续补齐迁移前备份、TLS、入口限流和密钥托管。
 

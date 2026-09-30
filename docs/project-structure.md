@@ -42,6 +42,7 @@ Mizuki Archive/
 │   │   ├── resource_controller.go     # 资料上传、查询、标签、预览、删除和下载
 │   │   ├── external_resource_controller.go # 站外卡片 CRUD HTTP 边界
 │   │   ├── inbox_controller.go         # 待整理列表与状态更新 HTTP 边界
+│   │   ├── batch_tags_controller.go    # 当前用户混合来源批量标签 HTTP 边界
 │   │   ├── search_controller.go       # 私有统一搜索与参数校验 HTTP 边界
 │   │   ├── saved_search_controller.go # 私有检索视图 CRUD HTTP 边界
 │   │   └── processing_controller.go   # 任务创建、任务查看和派生文件下载
@@ -52,6 +53,7 @@ Mizuki Archive/
 │   │   ├── resource.go                # 文件校验、存储、元数据流程
 │   │   ├── external_resource.go       # 卡片校验、人工状态与身份约束
 │   │   ├── inbox.go                   # 整理状态、分页与用户身份约束
+│   │   ├── batch_tags.go              # 批次/标签校验与真实变化项
 │   │   ├── search.go                  # 搜索输入限制、来源分组与分页
 │   │   ├── saved_search.go            # 视图名称、条件和随机 ID 校验
 │   │   └── processing.go              # 任务幂等、Worker 执行和派生文件
@@ -60,6 +62,7 @@ Mizuki Archive/
 │       ├── mysql_gorm.go              # GORM 的 MySQL 资料实现
 │       ├── external_resource.go       # 按用户限定的卡片与标签事务
 │       ├── inbox.go                   # 两类待整理查询、可重试迁移与用户范围更新
+│       ├── batch_tags.go              # 文件与卡片标签的事务增删、归属与上限
 │       ├── processing.go              # GORM 的任务与派生产物实现
 │       ├── outbox.go                  # 事务 Outbox 及孤儿任务补偿
 │       ├── migration.go               # 内嵌版本化 SQL 迁移

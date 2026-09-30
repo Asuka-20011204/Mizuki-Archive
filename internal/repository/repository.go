@@ -17,6 +17,7 @@ var ErrProcessingQueueFull = errors.New("processing queue is full")
 var ErrUserExists = errors.New("user already exists")
 var ErrSavedSearchConflict = errors.New("saved search name already exists")
 var ErrSavedSearchLimit = errors.New("saved search view limit reached")
+var ErrBatchTagLimit = errors.New("resource tag limit reached")
 
 // InboxStore 同时读取用户的两类待整理条目，避免扩大已有文件与外部资源测试替身的接口。
 type InboxStore interface {
@@ -25,6 +26,11 @@ type InboxStore interface {
 	SetResourceOrganizationStatus(context.Context, string, string) error
 	SetExternalOrganizationStatus(context.Context, string, string) error
 	BatchSetOrganizationStatus(context.Context, []model.InboxSelection, string) error
+}
+
+// BatchTagStore 在同一事务中校验混合来源的归属，并只返回标签真正变化的条目。
+type BatchTagStore interface {
+	BatchUpdateTags(context.Context, []model.InboxSelection, string, string) ([]model.InboxSelection, error)
 }
 
 // ExternalResourceStore 单独管理外部卡片，避免修改已有文件仓储和测试替身的契约。

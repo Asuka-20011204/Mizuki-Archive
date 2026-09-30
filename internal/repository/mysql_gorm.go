@@ -160,7 +160,8 @@ func (store *MySQL) DeleteResource(ctx context.Context, id string) (model.Resour
 func (store *MySQL) ReplaceResourceTags(ctx context.Context, id string, names []string) (model.Resource, error) {
 	var resource resourceRow
 	transactionErr := store.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		if err := scopeResources(transaction.Table("resources"), ctx).Where("id = ? AND deleted_at IS NULL", id).Take(&resource).Error; err != nil {
+		// 与混合来源批量操作使用同一主行锁，避免删除重建关联时覆盖并发添加。
+		if err := scopeResources(transaction.Clauses(clause.Locking{Strength: "UPDATE"}).Table("resources"), ctx).Where("id = ? AND deleted_at IS NULL", id).Take(&resource).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrNotFound
 			}

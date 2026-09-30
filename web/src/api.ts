@@ -157,6 +157,11 @@ export const api = {
     request<{ count: number }>('/inbox/batch', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, status }),
     }),
+  // batchUpdateTags 在服务端事务内校验混合来源归属，返回真正变化的条目供一次撤销。
+  batchUpdateTags: (items: InboxSelection[], tag: string, mode: 'add' | 'remove') =>
+    request<{ count: number; changed: InboxSelection[] }>('/batch/tags', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, tag, mode }),
+    }),
   // listExternalResources 只查询当前用户卡片，服务器限制返回数量。
   listExternalResources: (query = '') => request<{ data: ExternalResource[] }>(`/external-resources?${new URLSearchParams({ q: query })}`),
   // createExternalResource 保存资源位置文本，绝不上传或自动访问外部链接。
