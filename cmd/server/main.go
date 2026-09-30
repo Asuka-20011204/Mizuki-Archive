@@ -223,10 +223,40 @@ func main() {
 	if err != nil {
 		log.Fatal("cannot prepare archive service")
 	}
-	router, err := controller.New(controller.Config{Resources: resources, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, BatchTags: batchTags, BatchFavorites: batchFavorites, Archive: archive, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
+	batchDelete, err := service.NewBatchDelete(store, resources)
+	if err != nil {
+		log.Fatal("cannot prepare batch delete service")
+	}
+	router, err := controller.New(controller.Config{Resources: resources, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, BatchTags: batchTags, BatchFavorites: batchFavorites, Archive: archive, BatchDelete: batchDelete, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}
+	cleanupContext, stopCleanup := context.WithCancel(context.Background())
+	cleanupDone := make(chan struct{})
+	// 启动时及此后定期重试事务记录的孤儿文件；多实例并行删除同一受控键也是幂等的。
+	go func() {
+		defer close(cleanupDone)
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			if cleanupContext.Err() != nil {
+				return
+			}
+			attempt, cancel := context.WithTimeout(cleanupContext, 30*time.Second)
+			_, pending, err := batchDelete.DrainPendingCleanup(attempt, 100)
+			cancel()
+			if err != nil && cleanupContext.Err() == nil {
+				log.Print("pending file cleanup temporarily unavailable")
+			} else if pending > 0 {
+				log.Printf("pending file cleanup retries: %d", pending)
+			}
+			select {
+			case <-cleanupContext.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 	server := &http.Server{Addr: address, Handler: router, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 90 * time.Second, WriteTimeout: 90 * time.Second, IdleTimeout: 120 * time.Second}
 	// 收到终止信号后停止接新请求，让正在处理的请求在限定时间内结束。
 	stopped := make(chan os.Signal, 1)
@@ -240,6 +270,11 @@ func main() {
 		}
 	}()
 	<-stopped
+	stopCleanup()
+	select {
+	case <-cleanupDone:
+	case <-time.After(2 * time.Second):
+	}
 	shutdown, finish := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finish()
 	if err := server.Shutdown(shutdown); err != nil {

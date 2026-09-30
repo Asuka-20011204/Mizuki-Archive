@@ -342,6 +342,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 14, name: "saved_search_views", sql: savedSearchViewsMigration},
 		{version: 15, name: "external_resource_favorite", prepare: ensureExternalResourceFavoriteSchema},
 		{version: 16, name: "resource_archive", prepare: ensureArchiveSchema},
+		{version: 17, name: "pending_file_cleanup", sql: pendingFileCleanupMigration},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int

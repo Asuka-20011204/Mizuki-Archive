@@ -65,3 +65,8 @@ var externalResourceFavoriteMigration string
 //
 //go:embed migrations/016_resource_archive.sql
 var resourceArchiveMigration string
+
+// 原件或派生文件的删除在数据库事务内留下可重试记录，避免进程中断后丢失清理线索。
+//
+//go:embed migrations/017_pending_file_cleanup.sql
+var pendingFileCleanupMigration string

@@ -45,6 +45,26 @@ type ArchiveStore interface {
 	BatchSetArchived(context.Context, []model.InboxSelection, bool) ([]model.InboxSelection, error)
 }
 
+// BatchDeletedFiles 在数据库提交后交给 Service 清理原件与派生产物，不暴露给 HTTP 客户端。
+type BatchDeletedFiles struct {
+	OriginalIDs []string
+	DerivedIDs  []string
+}
+
+// PendingFileCleanup 只含服务端生成的存储键和固定类型，不携带用户原始文件名或目录路径。
+type PendingFileCleanup struct {
+	Kind string
+	ID   string
+}
+
+// BatchDeleteStore 原子核验两类资料并返回需要清理的受控文件 ID。
+type BatchDeleteStore interface {
+	BatchDeleteEntries(context.Context, []model.InboxSelection) (BatchDeletedFiles, error)
+	ListPendingFileCleanup(context.Context, int) ([]PendingFileCleanup, error)
+	CompleteFileCleanup(context.Context, PendingFileCleanup) error
+	DeferFileCleanup(context.Context, PendingFileCleanup) error
+}
+
 // ExternalResourceStore 单独管理外部卡片，避免修改已有文件仓储和测试替身的契约。
 type ExternalResourceStore interface {
 	CreateExternalResource(context.Context, model.ExternalResource) error

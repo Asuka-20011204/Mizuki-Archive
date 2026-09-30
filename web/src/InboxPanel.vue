@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { api, type ExternalResource, type InboxSelection, type Resource } from './api'
 
 const props = defineProps<{ refreshKey: number }>()
-const emit = defineEmits<{ openFile: [resource: Resource]; editExternal: [resource: ExternalResource]; archived: [] }>()
+const emit = defineEmits<{ openFile: [resource: Resource]; editExternal: [resource: ExternalResource]; archived: []; deleted: [] }>()
 const files = ref<Resource[]>([])
 const externals = ref<ExternalResource[]>([])
 const page = ref(1)
@@ -248,6 +248,34 @@ async function undoLastArchive() {
   }
 }
 
+// deleteSelected 要求输入明确数量；数据库提交后即不可撤销，原件清理失败也不重试整批。
+async function deleteSelected() {
+  const chosen = visibleItems.value.filter((item) => selectedKeys.value.includes(selectionKey(item.source, item.id)))
+  if (!chosen.length) return
+  const confirmation = window.prompt(`将永久删除 ${chosen.length} 项资料及其标签，并清理站内原件；此操作不可撤销。请输入「删除 ${chosen.length}」确认：`)
+  if (confirmation !== `删除 ${chosen.length}`) return
+  batchBusy.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const result = await api.batchDelete(chosen)
+    undoItems.value = []
+    tagUndoItems.value = []
+    favoriteUndoItems.value = []
+    archiveUndoItems.value = []
+    notice.value = result.cleanup_pending
+      ? `已删除 ${result.deleted} 项，其中 ${result.cleanup_pending} 个文件原件待管理员清理；请勿重试整个批次。`
+      : `已删除 ${result.deleted} 项，此操作不可撤销。`
+    await loadInbox(page.value)
+    if (page.value > 1 && !files.value.length && !externals.value.length) await loadInbox(page.value - 1)
+    emit('deleted')
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '删除失败，请刷新后核对状态'
+  } finally {
+    batchBusy.value = false
+  }
+}
+
 // changePage 只允许进入已知存在的下一页或前一页，翻页时不修改任何资料。
 function changePage(target: number) {
   if (target < 1 || loading.value || batchBusy.value || (target > page.value && !hasMore.value)) return
@@ -280,6 +308,7 @@ onMounted(() => { void loadInbox(1) })
       <button class="secondary-button" type="button" :disabled="!selectedKeys.length || batchBusy || loading || !!busyId" @click="selectedKeys = []">清空选择</button>
       <button class="primary-button" type="button" :disabled="!selectedKeys.length || batchBusy || loading || !!busyId" @click="completeSelected">{{ batchBusy ? '整理中…' : `批量完成整理（${selectedKeys.length} 项）` }}</button>
       <button class="secondary-button" type="button" :disabled="!selectedKeys.length || batchBusy || loading || !!busyId" @click="archiveSelected">归档所选（{{ selectedKeys.length }} 项）</button>
+      <button class="danger-button" type="button" :disabled="!selectedKeys.length || batchBusy || loading || !!busyId" @click="deleteSelected">永久删除所选（{{ selectedKeys.length }} 项）</button>
       <div class="inbox-batch-tag">
         <label for="batch-tag-input">标签</label>
         <input id="batch-tag-input" v-model="batchTag" maxlength="24" placeholder="例如：课程" />

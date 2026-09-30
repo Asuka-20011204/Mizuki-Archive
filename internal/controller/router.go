@@ -23,6 +23,7 @@ type Config struct {
 	BatchTags         *service.BatchTags
 	BatchFavorites    *service.BatchFavorites
 	Archive           *service.Archive
+	BatchDelete       *service.BatchDelete
 	Processing        *service.Processing
 	Auth              *service.Auth
 	EmailAuth         *service.EmailAuth
@@ -114,6 +115,9 @@ func New(config Config) (*gin.Engine, error) {
 	if config.Archive != nil {
 		private.GET("/archive", handler.listArchive)
 		private.PATCH("/batch/archive", handler.batchSetArchived)
+	}
+	if config.BatchDelete != nil {
+		private.POST("/batch/delete", handler.batchDelete)
 	}
 	if config.Inbox != nil {
 		private.GET("/inbox", handler.listInbox)

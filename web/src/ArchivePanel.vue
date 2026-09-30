@@ -3,13 +3,16 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, type ExternalResource, type InboxSelection, type Resource } from './api'
 
 const props = defineProps<{ refreshKey: number }>()
-const emit = defineEmits<{ restored: [] }>()
+const emit = defineEmits<{ restored: []; deleted: [] }>()
 const files = ref<Resource[]>([])
 const cards = ref<ExternalResource[]>([])
 const page = ref(1)
 const hasMore = ref(false)
 const loading = ref(false)
 const restoring = ref(false)
+const deleting = ref(false)
+// busy 统一阻止恢复和删除请求交叉执行，避免当前页选择状态同时被两种操作改变。
+const busy = computed(() => restoring.value || deleting.value)
 const error = ref('')
 const notice = ref('')
 const selectedKeys = ref<string[]>([])
@@ -49,14 +52,14 @@ async function loadArchive(targetPage = page.value) {
 
 // changePage 仅在服务端确认有下一页时翻页，不把其他页隐式加入选择。
 function changePage(target: number) {
-  if (target < 1 || loading.value || restoring.value || (target > page.value && !hasMore.value)) return
+  if (target < 1 || loading.value || busy.value || (target > page.value && !hasMore.value)) return
   void loadArchive(target)
 }
 
 // restoreSelected 对当前页至多 50 项提交明确的“未归档”目标；不把它描述为并发安全的撤销。
 async function restoreSelected() {
   const chosen = visibleItems.value.filter((item) => selectedKeys.value.includes(selectionKey(item)))
-  if (!chosen.length || !window.confirm(`恢复 ${chosen.length} 项资料到活动列表？原有标签和整理状态保持不变。`)) return
+  if (!chosen.length || busy.value || !window.confirm(`恢复 ${chosen.length} 项资料到活动列表？原有标签和整理状态保持不变。`)) return
   restoring.value = true
   error.value = ''
   notice.value = ''
@@ -70,6 +73,30 @@ async function restoreSelected() {
     error.value = reason instanceof Error ? reason.message : '恢复失败，归档资料未修改'
   } finally {
     restoring.value = false
+  }
+}
+
+// deleteSelected 要求用户输入数量确认；归档不等于回收站，删除后不提供原件恢复承诺。
+async function deleteSelected() {
+  const chosen = visibleItems.value.filter((item) => selectedKeys.value.includes(selectionKey(item)))
+  if (!chosen.length || busy.value) return
+  const confirmation = window.prompt(`将永久删除 ${chosen.length} 项归档资料及其标签，并清理站内原件；此操作不可撤销。请输入「删除 ${chosen.length}」确认：`)
+  if (confirmation !== `删除 ${chosen.length}`) return
+  deleting.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const result = await api.batchDelete(chosen)
+    notice.value = result.cleanup_pending
+      ? `已删除 ${result.deleted} 项，其中 ${result.cleanup_pending} 个文件原件待管理员清理；请勿重试整个批次。`
+      : `已删除 ${result.deleted} 项，此操作不可撤销。`
+    await loadArchive(page.value)
+    if (page.value > 1 && !files.value.length && !cards.value.length) await loadArchive(page.value - 1)
+    emit('deleted')
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '删除失败，请刷新后核对状态'
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -105,7 +132,7 @@ onUnmounted(() => { requestVersion++ })
               <input
                 v-model="selectedKeys" type="checkbox"
                 :value="selectionKey({ source: 'file', id: file.id })"
-                :disabled="restoring || (selectedKeys.length >= 50 && !selectedKeys.includes(selectionKey({ source: 'file', id: file.id })))"
+                :disabled="busy || (selectedKeys.length >= 50 && !selectedKeys.includes(selectionKey({ source: 'file', id: file.id })))"
               />
               <span class="inbox-select-name">{{ file.name }}</span>
             </label>
@@ -121,7 +148,7 @@ onUnmounted(() => { requestVersion++ })
               <input
                 v-model="selectedKeys" type="checkbox"
                 :value="selectionKey({ source: 'external', id: card.id })"
-                :disabled="restoring || (selectedKeys.length >= 50 && !selectedKeys.includes(selectionKey({ source: 'external', id: card.id })))"
+                :disabled="busy || (selectedKeys.length >= 50 && !selectedKeys.includes(selectionKey({ source: 'external', id: card.id })))"
               />
               <span class="inbox-select-name">{{ card.title }}</span>
             </label>
@@ -131,14 +158,15 @@ onUnmounted(() => { requestVersion++ })
       </div>
     </div>
     <div v-if="files.length || cards.length" class="inbox-batch-actions" role="group" aria-label="恢复当前页归档资料">
-      <button class="secondary-button" type="button" :disabled="loading || restoring" @click="selectedKeys = visibleItems.slice(0, 50).map(selectionKey)">选中本页前 50 项</button>
-      <button class="secondary-button" type="button" :disabled="!selectedKeys.length || restoring" @click="selectedKeys = []">清空选择</button>
-      <button class="primary-button" type="button" :disabled="!selectedKeys.length || restoring || loading" @click="restoreSelected">{{ restoring ? '恢复中…' : `恢复所选（${selectedKeys.length} 项）` }}</button>
+      <button class="secondary-button" type="button" :disabled="loading || busy" @click="selectedKeys = visibleItems.slice(0, 50).map(selectionKey)">选中本页前 50 项</button>
+      <button class="secondary-button" type="button" :disabled="!selectedKeys.length || busy" @click="selectedKeys = []">清空选择</button>
+      <button class="primary-button" type="button" :disabled="!selectedKeys.length || busy || loading" @click="restoreSelected">{{ restoring ? '恢复中…' : `恢复所选（${selectedKeys.length} 项）` }}</button>
+      <button class="danger-button" type="button" :disabled="!selectedKeys.length || busy || loading" @click="deleteSelected">{{ deleting ? '删除中…' : `永久删除所选（${selectedKeys.length} 项）` }}</button>
     </div>
     <div v-if="page > 1 || hasMore" class="inbox-pages">
-      <button class="secondary-button" type="button" :disabled="page === 1 || loading || restoring" @click="changePage(page - 1)">上一页</button>
+      <button class="secondary-button" type="button" :disabled="page === 1 || loading || busy" @click="changePage(page - 1)">上一页</button>
       <span>第 {{ page }} 页 · 每类最多 50 项</span>
-      <button class="secondary-button" type="button" :disabled="!hasMore || loading || restoring" @click="changePage(page + 1)">下一页</button>
+      <button class="secondary-button" type="button" :disabled="!hasMore || loading || busy" @click="changePage(page + 1)">下一页</button>
     </div>
   </section>
 </template>

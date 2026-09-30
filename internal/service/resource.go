@@ -351,12 +351,20 @@ func (resources *Resources) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	return resources.cleanupDeletedResource(ctx, resource.ID)
+}
+
+// cleanupDeletedResource 只使用服务端生成的 ID 清理已隐藏原件，文件缺失视为幂等成功。
+func (resources *Resources) cleanupDeletedResource(ctx context.Context, id string) error {
+	if !validResourceID(id) {
+		return ErrFileUnavailable
+	}
 	// 资料已经在 MySQL 中不可见，先失效缓存，避免文件清理失败时仍从 Redis 返回已删除资料。
 	resources.invalidateResourceCaches(ctx, id)
 	if resources.cache != nil {
 		_ = resources.cache.RemoveRecent(ctx, id)
 	}
-	if err := os.Remove(filepath.Join(resources.dataDir, resource.ID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(filepath.Join(resources.dataDir, id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove deleted resource file: %w", err)
 	}
 	return nil

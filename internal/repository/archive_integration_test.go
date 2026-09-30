@@ -16,7 +16,7 @@ func TestArchiveMySQLIsolation(t *testing.T) {
 	if err := root.Migrate(context.Background()); err != nil {
 		t.Fatalf("repeat migration: %v", err)
 	}
-	if err := database.Exec("DELETE FROM schema_migrations WHERE version = ?", 16).Error; err != nil {
+	if err := database.Exec("DELETE FROM schema_migrations WHERE version IN ?", []int{16, 17}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := root.Migrate(context.Background()); err != nil {
@@ -120,5 +120,55 @@ func TestArchiveMySQLIsolation(t *testing.T) {
 	}
 	if found, err := store.GetResource(ctxA, fileID); err != nil || found.Archived {
 		t.Fatalf("deleted batch partial write: %+v %v", found, err)
+	}
+	if _, err := store.BatchDeleteEntries(ctxA, []model.InboxSelection{file, {Source: "file", ID: foreignID}}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-user delete must reject entire batch: %v", err)
+	}
+	if _, err := store.BatchDeleteEntries(ctxA, []model.InboxSelection{file, {Source: "file", ID: deletedID}}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("soft-deleted file must reject entire batch: %v", err)
+	}
+	if found, err := store.GetResource(ctxA, fileID); err != nil || found.ID != fileID {
+		t.Fatalf("failed batch changed own file: %+v %v", found, err)
+	}
+	jobID, assetID, eventID := mustProcessingIsolationID(t), mustProcessingIsolationID(t), mustProcessingIsolationID(t)
+	now := time.Now().UTC()
+	if err := transaction.Table("processing_jobs").Create(map[string]any{"id": jobID, "resource_id": fileID, "type": model.ProcessingTypeExtractText, "source_sha256": strings.Repeat("a", 64), "status": model.ProcessingStatusSucceeded, "max_attempts": 3, "available_at": now, "created_at": now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := transaction.Table("derived_assets").Create(map[string]any{"id": assetID, "job_id": jobID, "resource_id": fileID, "kind": model.DerivedAssetText, "name": "derived.txt", "storage_key": assetID, "mime": "text/plain", "size_bytes": 6, "sha256": strings.Repeat("b", 64), "content_text": "private text", "created_at": now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := transaction.Table("processing_outbox").Create(map[string]any{"id": eventID, "job_id": jobID, "status": "published", "available_at": now, "created_at": now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if files, err := store.BatchDeleteEntries(ctxA, valid); err != nil || len(files.OriginalIDs) != 1 || files.OriginalIDs[0] != fileID || len(files.DerivedIDs) != 1 || files.DerivedIDs[0] != assetID {
+		t.Fatalf("delete mixed batch: %+v %v", files, err)
+	}
+	pendingCleanup, err := store.ListPendingFileCleanup(ctxA, 10)
+	if err != nil || len(pendingCleanup) != 2 {
+		t.Fatalf("cleanup record must survive database commit: %+v %v", pendingCleanup, err)
+	}
+	for _, entry := range pendingCleanup {
+		if err := store.CompleteFileCleanup(ctxA, entry); err != nil {
+			t.Fatalf("complete cleanup: %v", err)
+		}
+	}
+	if left, err := store.ListPendingFileCleanup(ctxA, 10); err != nil || len(left) != 0 {
+		t.Fatalf("cleanup record not removed: %+v %v", left, err)
+	}
+	for _, table := range []string{"processing_jobs", "derived_assets", "processing_outbox"} {
+		var remaining int64
+		if err := transaction.Table(table).Where("id IN ?", []string{jobID, assetID, eventID}).Count(&remaining).Error; err != nil || remaining != 0 {
+			t.Fatalf("deleted batch left %s: %d %v", table, remaining, err)
+		}
+	}
+	if _, err := store.GetResource(ctxA, fileID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted file still readable: %v", err)
+	}
+	if _, err := store.GetExternalResource(ctxA, cardID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted card still readable: %v", err)
+	}
+	if _, err := store.BatchDeleteEntries(ctxA, valid); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("repeated destructive batch: %v", err)
 	}
 }

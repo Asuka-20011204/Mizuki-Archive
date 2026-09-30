@@ -185,6 +185,11 @@ export const api = {
     request<{ count: number; changed: InboxSelection[] }>('/batch/archive', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, archived }),
     }),
+  // batchDelete 只在用户再次输入数量确认后调用，删除不可撤销；清理延迟由响应明确提示。
+  batchDelete: (items: InboxSelection[]) =>
+    request<{ deleted: number; cleanup_pending: number }>('/batch/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, confirm: 'DELETE' }),
+    }),
   // listExternalResources 只查询当前用户卡片，服务器限制返回数量。
   listExternalResources: (query = '') => request<{ data: ExternalResource[] }>(`/external-resources?${new URLSearchParams({ q: query })}`),
   // createExternalResource 保存资源位置文本，绝不上传或自动访问外部链接。

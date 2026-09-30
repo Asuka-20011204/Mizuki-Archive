@@ -388,8 +388,8 @@ function refreshInbox() {
   inboxRefreshKey.value++
 }
 
-// refreshAfterArchive 让活动资料、最近访问和各独立面板重新读取服务端状态。
-function refreshAfterArchive() {
+// refreshCollectionViews 让归档、恢复及删除后各独立视图重新读取服务端状态。
+function refreshCollectionViews() {
   refreshInbox()
   archiveRefreshKey.value++
   void loadResources()
@@ -908,8 +908,8 @@ onUnmounted(() => {
         </section>
 
         <SearchPanel :refresh-key="archiveRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" />
-        <InboxPanel :refresh-key="inboxRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @archived="refreshAfterArchive" />
-        <ArchivePanel :refresh-key="archiveRefreshKey" @restored="refreshAfterArchive" />
+        <InboxPanel :refresh-key="inboxRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @archived="refreshCollectionViews" @deleted="refreshCollectionViews" />
+        <ArchivePanel :refresh-key="archiveRefreshKey" @restored="refreshCollectionViews" @deleted="refreshCollectionViews" />
         <ExternalResourcePanel ref="externalPanel" @changed="refreshInbox" />
 
         <nav class="filter-nav" aria-label="按资料类型筛选">
