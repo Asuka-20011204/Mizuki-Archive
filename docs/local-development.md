@@ -1,12 +1,33 @@
 # 本地启动与浏览器实测（Windows PowerShell）
 
-以下命令从项目的仓库根目录开始。准备 **三个 PowerShell 终端**：数据库命令、Go API、Vue 开发服务器；每次新开终端先切换到仓库根目录。Go API 会自动读取根目录 `.env`，系统环境变量优先于文件中的同名值。不要把密码、哈希或个人文件提交到 Git；示例值要改成本机独有值。
+以下命令从项目的仓库根目录开始。基础资料管理准备 **三个 PowerShell 终端**：Docker/数据库、Go API、Vue 开发服务器；如果要执行文本提取或缩略图，再增加第四个 Worker 终端。Go API 和 Worker 会自动读取根目录 `.env`，系统环境变量优先于文件中的同名值。不要把密码、哈希或个人文件提交到 Git；示例值要改成本机独有值。
+
+## 启动模式总览
+
+| 目标 | 必须启动 | 不需要启动 |
+| --- | --- | --- |
+| 上传、搜索、预览、下载 | MySQL、Go API、Vue | Worker、RabbitMQ、Redis、SMTP |
+| 文本提取、图片缩略图 | 上一行全部 + `go run ./cmd/worker` | RabbitMQ、Redis、SMTP |
+| RabbitMQ 任务模式 | MySQL、RabbitMQ、API、Worker | 真实 SMTP；Redis 仍是可选 |
+| 邮箱注册/登录 | MySQL、API、Vue + 真实 SMTP，或本地 Mailpit | RabbitMQ、Redis |
+| 手机号注册/登录 | 当前版本暂无可运行的短信发送器 | 不能通过启动某个现有容器启用 |
+
+默认任务投递模式是 `database`，所以 `docker compose up -d mysql` 不会自动启动 RabbitMQ、Redis 或 Mailpit，也不会让它们成为基本功能的前置依赖。
 
 ## 可选 V3/V4 服务
 
-默认 `docker compose up -d mysql` 只启动 MySQL。启用 RabbitMQ 前，在 `.env` 设置独立的 `RABBITMQ_USER`、`RABBITMQ_PASSWORD`、`RABBITMQ_URL`，然后运行 `docker compose --profile v3 up -d rabbitmq`。API 与 Worker 均设置 `PROCESSING_DELIVERY_MODE=rabbit`；只运行一个任务模式的 Worker。回退时停止 RabbitMQ Worker，改为 `database` 后重启，Outbox 数据仍保留在 MySQL。
+默认 `docker compose up -d mysql` 只启动 MySQL。启用 RabbitMQ 前，在 `.env` 设置独立的 `RABBITMQ_USER`、`RABBITMQ_PASSWORD`、`RABBITMQ_URL`，然后运行 `docker compose --profile v3 up -d rabbitmq`。API 与 Worker 都必须读取 `PROCESSING_DELIVERY_MODE=rabbit`；只运行一个任务模式的 Worker。回退时先停止 RabbitMQ Worker，将 API 和 Worker 改为 `database` 后重启，Outbox 数据仍保留在 MySQL。
 
 启用 Redis 前，在 `.env` 设置非空 `REDIS_PASSWORD` 和一致的 `REDIS_URL`，运行 `docker compose --profile v4 up -d redis`。默认主机端口是 `6381`（容器内 `6379`），如需调整 `REDIS_HOST_PORT` 必须同步 URL。Redis 停止后缓存回源 MySQL，但跨进程限流不再保证。不要把 `.env`、真实个人资料或容器卷提交 Git。
+
+如果三个可选容器都要启动，可在配置完成后执行：
+
+```powershell
+docker compose --profile v3 --profile v4 --profile email up -d rabbitmq redis mailpit
+docker compose --profile v3 --profile v4 --profile email ps
+```
+
+这条命令不会替代 API、Worker 和 Vue 的启动；它只启动容器。真实 SMTP 是外部服务，不会由 Docker 自动创建，Mailpit 仅用于本机捕获测试邮件。
 
 浏览器仍打开 `http://localhost:5173/`：登录、上传可处理资料、进入详情并手动发起任务，观察状态、派生产物查看/下载和关键词搜索。RabbitMQ/Redis 后台能力不能仅靠页面成功展示证明断线、重复消息和故障降级已经验收。
 
@@ -25,7 +46,7 @@ docker compose ps
 
 ## 2. 启动 Go API
 
-在仓库根目录的第二个终端执行 `go run ./cmd/hash-password`。输入你选择的管理员明文密码（至少 12 字节；终端不回显），将输出的 bcrypt 哈希用单引号包住后粘贴到 `.env` 的 `APP_ADMIN_PASSWORD_HASH`，例如 `APP_ADMIN_PASSWORD_HASH='$2a$10$...'`。bcrypt 哈希包含 `$`，不能裸写。浏览器登录时使用的是**原来的明文密码**，不是这段哈希。
+在仓库根目录的 API 终端先执行 `go run ./cmd/hash-password`。输入你选择的管理员明文密码（至少 12 字节；终端不回显），将输出的 bcrypt 哈希用单引号包住后粘贴到 `.env` 的 `APP_ADMIN_PASSWORD_HASH`，例如 `APP_ADMIN_PASSWORD_HASH='$2a$10$...'`。bcrypt 哈希包含 `$`，不能裸写。浏览器登录时使用的是**原来的明文密码**，不是这段哈希。
 
 然后直接启动服务：
 
@@ -41,7 +62,7 @@ go run ./cmd/server
 
 先准备支持 STARTTLS（587）或隐式 TLS（465）的 SMTP 服务，在 `.env` 完整填写 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM` 和至少 32 字节的随机 `EMAIL_CODE_SECRET`，然后重启 API。只配置一部分会让服务启动失败，避免前端显示不可用入口；不配置则保留兼容密码登录。验证码不会写入日志或数据库明文。重启后可先执行 `Invoke-WebRequest http://127.0.0.1:8080/api/auth/capabilities`，确认响应中的 `email_verification` 为 `true`；浏览器登录页会显示“邮箱登录/邮箱注册”入口，验证码只能消费一次，退出后原会话立即失效。若 SMTP 暂未准备好，使用兼容密码登录，不要在日志或页面中手工填写验证码。
 
-开发阶段没有外部 SMTP 时，可以使用仓库提供的 Mailpit 捕获环境。该 profile 只接受测试凭据，并使用仓库外的本机自签名证书强制 STARTTLS；证书只用于环回验收，不能复制到生产：
+开发阶段没有外部 SMTP 时，可以使用仓库提供的 Mailpit 捕获环境。该 profile 只接受测试凭据，并使用仓库外的本机自签名证书强制 STARTTLS；证书只用于环回验收，不能复制到生产。请在**启动 API 的同一个 PowerShell 终端**执行下面的覆盖配置，这些进程环境变量会优先于 `.env` 中可能存在的真实 SMTP 配置：
 
 ```powershell
 .\scripts\generate-mailpit-cert.ps1

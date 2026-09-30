@@ -41,29 +41,24 @@
 
 ## 本地启动（Windows PowerShell）
 
-前置：Go 1.25、Node.js、Docker Desktop/MySQL 8.4。请先确认 Docker Desktop 正在运行；首次启动的完整操作与故障排查见 [本地启动与实测](docs/local-development.md)。
+前置：Go 1.25、Node.js、Docker Desktop；本地 Mailpit 验证邮箱还需要 OpenSSL。**所有命令从仓库根目录执行**，API、Worker、前端分别占用一个终端。完整配置、故障排查见 [本地启动与实测](docs/local-development.md)；公网部署不能套用下述开发命令，见 [部署文档](docs/deployment.md)。
 
-1. 复制 `.env.example` 为本地 `.env`，供 Docker Compose 和 Go API 共用；把数据库密码和管理员配置改为你自己的值。当前 Docker 主机端口为 `3307`（容器内部仍为 `3306`）；如需调整，修改 `.env` 中的 `MYSQL_HOST_PORT`。`.env` 已被 Git 忽略。**不要把真实密码或哈希写进仓库。**
-2. 在仓库根目录运行 `docker compose up -d mysql`。检查 `docker compose ps`，等待数据库健康。
-3. 首次使用时生成管理员密码哈希，将输出用单引号包住后复制到 `.env` 的 `APP_ADMIN_PASSWORD_HASH`（bcrypt 哈希包含 `$`，不能裸写）；然后直接启动 API：
+1. **先准备配置。**`if (-not (Test-Path .env)) { Copy-Item .env.example .env }`，然后编辑 `.env`。每行只能是注释（`#` 开头）或 `KEY=VALUE`，不能直接粘贴中文说明。更换 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`，同步 `MYSQL_DSN` 的密码与主机端口（默认 `3307`）；首次运行设置 `APP_ADMIN_USERNAME`，执行 `go run ./cmd/hash-password`，将输出哈希用单引号包住填入 `APP_ADMIN_PASSWORD_HASH`。不要把明文密码、验证码、`.env` 或真实资料提交 Git。
+2. **启动基础数据库。**运行 `docker compose up -d mysql`，再用 `docker compose ps` 等待 `healthy`。仅使用上传、搜索、资料管理时，MySQL + API + 前端即可；**文本提取、缩略图等后台任务还需要 Worker**，不需要 RabbitMQ。
+3. **按所需功能启动可选容器，先配置对应变量再启动。**
 
-   ```powershell
-   go run ./cmd/hash-password
-   # 将上一步输出的 bcrypt 哈希粘贴到 .env 的 APP_ADMIN_PASSWORD_HASH
-   go run ./cmd/server
-   ```
+   | 服务 | 本地命令 | 必要配置 / 用途 |
+   | --- | --- | --- |
+   | RabbitMQ | `docker compose --profile v3 up -d rabbitmq` | `.env` 中配置相互匹配的 `RABBITMQ_USER`、`RABBITMQ_PASSWORD`、`RABBITMQ_URL`；API 和 Worker 同时设置 `PROCESSING_DELIVERY_MODE=rabbit`。默认 `database` 模式不要启用 Rabbit 模式的 Worker。 |
+   | Redis | `docker compose --profile v4 up -d redis` | 配置非空 `REDIS_PASSWORD` 及密码、端口一致的 `REDIS_URL`，供缓存、最近查看和共享限流使用；不启用时清空/注释 `REDIS_URL`。 |
+   | Mailpit | `docker compose --profile email up -d mailpit` | 仅本地截获测试邮件；先运行 `./scripts/generate-mailpit-cert.ps1` 生成仓库外 TLS 证书，再按 [本地邮箱步骤](docs/local-development.md#可选启用邮箱注册登录) 设置测试 SMTP。它不是公网邮箱服务。 |
 
-   `go run ./cmd/server` 会自动读取根目录 `.env`；系统环境变量优先于文件中的同名值。示例中的 `3307` 必须与 `.env` 的 `MYSQL_HOST_PORT` 保持一致。密码哈希命令在交互终端中隐藏输入；`.env` 中包含 `$` 的密码或哈希应使用单引号包住。开发环境服务启动时应用当前幂等初始迁移。生产环境必须使用独立迁移账号、HTTPS、受控密钥和受控备份；独立 Docker 编排的迁移步骤见 [部署文档](docs/deployment.md)。
+   `rabbitmq`、`redis`、`mailpit` 都是 Compose profile，**单独的 `docker compose up -d mysql` 不会启动它们**。如三个容器都需要，先完成证书和配置，再分别执行上表命令，最后用 `docker compose --profile v3 --profile v4 --profile email ps` 检查状态。
+4. **启动 Go API**（单独终端，仓库根目录）：`go run ./cmd/server`。它读取 `.env` 并在本地开发模式应用迁移；检查 `http://127.0.0.1:8080/healthz` 是否返回 `204`。`APP_ORIGIN` 必须与浏览器实际访问的协议、主机和端口完全一致。若配置真实邮箱 SMTP，须同时填写 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM` 和至少 32 字节随机的 `EMAIL_CODE_SECRET`，不完整配置会导致启动失败；详见下文链接。
+5. **启动 Worker**（单独终端，仓库根目录）：`go run ./cmd/worker`。即使使用默认 MySQL 队列，只要需要执行资料处理任务就必须启动它；API 与 Worker 使用同一 MySQL 和 `APP_DATA_DIR`，且任务模式一致。不要同时运行数据库模式和 RabbitMQ 模式 Worker。
+6. **启动前端**（另一个终端）：`cd web; npm ci; npm run dev`，按 Vite 输出访问页面；默认 `.env.example` 的 `APP_ORIGIN` 对应 `http://localhost:5173/`。检查 `http://127.0.0.1:8080/api/auth/capabilities`：只有 SMTP 配置完整时 `email_verification` 才为 `true`。本地邮件可在 `http://localhost:8025/` 查看；真实邮箱服务需自行向邮件提供方获取主机、端口及授权码。手机号短信发送器**尚未接入运行中的 API**，不能靠填手机号或 SMTP 配置启用注册。
 
-4. 另开 PowerShell：
-
-   ```powershell
-   cd web
-   npm ci
-   npm run dev
-   ```
-
-   打开 `http://localhost:5173/`。不要换成 `127.0.0.1:5173`，因为浏览器请求来源必须与 `APP_ORIGIN` 完全一致。
+退出时在 API、Worker、Vite 终端按 `Ctrl+C`，容器使用 `docker compose --profile v3 --profile v4 --profile email stop` 停止。不要运行 `down -v`，那会删除数据库及队列卷。
 
 ## V1 状态与验证
 
