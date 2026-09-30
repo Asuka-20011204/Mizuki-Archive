@@ -75,6 +75,9 @@ export interface AuthCapabilities {
   email_verification: boolean
   phone_verification: boolean
 }
+
+// InboxSelection 区分站内文件与外部卡片，批量请求不由浏览器声明用户身份。
+export interface InboxSelection { source: 'file' | 'external'; id: string }
 // ApiError 只描述前端需要的安全错误消息，不依赖服务端内部异常细节。
 interface ApiError {
   error?: { code: string; message: string }
@@ -110,6 +113,11 @@ export const api = {
   setInboxStatus: (source: 'file' | 'external', id: string, status: 'pending' | 'organized') =>
     request<void>(`/inbox/${source}/${encodeURIComponent(id)}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
+    }),
+  // batchSetInboxStatus 一次性请求最多 50 个条目，服务端先校验全批归属再修改两类资料。
+  batchSetInboxStatus: (items: InboxSelection[], status: 'pending' | 'organized') =>
+    request<{ count: number }>('/inbox/batch', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, status }),
     }),
   // listExternalResources 只查询当前用户卡片，服务器限制返回数量。
   listExternalResources: (query = '') => request<{ data: ExternalResource[] }>(`/external-resources?${new URLSearchParams({ q: query })}`),

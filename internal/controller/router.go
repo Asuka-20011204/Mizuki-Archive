@@ -92,6 +92,7 @@ func New(config Config) (*gin.Engine, error) {
 	private.POST("/resources", handler.upload)
 	if config.Inbox != nil {
 		private.GET("/inbox", handler.listInbox)
+		private.PATCH("/inbox/batch", handler.batchSetInboxStatus)
 		private.PATCH("/inbox/:source/:id", handler.setInboxStatus)
 	}
 	if config.ExternalResources != nil {

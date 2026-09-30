@@ -64,6 +64,80 @@ func (store *inboxStoreFake) SetExternalOrganizationStatus(ctx context.Context, 
 	return nil
 }
 
+// BatchSetOrganizationStatus 模拟全量归属校验后统一更新，防止部分条目先写入。
+func (store *inboxStoreFake) BatchSetOrganizationStatus(ctx context.Context, items []model.InboxSelection, status string) error {
+	owner, _ := repository.UserIDFromContext(ctx)
+	for _, item := range items {
+		switch item.Source {
+		case "file":
+			if _, exists := store.files[item.ID]; !exists || store.owners[item.ID] != owner {
+				return repository.ErrNotFound
+			}
+		case "external":
+			if _, exists := store.externals[item.ID]; !exists || store.owners[item.ID] != owner {
+				return repository.ErrNotFound
+			}
+		}
+	}
+	for _, item := range items {
+		if item.Source == "file" {
+			file := store.files[item.ID]
+			file.OrganizationStatus = status
+			store.files[item.ID] = file
+		} else {
+			card := store.externals[item.ID]
+			card.OrganizationStatus = status
+			store.externals[item.ID] = card
+		}
+	}
+	return nil
+}
+
+// TestInboxBatchAtomicAndValidated 验证混入他人资料拒绝整批、重复与超量输入均不写入。
+func TestInboxBatchAtomicAndValidated(t *testing.T) {
+	one, two, foreign := strings.Repeat("a", 32), strings.Repeat("b", 32), strings.Repeat("c", 32)
+	store := &inboxStoreFake{
+		files:     map[string]model.Resource{one: {ID: one, OrganizationStatus: "pending"}, foreign: {ID: foreign, OrganizationStatus: "pending"}},
+		externals: map[string]model.ExternalResource{two: {ID: two, OrganizationStatus: "pending"}},
+		owners:    map[string]string{one: "me", two: "me", foreign: "someone-else"},
+	}
+	inbox, err := NewInbox(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := repository.WithUserID(context.Background(), "me")
+	valid := []model.InboxSelection{{Source: "file", ID: one}, {Source: "external", ID: two}}
+	for _, selection := range [][]model.InboxSelection{
+		nil,
+		{{Source: "file", ID: one}, {Source: "file", ID: one}},
+		{{Source: "file", ID: one}, {Source: "external", ID: "../bad"}},
+		{{Source: "file", ID: one}, {Source: "unknown", ID: two}},
+		append(make([]model.InboxSelection, 50), model.InboxSelection{Source: "file", ID: one}),
+	} {
+		if err := inbox.BatchSetStatus(ctx, selection, "organized"); !errors.Is(err, ErrInvalidInboxInput) {
+			t.Fatalf("invalid selection: %v", err)
+		}
+	}
+	if err := inbox.BatchSetStatus(context.Background(), valid, "organized"); !errors.Is(err, ErrInboxIdentity) {
+		t.Fatalf("anonymous batch: %v", err)
+	}
+	if err := inbox.BatchSetStatus(ctx, append(valid, model.InboxSelection{Source: "file", ID: foreign}), "organized"); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("foreign batch: %v", err)
+	}
+	if store.files[one].OrganizationStatus != "pending" || store.externals[two].OrganizationStatus != "pending" {
+		t.Fatal("mixed-owner batch partially applied")
+	}
+	if err := inbox.BatchSetStatus(ctx, valid, "organized"); err != nil {
+		t.Fatal(err)
+	}
+	if store.files[one].OrganizationStatus != "organized" || store.externals[two].OrganizationStatus != "organized" {
+		t.Fatal("valid batch not applied")
+	}
+	if err := inbox.BatchSetStatus(ctx, valid, "pending"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestInboxUserIsolation 验证两类资料在一个收件箱显示、完成整理及跨用户拒绝。
 func TestInboxUserIsolation(t *testing.T) {
 	fileID := strings.Repeat("a", 32)

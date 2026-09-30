@@ -26,6 +26,7 @@ Mizuki Archive/
 │   ├── model/external_resource.go     # 站外资源卡片模型（不含原件）
 │   ├── model/user.go                  # 多用户身份模型
 │   ├── model/phone.go                 # 大陆手机号一次性挑战模型
+│   ├── model/inbox.go                 # 批量整理条目的来源与 ID
 │   ├── model/processing.go            # 任务与派生产物模型
 │   ├── processing/text.go             # PDF/TXT/Markdown 文本处理器
 │   ├── processing/thumbnail.go        # PNG/JPEG/WebP 缩略图处理器与像素边界

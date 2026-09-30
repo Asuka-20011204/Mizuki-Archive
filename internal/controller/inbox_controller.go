@@ -2,10 +2,12 @@ package controller
 
 import (
 	"errors"
+	"mime"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"mizuki-archive/internal/model"
 	"mizuki-archive/internal/repository"
 	"mizuki-archive/internal/service"
 )
@@ -52,4 +54,27 @@ func (handler *Controller) setInboxStatus(ctx *gin.Context) {
 		return
 	}
 	ctx.Status(http.StatusNoContent)
+}
+
+// batchSetInboxStatus 限制请求体并返回明确的成功数量；越权或缺失整批返回相同的 404。
+func (handler *Controller) batchSetInboxStatus(ctx *gin.Context) {
+	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, 8<<10)
+	mediaType, _, err := mime.ParseMediaType(ctx.GetHeader("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		failure(ctx, http.StatusBadRequest, "invalid_inbox", "批量请求格式无效")
+		return
+	}
+	var input struct {
+		Items  []model.InboxSelection `json:"items"`
+		Status string                 `json:"status"`
+	}
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		failure(ctx, http.StatusBadRequest, "invalid_inbox", "批量请求格式无效")
+		return
+	}
+	if err := handler.config.Inbox.BatchSetStatus(ctx.Request.Context(), input.Items, input.Status); err != nil {
+		inboxFailure(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"count": len(input.Items)})
 }

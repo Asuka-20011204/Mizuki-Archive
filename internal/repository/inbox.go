@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"mizuki-archive/internal/model"
 )
 
@@ -124,4 +126,59 @@ func (store *MySQL) SetExternalOrganizationStatus(ctx context.Context, id, statu
 		return err
 	}
 	return nil
+}
+
+// BatchSetOrganizationStatus 在同一事务内锁定并验证所有条目的归属，任何缺失或越权都不更新整批。
+func (store *MySQL) BatchSetOrganizationStatus(ctx context.Context, items []model.InboxSelection, status string) error {
+	owner, err := externalOwner(ctx)
+	if err != nil {
+		return err
+	}
+	groups := map[string][]string{"file": {}, "external": {}}
+	for _, item := range items {
+		groups[item.Source] = append(groups[item.Source], item.ID)
+	}
+	return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 固定来源与 ID 的锁顺序，减少两批请求交叉操作时的死锁概率。
+		for _, source := range []string{"file", "external"} {
+			ids := groups[source]
+			if len(ids) == 0 {
+				continue
+			}
+			sort.Strings(ids)
+			table := "resources"
+			if source == "external" {
+				table = "external_resources"
+			}
+			query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Table(table).Where("id IN ? AND user_id = ?", ids, owner)
+			if source == "file" {
+				query = query.Where("deleted_at IS NULL")
+			}
+			var found []string
+			if err := query.Pluck("id", &found).Error; err != nil {
+				return fmt.Errorf("lock batch inbox entries: %w", err)
+			}
+			if len(found) != len(ids) {
+				return ErrNotFound
+			}
+		}
+		for _, source := range []string{"file", "external"} {
+			ids := groups[source]
+			if len(ids) == 0 {
+				continue
+			}
+			table := "resources"
+			if source == "external" {
+				table = "external_resources"
+			}
+			query := tx.Table(table).Where("id IN ? AND user_id = ?", ids, owner)
+			if source == "file" {
+				query = query.Where("deleted_at IS NULL")
+			}
+			if err := query.Update("organization_status", status).Error; err != nil {
+				return fmt.Errorf("update batch inbox entries: %w", err)
+			}
+		}
+		return nil
+	})
 }

@@ -22,6 +22,7 @@ type InboxStore interface {
 	ListPendingExternalResources(context.Context, int, int) ([]model.ExternalResource, error)
 	SetResourceOrganizationStatus(context.Context, string, string) error
 	SetExternalOrganizationStatus(context.Context, string, string) error
+	BatchSetOrganizationStatus(context.Context, []model.InboxSelection, string) error
 }
 
 // ExternalResourceStore 单独管理外部卡片，避免修改已有文件仓储和测试替身的契约。

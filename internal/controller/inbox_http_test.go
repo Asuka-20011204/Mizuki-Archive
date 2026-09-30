@@ -64,6 +64,33 @@ func (store *inboxHTTPStore) SetExternalOrganizationStatus(ctx context.Context, 
 	return nil
 }
 
+// BatchSetOrganizationStatus 在 HTTP 替身中先检查整批归属，再更新状态，复现全有或全无响应。
+func (store *inboxHTTPStore) BatchSetOrganizationStatus(ctx context.Context, items []model.InboxSelection, status string) error {
+	owner, _ := repository.UserIDFromContext(ctx)
+	for _, item := range items {
+		if item.Source == "file" {
+			file, ok := store.resources[item.ID]
+			if !ok || file.OwnerID != owner {
+				return repository.ErrNotFound
+			}
+		} else if store.owners[item.ID] != owner || owner == "" {
+			return repository.ErrNotFound
+		}
+	}
+	for _, item := range items {
+		if item.Source == "file" {
+			file := store.resources[item.ID]
+			file.OrganizationStatus = status
+			store.resources[item.ID] = file
+		} else {
+			card := store.cards[item.ID]
+			card.OrganizationStatus = status
+			store.cards[item.ID] = card
+		}
+	}
+	return nil
+}
+
 // TestInboxHTTPIsolation 验证上传文件和新卡片都待整理，跨用户读取和写入均失败。
 func TestInboxHTTPIsolation(t *testing.T) {
 	base := &multiUserHTTPStore{resources: map[string]model.Resource{}, sessions: map[string]string{}, users: map[string]model.User{}}
@@ -142,5 +169,19 @@ func TestInboxHTTPIsolation(t *testing.T) {
 	}
 	if store.cards[cardID].Status != "pending" {
 		t.Fatal("completion changed external link status")
+	}
+	batchPath := "/api/inbox/batch"
+	requestBody := `{"status":"pending","items":[{"source":"file","id":"` + fileID + `"},{"source":"external","id":"` + cardID + `"}]}`
+	if result := externalRequest(server, http.MethodPatch, batchPath, requestBody, nil); result.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous batch: %d", result.Code)
+	}
+	if result := externalRequest(server, http.MethodPatch, batchPath, requestBody, ownerA); result.Code != http.StatusNotFound {
+		t.Fatalf("cross-user batch: %d", result.Code)
+	}
+	if result := externalRequest(server, http.MethodPatch, batchPath, requestBody, ownerB); result.Code != http.StatusOK || !strings.Contains(result.Body.String(), `"count":2`) {
+		t.Fatalf("own batch: %d %s", result.Code, result.Body.String())
+	}
+	if result := externalRequest(server, http.MethodPatch, batchPath, `{"status":"organized","items":[{"source":"file","id":"`+fileID+`"},{"source":"file","id":"`+fileID+`"}]}`, ownerB); result.Code != http.StatusBadRequest {
+		t.Fatalf("duplicate batch: %d", result.Code)
 	}
 }

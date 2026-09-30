@@ -78,3 +78,24 @@ func (inbox *Inbox) SetStatus(ctx context.Context, source, id, status string) er
 		return ErrInvalidInboxInput
 	}
 }
+
+// BatchSetStatus 先拒绝空批次、重复项和超量请求，再由仓储在一个事务中检查归属并更新。
+func (inbox *Inbox) BatchSetStatus(ctx context.Context, items []model.InboxSelection, status string) error {
+	if _, ok := repository.UserIDFromContext(ctx); !ok {
+		return ErrInboxIdentity
+	}
+	if len(items) == 0 || len(items) > 50 || (status != "pending" && status != "organized") {
+		return ErrInvalidInboxInput
+	}
+	seen := make(map[model.InboxSelection]struct{}, len(items))
+	for _, item := range items {
+		if (item.Source != "file" && item.Source != "external") || !validResourceID(item.ID) {
+			return ErrInvalidInboxInput
+		}
+		if _, duplicate := seen[item]; duplicate {
+			return ErrInvalidInboxInput
+		}
+		seen[item] = struct{}{}
+	}
+	return inbox.store.BatchSetOrganizationStatus(ctx, items, status)
+}
