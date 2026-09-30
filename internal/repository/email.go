@@ -21,6 +21,7 @@ type userRow struct {
 	ID           string    `gorm:"column:id;primaryKey"`
 	Username     string    `gorm:"column:username"`
 	Email        *string   `gorm:"column:email"`
+	Phone        *string   `gorm:"column:phone"`
 	PasswordHash []byte    `gorm:"column:password_hash"`
 	CreatedAt    time.Time `gorm:"column:created_at"`
 }
@@ -31,7 +32,11 @@ func userFromRow(row userRow) model.User {
 	if row.Email != nil {
 		email = *row.Email
 	}
-	return model.User{ID: row.ID, Username: row.Username, Email: email, PasswordHash: append([]byte(nil), row.PasswordHash...), CreatedAt: row.CreatedAt}
+	phone := ""
+	if row.Phone != nil {
+		phone = *row.Phone
+	}
+	return model.User{ID: row.ID, Username: row.Username, Email: email, Phone: phone, PasswordHash: append([]byte(nil), row.PasswordHash...), CreatedAt: row.CreatedAt}
 }
 
 // newUserID 生成不携带邮箱或用户名含义的用户主键。

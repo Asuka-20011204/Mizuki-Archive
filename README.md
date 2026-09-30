@@ -37,7 +37,7 @@
 - [架构决策](docs/decisions/0001-product-and-stack.md)：已确定项与待验证项。
 - [变更记录](docs/changes/README.md)：各轮实际修改、验证状态与遗留事项；后续重大修改逐轮记录。
 
-当前身份模型支持多个独立用户：邮箱验证码注册、登录、退出和一次性消费 HTTP 闭环已验证，资料、会话、任务和 Redis 最近访问均按服务端用户归属隔离；旧 `APP_ADMIN_USERNAME`/`APP_ADMIN_PASSWORD_HASH` 仅作为迁移期兼容登录。邮箱功能需要完整 SMTP 配置，开发环境可用可选 Mailpit 捕获邮件，独立 Docker 部署已把 SMTP 凭据限制在 API；手机号短信尚未接入。
+当前身份模型支持多个独立用户：邮箱验证码注册、登录、退出和一次性消费 HTTP 闭环已验证，资料、会话、任务和 Redis 最近访问均按服务端用户归属隔离；旧 `APP_ADMIN_USERNAME`/`APP_ADMIN_PASSWORD_HASH` 仅作为迁移期兼容登录。邮箱功能需要完整 SMTP 配置，开发环境可用可选 Mailpit 捕获邮件，独立 Docker 部署已把 SMTP 凭据限制在 API。大陆手机号的统一格式、独立用户/挑战表、验证码业务和按能力展示的前端入口已有基础；**真实短信供应商尚未接入，当前手机入口保持关闭，不能用手机注册/登录**。
 
 ## 本地启动（Windows PowerShell）
 

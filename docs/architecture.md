@@ -6,7 +6,7 @@
 - **确定技术栈**：Go + Gin + GORM + MySQL；文件初期存放于服务端受控目录。前端 Vue 3 + TypeScript。选择轻量单体而不是微服务，API 与未来 Worker 可共享领域包但独立进程。
 - **可替换边界**：文件存储、任务投递、元数据持久化、缓存都通过清晰接口隔离；不为尚未出现的提供方预先实现复杂抽象。
 
-验证码邮件的 SMTP 传输适配器位于 `internal/notification`，强制 TLS。用户、会话、资料、任务、派生产物和缓存必须以 `user_id` 为服务端边界；前端不得提交或决定所有者。旧单管理员数据迁移到首个用户后，才开放邮箱注册/登录。身份演进见 [ADR 0007](decisions/0007-verified-identity-boundary.md)。
+验证码邮件的 SMTP 传输适配器位于 `internal/notification`，强制 TLS。用户、会话、资料、任务、派生产物和缓存必须以 `user_id` 为服务端边界；前端不得提交或决定所有者。旧单管理员数据迁移到首个用户后，才开放邮箱注册/登录。身份演进见 [ADR 0007](decisions/0007-verified-identity-boundary.md)。大陆手机号认证使用独立身份/挑战表和 `PhoneSender` 端口；尚无供应商适配器，`cmd/server` 不注入服务，详见 [ADR 0008](decisions/0008-mainland-phone-foundation.md)。
 
 ## 多用户、高并发与高可用目标
 

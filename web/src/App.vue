@@ -9,10 +9,12 @@ const username = ref('')
 const loginName = ref('')
 const password = ref('')
 const emailAddress = ref('')
+const phoneNumber = ref('')
 const verificationCode = ref('')
-type EmailAuthMode = 'login' | 'register' | 'password'
+type EmailAuthMode = 'login' | 'register' | 'phone-login' | 'phone-register' | 'password'
 const emailAuthMode = ref<EmailAuthMode>('password')
 const emailVerificationAvailable = ref(false)
+const phoneVerificationAvailable = ref(false)
 const requestingCode = ref(false)
 const codeRequested = ref(false)
 // 各操作分别记录忙碌状态：上传不应让搜索和退出按钮无故禁用。
@@ -195,12 +197,16 @@ async function loadTagSuggestions(searchValue = '') {
 
 // checkSession 在首屏询问服务端会话状态，决定展示登录页还是资料库。
 async function checkSession() {
-  // 认证能力和会话都以服务端为准；SMTP 未配置时强制回退到兼容密码入口。
+  // 认证能力和会话都以服务端为准；未配置发送器时隐藏对应验证码入口。
   try {
-    emailVerificationAvailable.value = (await api.authCapabilities()).email_verification
+    const capabilities = await api.authCapabilities()
+    emailVerificationAvailable.value = capabilities.email_verification
+    phoneVerificationAvailable.value = capabilities.phone_verification
     if (emailVerificationAvailable.value) emailAuthMode.value = 'login'
+    else if (phoneVerificationAvailable.value) emailAuthMode.value = 'phone-login'
   } catch {
     emailVerificationAvailable.value = false
+    phoneVerificationAvailable.value = false
     emailAuthMode.value = 'password'
   }
   // 页面刷新后先确认 HttpOnly Cookie 是否仍有效；不能从本地存储推断登录身份。
@@ -277,6 +283,40 @@ function switchEmailAuthMode(mode: EmailAuthMode) {
   codeRequested.value = false
   error.value = ''
   notice.value = ''
+}
+
+// requestPhoneCode 在功能开启时按当前注册或登录模式请求短信，保留统一响应避免枚举。
+async function requestPhoneCode() {
+  requestingCode.value = true
+  error.value = ''
+  try {
+    if (emailAuthMode.value === 'phone-register') await api.requestPhoneRegistrationCode(phoneNumber.value)
+    else await api.requestPhoneLoginCode(phoneNumber.value)
+    codeRequested.value = true
+    notice.value = '如果手机号符合当前流程且短信服务可用，验证码会发送到手机。'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '验证码请求失败'
+  } finally {
+    requestingCode.value = false
+  }
+}
+
+// loginWithPhone 在验证码验证成功后使用原有的私有资料加载流程。
+async function loginWithPhone() {
+  loggingIn.value = true
+  error.value = ''
+  try {
+    const result = emailAuthMode.value === 'phone-register'
+      ? await api.registerWithPhoneCode(phoneNumber.value, verificationCode.value)
+      : await api.loginWithPhoneCode(phoneNumber.value, verificationCode.value)
+    username.value = result.username
+    verificationCode.value = ''
+    await Promise.all([loadResources(), loadTagSuggestions(), loadRecent()])
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '手机号验证失败'
+  } finally {
+    loggingIn.value = false
+  }
 }
 
 // logout 先让服务端撤销会话，再清理页面上的个人资料状态。
@@ -781,6 +821,10 @@ onUnmounted(() => {
                 <button type="button" :class="{ active: emailAuthMode === 'login' }" role="tab" :aria-selected="emailAuthMode === 'login'" @click="switchEmailAuthMode('login')">邮箱登录</button>
                 <button type="button" :class="{ active: emailAuthMode === 'register' }" role="tab" :aria-selected="emailAuthMode === 'register'" @click="switchEmailAuthMode('register')">邮箱注册</button>
               </template>
+              <template v-if="phoneVerificationAvailable">
+                <button type="button" :class="{ active: emailAuthMode === 'phone-login' }" role="tab" :aria-selected="emailAuthMode === 'phone-login'" @click="switchEmailAuthMode('phone-login')">手机登录</button>
+                <button type="button" :class="{ active: emailAuthMode === 'phone-register' }" role="tab" :aria-selected="emailAuthMode === 'phone-register'" @click="switchEmailAuthMode('phone-register')">手机注册</button>
+              </template>
               <button type="button" :class="{ active: emailAuthMode === 'password' }" role="tab" :aria-selected="emailAuthMode === 'password'" @click="switchEmailAuthMode('password')">密码登录</button>
             </div>
             <form v-if="emailAuthMode === 'password'" class="login-form" @submit.prevent="login">
@@ -788,6 +832,14 @@ onUnmounted(() => {
               <label for="password">密码</label><input id="password" v-model="password" type="password" autocomplete="current-password" required placeholder="输入密码" />
               <p v-if="error" class="form-error" role="alert">{{ error }}</p>
               <button class="primary-button" type="submit" :disabled="loggingIn">{{ loggingIn ? '正在进入…' : '进入资料库' }} <span aria-hidden="true">↗</span></button>
+            </form>
+            <form v-else-if="phoneVerificationAvailable && (emailAuthMode === 'phone-login' || emailAuthMode === 'phone-register')" class="login-form" @submit.prevent="loginWithPhone">
+              <label for="phone">中国大陆手机号</label><input id="phone" v-model="phoneNumber" type="tel" inputmode="tel" autocomplete="tel-national" pattern="(?:1[3-9][0-9]{9}|\+861[3-9][0-9]{9})" maxlength="14" required placeholder="13800138000" />
+              <div class="code-field"><label for="phone-verification-code">短信验证码</label><button type="button" class="code-button" :disabled="requestingCode || !phoneNumber" @click="requestPhoneCode">{{ requestingCode ? '发送中…' : codeRequested ? '重新获取' : '获取验证码' }}</button></div>
+              <input id="phone-verification-code" v-model="verificationCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="输入 6 位验证码" />
+              <p class="form-hint">{{ emailAuthMode === 'phone-register' ? '验证成功后创建独立的私有资料空间。' : '验证码短时有效，且只能使用一次。' }}</p>
+              <p v-if="error" class="form-error" role="alert">{{ error }}</p><p v-if="notice" class="form-notice" role="status">{{ notice }}</p>
+              <button class="primary-button" type="submit" :disabled="loggingIn">{{ loggingIn ? '验证中…' : emailAuthMode === 'phone-register' ? '注册并进入' : '验证并进入' }} <span aria-hidden="true">↗</span></button>
             </form>
             <form v-else-if="emailVerificationAvailable" class="login-form" @submit.prevent="loginWithEmail">
               <label for="email">邮箱</label><input id="email" v-model="emailAddress" type="email" autocomplete="email" required placeholder="name@example.com" />

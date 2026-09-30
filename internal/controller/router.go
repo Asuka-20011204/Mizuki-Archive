@@ -21,6 +21,7 @@ type Config struct {
 	Processing        *service.Processing
 	Auth              *service.Auth
 	EmailAuth         *service.EmailAuth
+	PhoneAuth         *service.PhoneAuth
 	Origin            string
 	SecureCookie      bool
 	// TrustProxyHeaders 仅应在 API 不直接暴露、且前置代理会覆盖 X-Real-IP 时开启。
@@ -65,7 +66,7 @@ func New(config Config) (*gin.Engine, error) {
 	})
 	// 前端先读取能力而不是猜测环境配置；未配置 SMTP 时不会展示不可用的邮箱入口。
 	engine.GET("/api/auth/capabilities", func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, gin.H{"email_verification": config.EmailAuth != nil})
+		ctx.JSON(http.StatusOK, gin.H{"email_verification": config.EmailAuth != nil, "phone_verification": config.PhoneAuth != nil})
 	})
 	engine.POST("/api/login", handler.login)
 	if config.EmailAuth != nil {
@@ -74,6 +75,13 @@ func New(config Config) (*gin.Engine, error) {
 		engine.POST("/api/email/register", handler.registerWithEmailCode)
 		engine.POST("/api/email/login/request", handler.requestEmailLoginCode)
 		engine.POST("/api/email/login", handler.loginWithEmailCode)
+	}
+	if config.PhoneAuth != nil {
+		// 未注入真实短信发送器时不暴露路由，能力探测也明确返回关闭。
+		engine.POST("/api/phone/register/request", handler.requestPhoneRegistrationCode)
+		engine.POST("/api/phone/register", handler.registerWithPhoneCode)
+		engine.POST("/api/phone/login/request", handler.requestPhoneLoginCode)
+		engine.POST("/api/phone/login", handler.loginWithPhoneCode)
 	}
 	private := engine.Group("/api", handler.requireSession)
 	// 身份回调只在会话中间件通过后返回服务端用户名，不信任浏览器提交的身份。

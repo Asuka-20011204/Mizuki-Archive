@@ -73,6 +73,7 @@ export interface ProcessingJob {
 // AuthCapabilities 描述服务端当前公开的登录能力，避免前端展示未配置完成的注册入口。
 export interface AuthCapabilities {
   email_verification: boolean
+  phone_verification: boolean
 }
 // ApiError 只描述前端需要的安全错误消息，不依赖服务端内部异常细节。
 interface ApiError {
@@ -160,6 +161,26 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, code }),
+    }),
+  // requestPhoneRegistrationCode 在服务端启用短信能力后请求大陆手机号注册验证码。
+  requestPhoneRegistrationCode: (phone: string) =>
+    request<{ message: string }>('/phone/register/request', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }),
+    }),
+  // registerWithPhoneCode 核验短信验证码并使用服务端签发的会话。
+  registerWithPhoneCode: (phone: string, code: string) =>
+    request<{ username: string }>('/phone/register', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code }),
+    }),
+  // requestPhoneLoginCode 对未知号码也保持与服务端相同的统一受理行为。
+  requestPhoneLoginCode: (phone: string) =>
+    request<{ message: string }>('/phone/login/request', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }),
+    }),
+  // loginWithPhoneCode 仅提交手机号和一次性验证码，不传用户身份或资料归属。
+  loginWithPhoneCode: (phone: string, code: string) =>
+    request<{ username: string }>('/phone/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code }),
     }),
   // logout 请求服务端撤销会话，单纯隐藏页面不足以完成退出。
   logout: () => request<void>('/logout', { method: 'POST' }),

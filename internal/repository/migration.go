@@ -40,3 +40,8 @@ var externalResourcesMigration string
 //
 //go:embed migrations/011_inbox.sql
 var inboxMigration string
+
+// 大陆手机号账号与邮箱账号使用不同唯一索引和挑战表，迁移在 API 上线前执行。
+//
+//go:embed migrations/012_mainland_phone_identity.sql
+var mainlandPhoneIdentityMigration string

@@ -37,6 +37,8 @@ go run ./cmd/server
 
 ### 可选：启用邮箱注册/登录
 
+`/api/auth/capabilities` 另返回 `phone_verification`；目前无真实短信发送器，值固定为 `false`，登录页不会展示手机入口。没有手机注册环境开关，不能通过设置虚构凭据启用模拟短信；详见 [ADR 0008](decisions/0008-mainland-phone-foundation.md)。
+
 先准备支持 STARTTLS（587）或隐式 TLS（465）的 SMTP 服务，在 `.env` 完整填写 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM` 和至少 32 字节的随机 `EMAIL_CODE_SECRET`，然后重启 API。只配置一部分会让服务启动失败，避免前端显示不可用入口；不配置则保留兼容密码登录。验证码不会写入日志或数据库明文。重启后可先执行 `Invoke-WebRequest http://127.0.0.1:8080/api/auth/capabilities`，确认响应中的 `email_verification` 为 `true`；浏览器登录页会显示“邮箱登录/邮箱注册”入口，验证码只能消费一次，退出后原会话立即失效。若 SMTP 暂未准备好，使用兼容密码登录，不要在日志或页面中手工填写验证码。
 
 开发阶段没有外部 SMTP 时，可以使用仓库提供的 Mailpit 捕获环境。该 profile 只接受测试凭据，并使用仓库外的本机自签名证书强制 STARTTLS；证书只用于环回验收，不能复制到生产：

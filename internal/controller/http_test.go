@@ -199,7 +199,7 @@ func TestAuthCapabilitiesReflectConfiguration(t *testing.T) {
 	server, _, _ := testServer(t)
 	withoutEmail := httptest.NewRecorder()
 	server.ServeHTTP(withoutEmail, httptest.NewRequest(http.MethodGet, "/api/auth/capabilities", nil))
-	if withoutEmail.Code != http.StatusOK || withoutEmail.Body.String() != `{"email_verification":false}` {
+	if withoutEmail.Code != http.StatusOK || withoutEmail.Body.String() != `{"email_verification":false,"phone_verification":false}` {
 		t.Fatalf("without email capability = %d %s", withoutEmail.Code, withoutEmail.Body.String())
 	}
 
@@ -221,8 +221,23 @@ func TestAuthCapabilitiesReflectConfiguration(t *testing.T) {
 	}
 	withEmailResponse := httptest.NewRecorder()
 	withEmail.ServeHTTP(withEmailResponse, httptest.NewRequest(http.MethodGet, "/api/auth/capabilities", nil))
-	if withEmailResponse.Code != http.StatusOK || withEmailResponse.Body.String() != `{"email_verification":true}` {
+	if withEmailResponse.Code != http.StatusOK || withEmailResponse.Body.String() != `{"email_verification":true,"phone_verification":false}` {
 		t.Fatalf("with email capability = %d %s", withEmailResponse.Code, withEmailResponse.Body.String())
+	}
+}
+
+// TestPhoneRoutesStayClosedWithoutSender 验证未注入短信服务时 API 不提供可误用的半成品入口。
+func TestPhoneRoutesStayClosedWithoutSender(t *testing.T) {
+	server, _, _ := testServer(t)
+	for _, path := range []string{"/api/phone/register/request", "/api/phone/register", "/api/phone/login/request", "/api/phone/login"} {
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"phone":"13800138000"}`))
+		request.Header.Set("Origin", "http://localhost:5173")
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("%s: status=%d", path, response.Code)
+		}
 	}
 }
 

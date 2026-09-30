@@ -59,6 +59,13 @@ type IdentityStore interface {
 	FinalizeOwnership(context.Context, string) error
 }
 
+// PhoneIdentityStore 在既有会话身份之上提供独立、唯一的手机号创建和查找。
+type PhoneIdentityStore interface {
+	IdentityStore
+	CreatePhoneUser(context.Context, string) (model.User, error)
+	GetUserByPhone(context.Context, string) (model.User, error)
+}
+
 type userIDContextKey struct{}
 
 // WithUserID 把已由服务端会话确认的用户 ID 放入请求上下文，Controller 不接受客户端提交的所有者字段。
@@ -77,6 +84,13 @@ type EmailChallengeStore interface {
 	ReserveEmailChallenge(context.Context, model.EmailChallenge, time.Time) (bool, error)
 	ConsumeEmailChallenge(context.Context, string, string, string, time.Time) (bool, error)
 	DeleteEmailChallenge(context.Context, string, string, string) error
+}
+
+// PhoneChallengeStore 负责数据库中的短信验证码限频、一次性消费和失败清理。
+type PhoneChallengeStore interface {
+	ReservePhoneChallenge(context.Context, model.PhoneChallenge, time.Time) (bool, error)
+	ConsumePhoneChallenge(context.Context, string, string, string, time.Time) (bool, error)
+	DeletePhoneChallenge(context.Context, string, string, string) error
 }
 
 // ProcessingStore 提供持久任务和派生产物的数据库边界，Worker 与 HTTP Service 共用它。
