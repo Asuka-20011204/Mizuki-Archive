@@ -53,7 +53,7 @@ func (store *MySQL) ListPendingResources(ctx context.Context, limit, offset int)
 		return nil, err
 	}
 	var rows []resourceRow
-	if err := store.db.WithContext(ctx).Table("resources").Where("user_id = ? AND organization_status = ? AND deleted_at IS NULL", owner, "pending").Order("created_at DESC, id DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+	if err := store.db.WithContext(ctx).Table("resources").Where("user_id = ? AND organization_status = ? AND deleted_at IS NULL AND archived_at IS NULL", owner, "pending").Order("created_at DESC, id DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list pending files: %w", err)
 	}
 	tags, err := store.loadTags(ctx, resourceIDs(rows))
@@ -78,7 +78,7 @@ func (store *MySQL) ListPendingExternalResources(ctx context.Context, limit, off
 		return nil, err
 	}
 	var rows []externalResourceRow
-	if err := store.db.WithContext(ctx).Table("external_resources").Where("user_id = ? AND organization_status = ?", owner, "pending").Order("created_at DESC, id DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+	if err := store.db.WithContext(ctx).Table("external_resources").Where("user_id = ? AND organization_status = ? AND archived_at IS NULL", owner, "pending").Order("created_at DESC, id DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list pending external resources: %w", err)
 	}
 	items := make([]model.ExternalResource, 0, len(rows))

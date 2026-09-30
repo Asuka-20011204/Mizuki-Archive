@@ -44,6 +44,7 @@ Mizuki Archive/
 │   │   ├── inbox_controller.go         # 待整理列表与状态更新 HTTP 边界
 │   │   ├── batch_tags_controller.go    # 当前用户混合来源批量标签 HTTP 边界
 │   │   ├── batch_favorites_controller.go # 混合来源收藏的目标状态与请求体校验
+│   │   ├── archive_controller.go      # 私有归档列表及批量目标状态 HTTP 边界
 │   │   ├── search_controller.go       # 私有统一搜索与参数校验 HTTP 边界
 │   │   ├── saved_search_controller.go # 私有检索视图 CRUD HTTP 边界
 │   │   └── processing_controller.go   # 任务创建、任务查看和派生文件下载
@@ -56,6 +57,7 @@ Mizuki Archive/
 │   │   ├── inbox.go                   # 整理状态、分页与用户身份约束
 │   │   ├── batch_tags.go              # 批次/标签校验与真实变化项
 │   │   ├── batch_favorites.go         # 混合来源收藏的身份与选择校验
+│   │   ├── archive.go                 # 归档分页和恢复的业务边界
 │   │   ├── search.go                  # 搜索输入限制、来源分组与分页
 │   │   ├── saved_search.go            # 视图名称、条件和随机 ID 校验
 │   │   └── processing.go              # 任务幂等、Worker 执行和派生文件
@@ -66,6 +68,8 @@ Mizuki Archive/
 │       ├── inbox.go                   # 两类待整理查询、可重试迁移与用户范围更新
 │       ├── batch_tags.go              # 文件与卡片标签的事务增删、归属与上限
 │       ├── batch_favorites.go         # 两类收藏在同一事务内更新
+│       ├── archive.go                 # 两类归档的事务更新及用户范围列表
+│       ├── archive_migration.go       # 可重试归档列与索引迁移
 │       ├── processing.go              # GORM 的任务与派生产物实现
 │       ├── outbox.go                  # 事务 Outbox 及孤儿任务补偿
 │       ├── migration.go               # 内嵌版本化 SQL 迁移
@@ -89,11 +93,13 @@ Mizuki Archive/
 │           ├── 012_mainland_phone_identity.sql # 手机挑战表；用户列和索引可重试创建
 │           ├── 013_duplicate_hints.sql # 查重迁移登记；DDL 和回填由准备函数执行
 │           ├── 014_saved_search_views.sql # 每用户保存组合检索条件
-│           └── 015_external_resource_favorite.sql # 外部卡片收藏列，可重试检查
+│           ├── 015_external_resource_favorite.sql # 外部卡片收藏列，可重试检查
+│           └── 016_resource_archive.sql # 文件与外部卡片的归档时间列
 ├── web/                               # Vue 3 + TypeScript View
 │   ├── src/SearchPanel.vue            # 组合筛选、保存视图与来源分页
 │   ├── src/search-filter.ts           # 前端筛选预校验（服务端最终校验）
 │   ├── src/InboxPanel.vue             # 统一查看两类待整理条目
+│   ├── src/ArchivePanel.vue           # 分来源分页查看归档项并批量恢复
 │   ├── src/ExternalResourcePanel.vue  # 独立卡片录入、搜索和人工维护
 │   ├── src/share-parser.ts            # 浏览器内解析粘贴文本，不发网络请求
 │   ├── tests/share-parser.test.mjs    # Node 内置测试运行器校验解析与危险输入

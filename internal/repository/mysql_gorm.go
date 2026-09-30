@@ -38,6 +38,7 @@ type resourceRow struct {
 	SHA256             string     `gorm:"column:sha256"`
 	StorageKey         string     `gorm:"column:storage_key"`
 	Favorite           bool       `gorm:"column:favorite"`
+	ArchivedAt         *time.Time `gorm:"column:archived_at"`
 	OrganizationStatus string     `gorm:"column:organization_status"`
 	DeletedAt          *time.Time `gorm:"column:deleted_at"`
 	CreatedAt          time.Time  `gorm:"column:created_at"`
@@ -59,7 +60,7 @@ type tagRow struct {
 
 // resourceFromRow 将数据库行转换为业务模型，隔离 GORM 字段与对外 JSON 结构。
 func resourceFromRow(row resourceRow) model.Resource {
-	return model.Resource{ID: row.ID, OwnerID: row.UserID, Name: row.Name, OriginalName: row.OriginalName, Kind: row.Kind, MIME: row.MIME, Size: row.Size, SHA256: row.SHA256, StorageKey: row.StorageKey, Favorite: row.Favorite, OrganizationStatus: row.OrganizationStatus, Tags: []string{}, CreatedAt: row.CreatedAt}
+	return model.Resource{ID: row.ID, OwnerID: row.UserID, Name: row.Name, OriginalName: row.OriginalName, Kind: row.Kind, MIME: row.MIME, Size: row.Size, SHA256: row.SHA256, StorageKey: row.StorageKey, Favorite: row.Favorite, Archived: row.ArchivedAt != nil, OrganizationStatus: row.OrganizationStatus, Tags: []string{}, CreatedAt: row.CreatedAt}
 }
 
 // scopeResources 把 HTTP 请求限制到服务端会话注入的用户；Worker 或迁移上下文不附加用户条件。
@@ -204,9 +205,9 @@ func (store *MySQL) ReplaceResourceTags(ctx context.Context, id string, names []
 func (store *MySQL) ListTags(ctx context.Context, search string) ([]string, error) {
 	var rows []tagRow
 	database := store.db.WithContext(ctx).Table("tags")
-	database = database.Where("EXISTS (SELECT 1 FROM resource_tags rt JOIN resources r ON r.id = rt.resource_id WHERE rt.tag_id = tags.id AND r.deleted_at IS NULL)")
+	database = database.Where("EXISTS (SELECT 1 FROM resource_tags rt JOIN resources r ON r.id = rt.resource_id WHERE rt.tag_id = tags.id AND r.deleted_at IS NULL AND r.archived_at IS NULL)")
 	if userID, ok := UserIDFromContext(ctx); ok {
-		database = database.Where("EXISTS (SELECT 1 FROM resource_tags rt2 JOIN resources r2 ON r2.id = rt2.resource_id WHERE rt2.tag_id = tags.id AND r2.user_id = ? AND r2.deleted_at IS NULL)", userID)
+		database = database.Where("EXISTS (SELECT 1 FROM resource_tags rt2 JOIN resources r2 ON r2.id = rt2.resource_id WHERE rt2.tag_id = tags.id AND r2.user_id = ? AND r2.deleted_at IS NULL AND r2.archived_at IS NULL)", userID)
 	}
 	if search != "" {
 		database = database.Where("normalized_name LIKE CONCAT('%', ?, '%')", search)
@@ -234,7 +235,7 @@ func (store *MySQL) ListResources(ctx context.Context, query model.ListQuery) ([
 	if query.Tag != "" {
 		database = database.Where("EXISTS (SELECT 1 FROM resource_tags rt JOIN tags t ON t.id = rt.tag_id WHERE rt.resource_id = resources.id AND t.normalized_name = ?)", query.Tag)
 	}
-	database = database.Where("resources.deleted_at IS NULL")
+	database = database.Where("resources.deleted_at IS NULL AND resources.archived_at IS NULL")
 	var rows []resourceRow
 	if err := database.Order("created_at DESC").Order("id DESC").Limit(query.Limit).Offset(query.Offset).Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list resources: %w", err)
@@ -340,6 +341,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 13, name: "duplicate_hints", sql: duplicateHintsMigration, prepare: ensureDuplicateSchema},
 		{version: 14, name: "saved_search_views", sql: savedSearchViewsMigration},
 		{version: 15, name: "external_resource_favorite", prepare: ensureExternalResourceFavoriteSchema},
+		{version: 16, name: "resource_archive", prepare: ensureArchiveSchema},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int

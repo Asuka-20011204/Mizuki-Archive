@@ -188,7 +188,7 @@ func (resources *Resources) Recent(ctx context.Context, limit int64) ([]model.Re
 	items := make([]model.Resource, 0, len(ids))
 	for _, id := range ids {
 		resource, getErr := resources.store.GetResource(ctx, id)
-		if getErr == nil {
+		if getErr == nil && !resource.Archived {
 			items = append(items, resource)
 		}
 	}

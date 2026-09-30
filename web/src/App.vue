@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import ArchivePanel from './ArchivePanel.vue'
 import ExternalResourcePanel from './ExternalResourcePanel.vue'
 import InboxPanel from './InboxPanel.vue'
 import SearchPanel from './SearchPanel.vue'
@@ -32,6 +33,7 @@ const error = ref('')
 const notice = ref('')
 const resources = ref<Resource[]>([])
 const inboxRefreshKey = ref(0)
+const archiveRefreshKey = ref(0)
 const externalPanel = ref<InstanceType<typeof ExternalResourcePanel> | null>(null)
 const recentResources = ref<Resource[]>([])
 const selected = ref<Resource | null>(null)
@@ -384,6 +386,16 @@ async function upload(event: Event) {
 // refreshInbox 通知独立面板读取服务端最新的待整理列表，不在前端拼装归属状态。
 function refreshInbox() {
   inboxRefreshKey.value++
+}
+
+// refreshAfterArchive 让活动资料、最近访问和各独立面板重新读取服务端状态。
+function refreshAfterArchive() {
+  refreshInbox()
+  archiveRefreshKey.value++
+  void loadResources()
+  void loadRecent()
+  void loadTagSuggestions()
+  externalPanel.value?.refresh()
 }
 
 // openExternalFromInbox 直接打开目标卡片的编辑表单，避免用户再次搜索同一条记录。
@@ -895,8 +907,9 @@ onUnmounted(() => {
           <div class="archive-stats"><div v-for="stat in archiveStats" :key="stat.label" class="archive-stat"><strong>{{ stat.value }}</strong><span>{{ stat.label }}</span></div></div>
         </section>
 
-        <SearchPanel @open-file="selectResource" @edit-external="openExternalFromInbox" />
-        <InboxPanel :refresh-key="inboxRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" />
+        <SearchPanel :refresh-key="archiveRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" />
+        <InboxPanel :refresh-key="inboxRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @archived="refreshAfterArchive" />
+        <ArchivePanel :refresh-key="archiveRefreshKey" @restored="refreshAfterArchive" />
         <ExternalResourcePanel ref="externalPanel" @changed="refreshInbox" />
 
         <nav class="filter-nav" aria-label="按资料类型筛选">

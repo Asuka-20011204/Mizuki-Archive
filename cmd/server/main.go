@@ -219,7 +219,11 @@ func main() {
 	if err != nil {
 		log.Fatal("cannot prepare batch favorite service")
 	}
-	router, err := controller.New(controller.Config{Resources: resources, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, BatchTags: batchTags, BatchFavorites: batchFavorites, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
+	archive, err := service.NewArchive(store)
+	if err != nil {
+		log.Fatal("cannot prepare archive service")
+	}
+	router, err := controller.New(controller.Config{Resources: resources, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, BatchTags: batchTags, BatchFavorites: batchFavorites, Archive: archive, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}

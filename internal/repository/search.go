@@ -14,7 +14,7 @@ func (store *MySQL) SearchFiles(ctx context.Context, filter model.SearchFilter, 
 		return nil, err
 	}
 	var rows []resourceRow
-	database := store.db.WithContext(ctx).Table("resources").Where("resources.user_id = ? AND resources.deleted_at IS NULL", owner)
+	database := store.db.WithContext(ctx).Table("resources").Where("resources.user_id = ? AND resources.deleted_at IS NULL AND resources.archived_at IS NULL", owner)
 	if filter.Query != "" {
 		database = database.Where(`(LOCATE(?, resources.name) > 0 OR LOCATE(?, resources.original_name) > 0 OR EXISTS (
 		SELECT 1 FROM resource_tags rt JOIN tags t ON t.id = rt.tag_id
@@ -56,7 +56,7 @@ func (store *MySQL) SearchExternal(ctx context.Context, filter model.SearchFilte
 		return nil, err
 	}
 	var rows []externalResourceRow
-	database := store.db.WithContext(ctx).Table("external_resources").Where("external_resources.user_id = ?", owner)
+	database := store.db.WithContext(ctx).Table("external_resources").Where("external_resources.user_id = ? AND external_resources.archived_at IS NULL", owner)
 	if filter.Query != "" {
 		pattern := externalSearchPattern(filter.Query)
 		database = database.Where(`(title LIKE ? ESCAPE '!' OR location LIKE ? ESCAPE '!' OR resource_type LIKE ? ESCAPE '!'

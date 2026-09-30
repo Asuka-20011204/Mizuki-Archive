@@ -12,19 +12,20 @@ import (
 
 // externalResourceRow 只承担 GORM 字段映射；所有查询都必须显式限定 user_id。
 type externalResourceRow struct {
-	ID                 string    `gorm:"column:id;primaryKey"`
-	UserID             string    `gorm:"column:user_id"`
-	Title              string    `gorm:"column:title"`
-	Location           string    `gorm:"column:location"`
-	LocationKey        *string   `gorm:"column:location_key"`
-	ResourceType       string    `gorm:"column:resource_type"`
-	Version            string    `gorm:"column:version"`
-	Note               string    `gorm:"column:note"`
-	Status             string    `gorm:"column:status"`
-	Favorite           bool      `gorm:"column:favorite"`
-	OrganizationStatus string    `gorm:"column:organization_status"`
-	CreatedAt          time.Time `gorm:"column:created_at"`
-	UpdatedAt          time.Time `gorm:"column:updated_at"`
+	ID                 string     `gorm:"column:id;primaryKey"`
+	UserID             string     `gorm:"column:user_id"`
+	Title              string     `gorm:"column:title"`
+	Location           string     `gorm:"column:location"`
+	LocationKey        *string    `gorm:"column:location_key"`
+	ResourceType       string     `gorm:"column:resource_type"`
+	Version            string     `gorm:"column:version"`
+	Note               string     `gorm:"column:note"`
+	Status             string     `gorm:"column:status"`
+	Favorite           bool       `gorm:"column:favorite"`
+	ArchivedAt         *time.Time `gorm:"column:archived_at"`
+	OrganizationStatus string     `gorm:"column:organization_status"`
+	CreatedAt          time.Time  `gorm:"column:created_at"`
+	UpdatedAt          time.Time  `gorm:"column:updated_at"`
 }
 
 type externalTagRow struct {
@@ -43,7 +44,7 @@ func externalOwner(ctx context.Context) (string, error) {
 
 // externalFromRow 把数据库行转换为 API 模型，确保空标签始终序列化为数组。
 func externalFromRow(row externalResourceRow) model.ExternalResource {
-	return model.ExternalResource{ID: row.ID, Title: row.Title, Location: row.Location, ResourceType: row.ResourceType, Version: row.Version, Note: row.Note, Status: row.Status, Favorite: row.Favorite, OrganizationStatus: row.OrganizationStatus, Tags: []string{}, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	return model.ExternalResource{ID: row.ID, Title: row.Title, Location: row.Location, ResourceType: row.ResourceType, Version: row.Version, Note: row.Note, Status: row.Status, Favorite: row.Favorite, Archived: row.ArchivedAt != nil, OrganizationStatus: row.OrganizationStatus, Tags: []string{}, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
 }
 
 // writeExternalTags 在同一事务写入已校验的标签，任何一步失败都回滚卡片变动。
@@ -126,7 +127,7 @@ func (store *MySQL) ListExternalResources(ctx context.Context, query string) ([]
 	if err != nil {
 		return nil, err
 	}
-	db := store.db.WithContext(ctx).Table("external_resources").Where("user_id = ?", owner)
+	db := store.db.WithContext(ctx).Table("external_resources").Where("user_id = ? AND archived_at IS NULL", owner)
 	if query != "" {
 		pattern := externalSearchPattern(query)
 		db = db.Where("(title LIKE ? ESCAPE '!' OR location LIKE ? ESCAPE '!')", pattern, pattern)

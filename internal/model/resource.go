@@ -17,6 +17,7 @@ type Resource struct {
 	DuplicateCheckUnavailable bool           `json:"duplicate_check_unavailable,omitempty"`
 	StorageKey                string         `json:"-"`
 	Favorite                  bool           `json:"favorite"`
+	Archived                  bool           `json:"archived"`
 	OrganizationStatus        string         `json:"organization_status"`
 	Tags                      []string       `json:"tags"`
 	CreatedAt                 time.Time      `json:"created_at"`

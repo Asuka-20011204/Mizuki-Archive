@@ -145,7 +145,7 @@ function statusLabel(status: ExternalResource['status']) {
 onMounted(loadExternalCards)
 
 // 将现有卡片的编辑动作暴露给同一资料页的待整理收件箱，不开放给未登录页面。
-defineExpose({ editCard })
+defineExpose({ editCard, refresh: loadExternalCards })
 </script>
 
 <template>

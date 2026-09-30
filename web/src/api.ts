@@ -10,6 +10,7 @@ export interface Resource {
   duplicate?: DuplicateHint
   duplicate_check_unavailable?: boolean
   favorite: boolean
+  archived: boolean
   organization_status: 'pending' | 'organized'
   tags: string[]
   created_at: string
@@ -27,6 +28,7 @@ export interface ExternalResource {
   note: string
   status: 'pending' | 'available' | 'uncertain' | 'broken' | 'downloaded'
   favorite: boolean
+  archived: boolean
   organization_status: 'pending' | 'organized'
   tags: string[]
   created_at: string
@@ -41,6 +43,14 @@ export type ExternalResourceInput = Pick<ExternalResource, 'title' | 'location' 
 
 // InboxPage 将文件和外部卡片区分展示，页码是两类来源各自的窗口。
 export interface InboxPage {
+  files: Resource[]
+  external_resources: ExternalResource[]
+  page: number
+  has_more: boolean
+}
+
+// ArchivePage 分别展示归档文件和外部卡片，原件仍受服务端会话保护。
+export interface ArchivePage {
   files: Resource[]
   external_resources: ExternalResource[]
   page: number
@@ -167,6 +177,13 @@ export const api = {
   batchUpdateFavorites: (items: InboxSelection[], favorite: boolean) =>
     request<{ count: number; changed: InboxSelection[] }>('/batch/favorites', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, favorite }),
+    }),
+  // listArchive 只读取当前用户的可恢复条目，服务端分别分页两类来源。
+  listArchive: (page: number) => request<{ data: ArchivePage }>(`/archive?${new URLSearchParams({ page: String(page) })}`),
+  // batchSetArchived 写入明确归档目标，重试不会意外翻转状态或删除原件。
+  batchSetArchived: (items: InboxSelection[], archived: boolean) =>
+    request<{ count: number; changed: InboxSelection[] }>('/batch/archive', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, archived }),
     }),
   // listExternalResources 只查询当前用户卡片，服务器限制返回数量。
   listExternalResources: (query = '') => request<{ data: ExternalResource[] }>(`/external-resources?${new URLSearchParams({ q: query })}`),

@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { api, type ExternalResource, type InboxSelection, type Resource } from './api'
 
 const props = defineProps<{ refreshKey: number }>()
-const emit = defineEmits<{ openFile: [resource: Resource]; editExternal: [resource: ExternalResource] }>()
+const emit = defineEmits<{ openFile: [resource: Resource]; editExternal: [resource: ExternalResource]; archived: [] }>()
 const files = ref<Resource[]>([])
 const externals = ref<ExternalResource[]>([])
 const page = ref(1)
@@ -21,6 +21,7 @@ const tagUndoMode = ref<'add' | 'remove'>('remove')
 const favoriteUndoItems = ref<InboxSelection[]>([])
 const batchFavoriteValue = ref(true)
 const favoriteUndoValue = ref(false)
+const archiveUndoItems = ref<InboxSelection[]>([])
 const error = ref('')
 const notice = ref('')
 let requestVersion = 0
@@ -207,6 +208,46 @@ async function undoLastFavoriteBatch() {
   }
 }
 
+// archiveSelected 将当前页选中的资料移出活动列表，保留原件和卡片供归档区恢复。
+async function archiveSelected() {
+  const chosen = visibleItems.value.filter((item) => selectedKeys.value.includes(selectionKey(item.source, item.id)))
+  if (!chosen.length || !window.confirm(`归档 ${chosen.length} 项资料？不会删除原件，之后可在归档区恢复。`)) return
+  batchBusy.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const result = await api.batchSetArchived(chosen, true)
+    archiveUndoItems.value = result.changed
+    notice.value = result.count ? `已归档 ${result.count} 项，可在此反向恢复或到归档区查看。` : '所选资料已在归档区。'
+    await loadInbox(page.value)
+    if (page.value > 1 && !files.value.length && !externals.value.length) await loadInbox(page.value - 1)
+    emit('archived')
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '归档失败，所选资料未修改'
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+// undoLastArchive 明确恢复上次实际变化项；并发修改时再次确认而不冒充版本化撤销。
+async function undoLastArchive() {
+  if (!archiveUndoItems.value.length || batchBusy.value) return
+  if (!window.confirm(`恢复 ${archiveUndoItems.value.length} 项资料？若其他设备随后更改了归档状态，可能覆盖其修改。`)) return
+  batchBusy.value = true
+  error.value = ''
+  try {
+    const result = await api.batchSetArchived(archiveUndoItems.value, false)
+    archiveUndoItems.value = []
+    notice.value = `已恢复 ${result.count} 项资料。`
+    await loadInbox(1)
+    emit('archived')
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '恢复失败，请重试'
+  } finally {
+    batchBusy.value = false
+  }
+}
+
 // changePage 只允许进入已知存在的下一页或前一页，翻页时不修改任何资料。
 function changePage(target: number) {
   if (target < 1 || loading.value || batchBusy.value || (target > page.value && !hasMore.value)) return
@@ -227,6 +268,7 @@ onMounted(() => { void loadInbox(1) })
     <div v-if="undoItems.length" class="inbox-batch-undo"><button class="secondary-button" type="button" :disabled="batchBusy || !!busyId" @click="undoLastBatch">撤销上一次批量整理（{{ undoItems.length }} 项）</button></div>
     <div v-if="tagUndoItems.length" class="inbox-batch-undo"><button class="secondary-button" type="button" :disabled="batchBusy || !!busyId" @click="undoLastTagBatch">反向恢复标签（{{ tagUndoItems.length }} 项，需确认）</button></div>
     <div v-if="favoriteUndoItems.length" class="inbox-batch-undo"><button class="secondary-button" type="button" :disabled="batchBusy || !!busyId" @click="undoLastFavoriteBatch">反向恢复收藏（{{ favoriteUndoItems.length }} 项）</button></div>
+    <div v-if="archiveUndoItems.length" class="inbox-batch-undo"><button class="secondary-button" type="button" :disabled="batchBusy || !!busyId" @click="undoLastArchive">恢复上次归档（{{ archiveUndoItems.length }} 项）</button></div>
     <p v-if="loading && !files.length && !externals.length" role="status">正在加载待整理内容…</p>
     <p v-else-if="!files.length && !externals.length && !error" class="inbox-empty">{{ page === 1 ? '目前没有待整理条目。新上传文件或新建外部卡片会出现在这里。' : '本页暂无条目，可返回上一页。' }}</p>
     <div v-if="files.length || externals.length" class="inbox-groups">
@@ -237,6 +279,7 @@ onMounted(() => { void loadInbox(1) })
       <button class="secondary-button" type="button" :disabled="loading || batchBusy || !!busyId" @click="selectVisible">选中本页前 50 项</button>
       <button class="secondary-button" type="button" :disabled="!selectedKeys.length || batchBusy || loading || !!busyId" @click="selectedKeys = []">清空选择</button>
       <button class="primary-button" type="button" :disabled="!selectedKeys.length || batchBusy || loading || !!busyId" @click="completeSelected">{{ batchBusy ? '整理中…' : `批量完成整理（${selectedKeys.length} 项）` }}</button>
+      <button class="secondary-button" type="button" :disabled="!selectedKeys.length || batchBusy || loading || !!busyId" @click="archiveSelected">归档所选（{{ selectedKeys.length }} 项）</button>
       <div class="inbox-batch-tag">
         <label for="batch-tag-input">标签</label>
         <input id="batch-tag-input" v-model="batchTag" maxlength="24" placeholder="例如：课程" />

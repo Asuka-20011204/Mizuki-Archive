@@ -46,7 +46,7 @@ func TestMySQLSetFavorite(t *testing.T) {
 		t.Fatalf("重复执行迁移失败: %v", err)
 	}
 	var migrationCount int64
-	if err := database.Table("schema_migrations").Count(&migrationCount).Error; err != nil || migrationCount != 15 {
+	if err := database.Table("schema_migrations").Count(&migrationCount).Error; err != nil || migrationCount != 16 {
 		t.Fatalf("迁移记录数量 = %d, error=%v", migrationCount, err)
 	}
 	transaction := database.Begin()

@@ -38,6 +38,13 @@ type BatchFavoriteStore interface {
 	BatchUpdateFavorites(context.Context, []model.InboxSelection, bool) ([]model.InboxSelection, error)
 }
 
+// ArchiveStore 负责两类资料的归档查询与原子恢复；归档不删除原件或改变整理状态。
+type ArchiveStore interface {
+	ListArchivedResources(context.Context, int, int) ([]model.Resource, error)
+	ListArchivedExternalResources(context.Context, int, int) ([]model.ExternalResource, error)
+	BatchSetArchived(context.Context, []model.InboxSelection, bool) ([]model.InboxSelection, error)
+}
+
 // ExternalResourceStore 单独管理外部卡片，避免修改已有文件仓储和测试替身的契约。
 type ExternalResourceStore interface {
 	CreateExternalResource(context.Context, model.ExternalResource) error

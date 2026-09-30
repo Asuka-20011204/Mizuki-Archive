@@ -60,3 +60,8 @@ var savedSearchViewsMigration string
 //
 //go:embed migrations/015_external_resource_favorite.sql
 var externalResourceFavoriteMigration string
+
+// 文件与外部卡片的归档时间独立于删除和整理状态；逐表检查后可从半途 DDL 重试。
+//
+//go:embed migrations/016_resource_archive.sql
+var resourceArchiveMigration string

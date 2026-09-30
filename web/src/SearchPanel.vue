@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { api, type ExternalResource, type Resource, type SavedSearch, type SearchFilter, type SearchResults } from './api'
 import { normalizeSearchInput } from './search-filter'
 
 const emit = defineEmits<{ openFile: [resource: Resource]; editExternal: [resource: ExternalResource] }>()
+const props = defineProps<{ refreshKey: number }>()
 const query = ref('')
 const filter = ref<SearchFilter>({ q: '', source: '', kind: '', tag: '', organization_status: '' })
 const submitted = ref<SearchFilter>({ ...filter.value })
@@ -114,6 +115,8 @@ async function deleteView(view: SavedSearch) {
 }
 
 onMounted(loadViews)
+// 归档或恢复后重新运行当前搜索，避免结果仍展示已经离开活动列表的资料。
+watch(() => props.refreshKey, () => { if (results.value || loading.value) void searchPage(results.value?.page ?? 1) })
 </script>
 
 <template>
