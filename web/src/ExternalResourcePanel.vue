@@ -3,6 +3,8 @@ import { nextTick, onMounted, ref } from 'vue'
 import { api, type ExternalResource, type ExternalResourceInput } from './api'
 import { parseShareText, ShareParseError } from './share-parser'
 
+const emit = defineEmits<{ changed: [] }>()
+
 const items = ref<ExternalResource[]>([])
 const query = ref('')
 const loading = ref(false)
@@ -71,6 +73,8 @@ function editCard(item: ExternalResource) {
   tagText.value = item.tags.join(', ')
   formOpen.value = true
   notice.value = ''
+  // 表单挂载后把键盘焦点交给标题，方便从待整理收件箱直接接续编辑。
+  void nextTick(() => titleInput.value?.focus())
 }
 
 // saveCard 提交完整卡片；输入错误和网络失败时保持表单供用户修改。
@@ -87,6 +91,7 @@ async function saveCard() {
     formOpen.value = false
     pastedText.value = ''
     notice.value = '卡片已保存'
+    emit('changed')
     await loadExternalCards()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '无法保存卡片'
@@ -103,6 +108,7 @@ async function removeCard(item: ExternalResource) {
   try {
     await api.deleteExternalResource(item.id)
     notice.value = '卡片已删除；外部原件不受影响'
+    emit('changed')
     await loadExternalCards()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '删除失败'
@@ -113,10 +119,13 @@ async function removeCard(item: ExternalResource) {
 
 // statusLabel 将服务端状态码映射成清楚的人工维护状态，不自动探测链接。
 function statusLabel(status: ExternalResource['status']) {
-  return { pending: '待整理', available: '可用', uncertain: '待确认', broken: '链接失效', downloaded: '已下载' }[status]
+  return { pending: '未核对', available: '可用', uncertain: '待确认', broken: '链接失效', downloaded: '已下载' }[status]
 }
 
 onMounted(loadExternalCards)
+
+// 将现有卡片的编辑动作暴露给同一资料页的待整理收件箱，不开放给未登录页面。
+defineExpose({ editCard })
 </script>
 
 <template>
@@ -145,7 +154,7 @@ onMounted(loadExternalCards)
       <label>资源类型 <input v-model="draft.resource_type" required maxlength="40" placeholder="如游戏、课程、文档" /></label>
       <label>版本 <input v-model="draft.version" maxlength="80" /></label>
       <label>标签（用逗号分隔，最多 10 个） <input v-model="tagText" placeholder="例如：教程, 待看" /></label>
-      <label>状态 <select v-model="draft.status"><option value="pending">待整理</option><option value="available">可用</option><option value="uncertain">待确认</option><option value="broken">链接失效</option><option value="downloaded">已下载</option></select></label>
+      <label>链接状态 <select v-model="draft.status"><option value="pending">未核对</option><option value="available">可用</option><option value="uncertain">待确认</option><option value="broken">链接失效</option><option value="downloaded">已下载</option></select></label>
       <label class="external-note">备注 <textarea v-model="draft.note" maxlength="2000" rows="3" /></label>
       <div class="external-actions"><button class="primary-button" type="submit" :disabled="busy">{{ busy ? '保存中…' : '保存卡片' }}</button><button class="secondary-button" type="button" :disabled="busy" @click="formOpen = false">取消</button></div>
     </form>

@@ -92,6 +92,7 @@ func (resources *ExternalResources) Create(ctx context.Context, value model.Exte
 		return model.ExternalResource{}, err
 	}
 	value.ID = hex.EncodeToString(identifier)
+	value.OrganizationStatus = "pending"
 	value.CreatedAt = time.Now().UTC()
 	value.UpdatedAt = value.CreatedAt
 	if err := resources.store.CreateExternalResource(ctx, value); err != nil {

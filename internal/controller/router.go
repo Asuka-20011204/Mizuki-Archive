@@ -17,6 +17,7 @@ import (
 type Config struct {
 	Resources         *service.Resources
 	ExternalResources *service.ExternalResources
+	Inbox             *service.Inbox
 	Processing        *service.Processing
 	Auth              *service.Auth
 	EmailAuth         *service.EmailAuth
@@ -81,6 +82,10 @@ func New(config Config) (*gin.Engine, error) {
 	})
 	private.POST("/logout", handler.logout)
 	private.POST("/resources", handler.upload)
+	if config.Inbox != nil {
+		private.GET("/inbox", handler.listInbox)
+		private.PATCH("/inbox/:source/:id", handler.setInboxStatus)
+	}
 	if config.ExternalResources != nil {
 		private.POST("/external-resources", handler.createExternalResource)
 		private.GET("/external-resources", handler.listExternalResources)

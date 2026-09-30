@@ -12,16 +12,17 @@ import (
 
 // externalResourceRow 只承担 GORM 字段映射；所有查询都必须显式限定 user_id。
 type externalResourceRow struct {
-	ID           string    `gorm:"column:id;primaryKey"`
-	UserID       string    `gorm:"column:user_id"`
-	Title        string    `gorm:"column:title"`
-	Location     string    `gorm:"column:location"`
-	ResourceType string    `gorm:"column:resource_type"`
-	Version      string    `gorm:"column:version"`
-	Note         string    `gorm:"column:note"`
-	Status       string    `gorm:"column:status"`
-	CreatedAt    time.Time `gorm:"column:created_at"`
-	UpdatedAt    time.Time `gorm:"column:updated_at"`
+	ID                 string    `gorm:"column:id;primaryKey"`
+	UserID             string    `gorm:"column:user_id"`
+	Title              string    `gorm:"column:title"`
+	Location           string    `gorm:"column:location"`
+	ResourceType       string    `gorm:"column:resource_type"`
+	Version            string    `gorm:"column:version"`
+	Note               string    `gorm:"column:note"`
+	Status             string    `gorm:"column:status"`
+	OrganizationStatus string    `gorm:"column:organization_status"`
+	CreatedAt          time.Time `gorm:"column:created_at"`
+	UpdatedAt          time.Time `gorm:"column:updated_at"`
 }
 
 type externalTagRow struct {
@@ -40,7 +41,7 @@ func externalOwner(ctx context.Context) (string, error) {
 
 // externalFromRow 把数据库行转换为 API 模型，确保空标签始终序列化为数组。
 func externalFromRow(row externalResourceRow) model.ExternalResource {
-	return model.ExternalResource{ID: row.ID, Title: row.Title, Location: row.Location, ResourceType: row.ResourceType, Version: row.Version, Note: row.Note, Status: row.Status, Tags: []string{}, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	return model.ExternalResource{ID: row.ID, Title: row.Title, Location: row.Location, ResourceType: row.ResourceType, Version: row.Version, Note: row.Note, Status: row.Status, OrganizationStatus: row.OrganizationStatus, Tags: []string{}, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
 }
 
 // writeExternalTags 在同一事务写入已校验的标签，任何一步失败都回滚卡片变动。
@@ -80,7 +81,7 @@ func (store *MySQL) CreateExternalResource(ctx context.Context, resource model.E
 	if err != nil {
 		return err
 	}
-	row := externalResourceRow{ID: resource.ID, UserID: owner, Title: resource.Title, Location: resource.Location, ResourceType: resource.ResourceType, Version: resource.Version, Note: resource.Note, Status: resource.Status, CreatedAt: resource.CreatedAt, UpdatedAt: resource.UpdatedAt}
+	row := externalResourceRow{ID: resource.ID, UserID: owner, Title: resource.Title, Location: resource.Location, ResourceType: resource.ResourceType, Version: resource.Version, Note: resource.Note, Status: resource.Status, OrganizationStatus: "pending", CreatedAt: resource.CreatedAt, UpdatedAt: resource.UpdatedAt}
 	return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Table("external_resources").Create(&row).Error; err != nil {
 			return fmt.Errorf("create external resource: %w", err)

@@ -14,7 +14,7 @@ import (
 	"mizuki-archive/internal/model"
 )
 
-// TestExternalResourceMySQLIsolation 在隔离 MySQL 中验证迁移可重入、标签事务和跨用户读写删除。
+// TestExternalResourceMySQLIsolation 在隔离 MySQL 中验证卡片、收件箱迁移和跨用户读写删除。
 func TestExternalResourceMySQLIsolation(t *testing.T) {
 	dsn := os.Getenv("MIZUKI_TEST_MYSQL_DSN")
 	if dsn == "" {
@@ -40,6 +40,13 @@ func TestExternalResourceMySQLIsolation(t *testing.T) {
 	}
 	if err := NewMySQL(db).Migrate(context.Background()); err != nil {
 		t.Fatalf("repeat migration: %v", err)
+	}
+	// 模拟新增两列和索引后尚未写入迁移记录的崩溃窗口，重试不能因重复 DDL 失败。
+	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", 11).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := NewMySQL(db).Migrate(context.Background()); err != nil {
+		t.Fatalf("resume interrupted inbox migration: %v", err)
 	}
 	tx := db.Begin()
 	if tx.Error != nil {
@@ -87,5 +94,45 @@ func TestExternalResourceMySQLIsolation(t *testing.T) {
 	}
 	if _, err := store.GetExternalResource(context.Background(), value.ID); err == nil {
 		t.Fatal("unscoped read should fail closed")
+	}
+	file := model.Resource{ID: strings.Repeat("d", 32), Name: "local.txt", OriginalName: "local.txt", Kind: "text", MIME: "text/plain", SHA256: strings.Repeat("0", 64), StorageKey: strings.Repeat("d", 32), CreatedAt: now}
+	if err := store.SaveResource(ctxB, file); err != nil {
+		t.Fatal(err)
+	}
+	if files, err := store.ListPendingResources(ctxA, 51, 0); err != nil || len(files) != 0 {
+		t.Fatalf("other user pending files: %+v, %v", files, err)
+	}
+	if external, err := store.ListPendingExternalResources(ctxA, 51, 0); err != nil || len(external) != 0 {
+		t.Fatalf("other user pending external: %+v, %v", external, err)
+	}
+	if files, err := store.ListPendingResources(ctxB, 51, 0); err != nil || len(files) != 1 || files[0].OrganizationStatus != "pending" {
+		t.Fatalf("owner pending file: %+v, %v", files, err)
+	}
+	if external, err := store.ListPendingExternalResources(ctxB, 51, 0); err != nil || len(external) != 1 || external[0].OrganizationStatus != "pending" {
+		t.Fatalf("owner pending external: %+v, %v", external, err)
+	}
+	if err := store.SetResourceOrganizationStatus(ctxA, file.ID, "organized"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("other user file update: %v", err)
+	}
+	if err := store.SetExternalOrganizationStatus(ctxA, value.ID, "organized"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("other user external update: %v", err)
+	}
+	if err := store.SetResourceOrganizationStatus(ctxB, file.ID, "organized"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetExternalOrganizationStatus(ctxB, value.ID, "organized"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetResourceOrganizationStatus(ctxB, file.ID, "organized"); err != nil {
+		t.Fatalf("idempotent file update: %v", err)
+	}
+	if files, err := store.ListPendingResources(ctxB, 51, 0); err != nil || len(files) != 0 {
+		t.Fatalf("completed file still pending: %+v, %v", files, err)
+	}
+	if external, err := store.ListPendingExternalResources(ctxB, 51, 0); err != nil || len(external) != 0 {
+		t.Fatalf("completed external still pending: %+v, %v", external, err)
+	}
+	if item, err := store.GetExternalResource(ctxB, value.ID); err != nil || item.Status != "pending" || item.OrganizationStatus != "organized" {
+		t.Fatalf("link status changed after organization: %+v, %v", item, err)
 	}
 }

@@ -28,18 +28,19 @@ func (store *MySQL) EnableOutbox() { store.outboxEnabled = true }
 
 // resourceRow 只负责 GORM 字段映射，不把数据库标签渗入 model.Resource。
 type resourceRow struct {
-	ID           string     `gorm:"column:id;primaryKey"`
-	UserID       string     `gorm:"column:user_id"`
-	Name         string     `gorm:"column:name"`
-	OriginalName string     `gorm:"column:original_name"`
-	Kind         string     `gorm:"column:kind"`
-	MIME         string     `gorm:"column:mime"`
-	Size         int64      `gorm:"column:size_bytes"`
-	SHA256       string     `gorm:"column:sha256"`
-	StorageKey   string     `gorm:"column:storage_key"`
-	Favorite     bool       `gorm:"column:favorite"`
-	DeletedAt    *time.Time `gorm:"column:deleted_at"`
-	CreatedAt    time.Time  `gorm:"column:created_at"`
+	ID                 string     `gorm:"column:id;primaryKey"`
+	UserID             string     `gorm:"column:user_id"`
+	Name               string     `gorm:"column:name"`
+	OriginalName       string     `gorm:"column:original_name"`
+	Kind               string     `gorm:"column:kind"`
+	MIME               string     `gorm:"column:mime"`
+	Size               int64      `gorm:"column:size_bytes"`
+	SHA256             string     `gorm:"column:sha256"`
+	StorageKey         string     `gorm:"column:storage_key"`
+	Favorite           bool       `gorm:"column:favorite"`
+	OrganizationStatus string     `gorm:"column:organization_status"`
+	DeletedAt          *time.Time `gorm:"column:deleted_at"`
+	CreatedAt          time.Time  `gorm:"column:created_at"`
 }
 
 type sessionRow struct {
@@ -58,7 +59,7 @@ type tagRow struct {
 
 // resourceFromRow 将数据库行转换为业务模型，隔离 GORM 字段与对外 JSON 结构。
 func resourceFromRow(row resourceRow) model.Resource {
-	return model.Resource{ID: row.ID, OwnerID: row.UserID, Name: row.Name, OriginalName: row.OriginalName, Kind: row.Kind, MIME: row.MIME, Size: row.Size, SHA256: row.SHA256, StorageKey: row.StorageKey, Favorite: row.Favorite, Tags: []string{}, CreatedAt: row.CreatedAt}
+	return model.Resource{ID: row.ID, OwnerID: row.UserID, Name: row.Name, OriginalName: row.OriginalName, Kind: row.Kind, MIME: row.MIME, Size: row.Size, SHA256: row.SHA256, StorageKey: row.StorageKey, Favorite: row.Favorite, OrganizationStatus: row.OrganizationStatus, Tags: []string{}, CreatedAt: row.CreatedAt}
 }
 
 // scopeResources 把 HTTP 请求限制到服务端会话注入的用户；Worker 或迁移上下文不附加用户条件。
@@ -81,7 +82,7 @@ func newTagID() (string, error) {
 // SaveResource 登记已落盘文件的元数据；调用方负责数据库失败时的文件补偿清理。
 func (store *MySQL) SaveResource(ctx context.Context, resource model.Resource) error {
 	userID, _ := UserIDFromContext(ctx)
-	row := resourceRow{ID: resource.ID, UserID: userID, Name: resource.Name, OriginalName: resource.OriginalName, Kind: resource.Kind, MIME: resource.MIME, Size: resource.Size, SHA256: resource.SHA256, StorageKey: resource.StorageKey, Favorite: resource.Favorite, CreatedAt: resource.CreatedAt}
+	row := resourceRow{ID: resource.ID, UserID: userID, Name: resource.Name, OriginalName: resource.OriginalName, Kind: resource.Kind, MIME: resource.MIME, Size: resource.Size, SHA256: resource.SHA256, StorageKey: resource.StorageKey, Favorite: resource.Favorite, OrganizationStatus: "pending", CreatedAt: resource.CreatedAt}
 	if err := store.db.WithContext(ctx).Table("resources").Create(&row).Error; err != nil {
 		return fmt.Errorf("insert resource: %w", err)
 	}
@@ -333,6 +334,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 8, name: "multi_user_compatibility", sql: multiUserCompatibilityMigration},
 		{version: 9, name: "multi_user_identity_indexes", sql: multiUserIdentityIndexesMigration, prepare: ensureMultiUserIdentitySchema},
 		{version: 10, name: "external_resources", sql: externalResourcesMigration},
+		{version: 11, name: "inbox", sql: inboxMigration, prepare: ensureInboxSchema},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int

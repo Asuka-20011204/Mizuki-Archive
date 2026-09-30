@@ -35,3 +35,8 @@ var multiUserIdentityIndexesMigration string
 //
 //go:embed migrations/010_external_resources.sql
 var externalResourcesMigration string
+
+// 收件箱整理状态独立于外部链接可用性；中断后可重试建列。
+//
+//go:embed migrations/011_inbox.sql
+var inboxMigration string

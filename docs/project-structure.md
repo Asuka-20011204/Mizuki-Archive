@@ -36,17 +36,20 @@ Mizuki Archive/
 │   │   ├── auth_controller.go         # 登录、会话中间件、退出
 │   │   ├── resource_controller.go     # 资料上传、查询、标签、预览、删除和下载
 │   │   ├── external_resource_controller.go # 站外卡片 CRUD HTTP 边界
+│   │   ├── inbox_controller.go         # 待整理列表与状态更新 HTTP 边界
 │   │   └── processing_controller.go   # 任务创建、任务查看和派生文件下载
 │   ├── service/
 │   │   ├── auth.go                    # 兼容密码校验、用户会话和身份上下文
 │   │   ├── email_auth.go              # 邮箱验证码注册/登录
 │   │   ├── resource.go                # 文件校验、存储、元数据流程
 │   │   ├── external_resource.go       # 卡片校验、人工状态与身份约束
+│   │   ├── inbox.go                   # 整理状态、分页与用户身份约束
 │   │   └── processing.go              # 任务幂等、Worker 执行和派生文件
 │   └── repository/
 │       ├── repository.go              # 资料/会话/处理任务持久化接口
 │       ├── mysql_gorm.go              # GORM 的 MySQL 资料实现
 │       ├── external_resource.go       # 按用户限定的卡片与标签事务
+│       ├── inbox.go                   # 两类待整理查询、可重试迁移与用户范围更新
 │       ├── processing.go              # GORM 的任务与派生产物实现
 │       ├── outbox.go                  # 事务 Outbox 及孤儿任务补偿
 │       ├── migration.go               # 内嵌版本化 SQL 迁移
@@ -61,8 +64,10 @@ Mizuki Archive/
 │           ├── 007_multi_user_identity.sql # 用户、验证码、资料/会话归属
 │           ├── 008_multi_user_compatibility.sql # 兼容已应用旧版本迁移
 │           ├── 009_multi_user_identity_indexes.sql # 可重试的用户范围索引迁移
-│           └── 010_external_resources.sql # 卡片与独立标签表
+│           ├── 010_external_resources.sql # 卡片与独立标签表
+│           └── 011_inbox.sql          # 整理状态迁移登记，DDL 在迁移锁内按需执行
 ├── web/                               # Vue 3 + TypeScript View
+│   ├── src/InboxPanel.vue             # 统一查看两类待整理条目
 │   ├── src/ExternalResourcePanel.vue  # 独立卡片录入、搜索和人工维护
 │   ├── src/share-parser.ts            # 浏览器内解析粘贴文本，不发网络请求
 │   └── tests/share-parser.test.mjs    # Node 内置测试运行器校验解析与危险输入

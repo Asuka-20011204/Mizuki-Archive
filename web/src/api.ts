@@ -8,6 +8,7 @@ export interface Resource {
   size: number
   sha256: string
   favorite: boolean
+  organization_status: 'pending' | 'organized'
   tags: string[]
   created_at: string
 }
@@ -21,6 +22,7 @@ export interface ExternalResource {
   version: string
   note: string
   status: 'pending' | 'available' | 'uncertain' | 'broken' | 'downloaded'
+  organization_status: 'pending' | 'organized'
   tags: string[]
   created_at: string
   updated_at: string
@@ -28,6 +30,14 @@ export interface ExternalResource {
 
 // ExternalResourceInput 只提交可编辑字段，身份、ID 和时间由服务端决定。
 export type ExternalResourceInput = Pick<ExternalResource, 'title' | 'location' | 'resource_type' | 'version' | 'note' | 'status' | 'tags'>
+
+// InboxPage 将文件和外部卡片区分展示，页码是两类来源各自的窗口。
+export interface InboxPage {
+  files: Resource[]
+  external_resources: ExternalResource[]
+  page: number
+  has_more: boolean
+}
 
 // DerivedAsset 描述成功任务生成的可下载派生文件，不把服务端存储键交给浏览器。
 export interface DerivedAsset {
@@ -93,6 +103,13 @@ async function requestText(path: string, options?: RequestInit): Promise<string>
 }
 
 export const api = {
+  // listInbox 读取当前用户的两类待整理资料，避免浏览器在本地拼装越权列表。
+  listInbox: (page: number) => request<{ data: InboxPage }>(`/inbox?${new URLSearchParams({ page: String(page) })}`),
+  // setInboxStatus 显式指定目标状态，重复提交不会反转状态或触碰外部链接可用性。
+  setInboxStatus: (source: 'file' | 'external', id: string, status: 'pending' | 'organized') =>
+    request<void>(`/inbox/${source}/${encodeURIComponent(id)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
+    }),
   // listExternalResources 只查询当前用户卡片，服务器限制返回数量。
   listExternalResources: (query = '') => request<{ data: ExternalResource[] }>(`/external-resources?${new URLSearchParams({ q: query })}`),
   // createExternalResource 保存资源位置文本，绝不上传或自动访问外部链接。

@@ -142,7 +142,7 @@ func (resources *Resources) Upload(ctx context.Context, filename string, source 
 	if err := os.Rename(temporary.Name(), finalPath); err != nil {
 		return model.Resource{}, fmt.Errorf("commit upload: %w", err)
 	}
-	resource := model.Resource{ID: id, Name: name, OriginalName: name, Kind: kind, MIME: contentType, Size: written, SHA256: hex.EncodeToString(digest.Sum(nil)), StorageKey: id, Tags: []string{}, CreatedAt: time.Now().UTC()}
+	resource := model.Resource{ID: id, Name: name, OriginalName: name, Kind: kind, MIME: contentType, Size: written, SHA256: hex.EncodeToString(digest.Sum(nil)), StorageKey: id, OrganizationStatus: "pending", Tags: []string{}, CreatedAt: time.Now().UTC()}
 	if err := resources.store.SaveResource(ctx, resource); err != nil {
 		// DB 失败时尽力删除刚落盘的文件；进程崩溃窗口仍需后续孤儿文件巡检。
 		os.Remove(finalPath)

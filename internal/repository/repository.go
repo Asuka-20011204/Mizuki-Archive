@@ -16,6 +16,14 @@ var ErrProcessingJobExists = errors.New("processing job already exists")
 var ErrProcessingQueueFull = errors.New("processing queue is full")
 var ErrUserExists = errors.New("user already exists")
 
+// InboxStore 同时读取用户的两类待整理条目，避免扩大已有文件与外部资源测试替身的接口。
+type InboxStore interface {
+	ListPendingResources(context.Context, int, int) ([]model.Resource, error)
+	ListPendingExternalResources(context.Context, int, int) ([]model.ExternalResource, error)
+	SetResourceOrganizationStatus(context.Context, string, string) error
+	SetExternalOrganizationStatus(context.Context, string, string) error
+}
+
 // ExternalResourceStore 单独管理外部卡片，避免修改已有文件仓储和测试替身的契约。
 type ExternalResourceStore interface {
 	CreateExternalResource(context.Context, model.ExternalResource) error

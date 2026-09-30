@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ExternalResourcePanel from './ExternalResourcePanel.vue'
-import { api, type ProcessingJob, type Resource } from './api'
+import InboxPanel from './InboxPanel.vue'
+import { api, type ExternalResource, type ProcessingJob, type Resource } from './api'
 
 // 登录状态、列表筛选和详情面板分别在本视图中管理；服务端始终是权限与资料的权威来源。
 const username = ref('')
@@ -27,6 +28,8 @@ const detailError = ref('')
 const error = ref('')
 const notice = ref('')
 const resources = ref<Resource[]>([])
+const inboxRefreshKey = ref(0)
+const externalPanel = ref<InstanceType<typeof ExternalResourcePanel> | null>(null)
 const recentResources = ref<Resource[]>([])
 const selected = ref<Resource | null>(null)
 // 搜索条件与页码交给 API 查询，不在浏览器里模拟 MySQL 的筛选和分页。
@@ -314,6 +317,7 @@ async function upload(event: Event) {
   uploading.value = true
   try {
     const result = await api.upload(file)
+    refreshInbox()
     search.value = ''
     kind.value = ''
     page.value = 1
@@ -327,6 +331,17 @@ async function upload(event: Event) {
     input.value = ''
     uploading.value = false
   }
+}
+
+// refreshInbox 通知独立面板读取服务端最新的待整理列表，不在前端拼装归属状态。
+function refreshInbox() {
+  inboxRefreshKey.value++
+}
+
+// openExternalFromInbox 直接打开目标卡片的编辑表单，避免用户再次搜索同一条记录。
+function openExternalFromInbox(item: ExternalResource) {
+  externalPanel.value?.editCard(item)
+  document.getElementById('external-title')?.scrollIntoView({ behavior: 'auto' })
 }
 
 // closeDetail 关闭详情并使尚未返回的详情请求失效，避免关闭后旧响应重新打开抽屉。
@@ -483,6 +498,7 @@ async function saveName() {
     if (selected.value?.id === updated.id) selected.value = updated
     resources.value = resources.value.map((item) => item.id === updated.id ? updated : item)
     recentResources.value = recentResources.value.map((item) => item.id === updated.id ? updated : item)
+    refreshInbox()
   } catch (reason) {
     detailError.value = reason instanceof Error ? reason.message : '名称保存失败'
   } finally {
@@ -498,6 +514,7 @@ async function deleteResource() {
   detailError.value = ''
   try {
     await api.deleteResource(resource.id)
+    refreshInbox()
     recentRequestId++
     resources.value = resources.value.filter((item) => item.id !== resource.id)
     recentResources.value = recentResources.value.filter((item) => item.id !== resource.id)
@@ -553,6 +570,7 @@ async function saveTags() {
     if (selected.value?.id === updated.id) selected.value = updated
     resources.value = resources.value.map((item) => item.id === updated.id ? updated : item)
     tagSuggestions.value = (await api.listTags()).data
+    refreshInbox()
   } catch (reason) {
     detailError.value = reason instanceof Error ? reason.message : '标签保存失败'
   } finally {
@@ -817,7 +835,8 @@ onUnmounted(() => {
           <div class="archive-stats"><div v-for="stat in archiveStats" :key="stat.label" class="archive-stat"><strong>{{ stat.value }}</strong><span>{{ stat.label }}</span></div></div>
         </section>
 
-        <ExternalResourcePanel />
+        <InboxPanel :refresh-key="inboxRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" />
+        <ExternalResourcePanel ref="externalPanel" @changed="refreshInbox" />
 
         <nav class="filter-nav" aria-label="按资料类型筛选">
           <button
