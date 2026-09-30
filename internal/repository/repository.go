@@ -86,6 +86,15 @@ type SearchStore interface {
 	SearchExternal(context.Context, model.SearchFilter, int, int) ([]model.ExternalResource, error)
 }
 
+// ResourceNoteStore 只管理当前会话用户的文件注记；所有写入仍需在仓储层检查文件归属。
+type ResourceNoteStore interface {
+	GetResource(context.Context, string) (model.Resource, error)
+	CreateResourceNote(context.Context, model.ResourceNote) error
+	ListResourceNotes(context.Context, string) ([]model.ResourceNote, error)
+	UpdateResourceNote(context.Context, model.ResourceNote) error
+	DeleteResourceNote(context.Context, string, string) error
+}
+
 // SavedSearchStore 只存放已验证用户的检索条件；仓储必须约束数量并强制账号归属。
 type SavedSearchStore interface {
 	CreateSavedSearch(context.Context, model.SavedSearch) error

@@ -10,7 +10,7 @@ import (
 	"mizuki-archive/internal/model"
 )
 
-// BatchDeleteEntries 先锁住全部本人条目和任务，再软删除文件、清除派生索引与卡片。
+// BatchDeleteEntries 先锁住全部本人条目和任务，再软删除文件、清除私人笔记/派生索引与卡片。
 // 原件及派生文件由 Service 在事务成功后清理；提交前绝不访问文件系统或外部位置。
 func (store *MySQL) BatchDeleteEntries(ctx context.Context, items []model.InboxSelection) (BatchDeletedFiles, error) {
 	owner, err := externalOwner(ctx)
@@ -47,6 +47,10 @@ func (store *MySQL) BatchDeleteEntries(ctx context.Context, items []model.InboxS
 			}
 			if result.RowsAffected != int64(len(files.OriginalIDs)) {
 				return ErrNotFound
+			}
+			// 与文件软删除同一事务清理私人注记，不能只让 HTTP 隐藏仍在数据库的明文。
+			if err := tx.Exec("DELETE FROM resource_notes WHERE resource_id IN ? AND user_id = ?", files.OriginalIDs, owner).Error; err != nil {
+				return fmt.Errorf("clear batch file notes: %w", err)
 			}
 			if err := tx.Exec("DELETE FROM resource_tags WHERE resource_id IN ?", files.OriginalIDs).Error; err != nil {
 				return fmt.Errorf("clear batch file tags: %w", err)

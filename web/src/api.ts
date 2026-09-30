@@ -16,6 +16,26 @@ export interface Resource {
   created_at: string
 }
 
+// ResourceNote 只包含当前账号文件的私人笔记，不暴露存储路径或归属列。
+export interface ResourceNote {
+  id: string
+  resource_id: string
+  page_number?: number
+  excerpt: string
+  content: string
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+// ResourceNoteInput 不接受客户端指定笔记 ID、文件归属和时间戳。
+export interface ResourceNoteInput {
+  page_number: number | null
+  excerpt: string
+  content: string
+  source: string
+}
+
 // ExternalResource 只描述站外位置卡片；服务器不保管或下载站外文件。
 export interface ExternalResource {
   id: string
@@ -146,7 +166,7 @@ async function requestText(path: string, options?: RequestInit): Promise<string>
 }
 
 export const api = {
-  // searchAll 在同一个服务端权限边界查询文件、标签、正文与卡片笔记，不在浏览器拼接私有索引。
+  // searchAll 在服务端权限边界查询文件、标签、提取正文、私人笔记与卡片备注，不在浏览器拼接私有索引。
   searchAll: (filter: SearchFilter, page: number) => request<{ data: SearchResults }>(`/search?${new URLSearchParams({ ...filter, page: String(page) })}`),
   // listSavedSearches 仅列出当前账号的视图定义，不自动执行昂贵的正文搜索。
   listSavedSearches: () => request<{ data: SavedSearch[] }>('/search/views'),
@@ -274,6 +294,18 @@ export const api = {
   listTags: (search = '') => request<{ data: string[] }>(`/tags?${new URLSearchParams({ q: search })}`),
   // get 对路径 ID 编码并读取最新元数据，供详情抽屉展示。
   get: (id: string) => request<{ data: Resource }>(`/resources/${encodeURIComponent(id)}`),
+  // listResourceNotes 只读取当前会话拥有的这份文件的注记。
+  listResourceNotes: (id: string) => request<{ data: ResourceNote[] }>(`/resources/${encodeURIComponent(id)}/notes`),
+  // createResourceNote 显式保存一条注记，不在浏览器本地代替服务端持久化。
+  createResourceNote: (id: string, value: ResourceNoteInput) => request<{ data: ResourceNote }>(`/resources/${encodeURIComponent(id)}/notes`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+  }),
+  // updateResourceNote 仅更新当前文件的指定注记；不存在或越权仍由服务端拒绝。
+  updateResourceNote: (id: string, noteId: string, value: ResourceNoteInput) => request<void>(`/resources/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+  }),
+  // deleteResourceNote 删除笔记前由视图二次确认，不触碰原件。
+  deleteResourceNote: (id: string, noteId: string) => request<void>(`/resources/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, { method: 'DELETE' }),
   // setName 只更新展示名称，原始上传名称和服务端存储键由后端保留。
   setName: (id: string, name: string) =>
     request<{ data: Resource }>(`/resources/${encodeURIComponent(id)}/name`, {

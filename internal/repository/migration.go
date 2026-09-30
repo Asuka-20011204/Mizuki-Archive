@@ -70,3 +70,8 @@ var resourceArchiveMigration string
 //
 //go:embed migrations/017_pending_file_cleanup.sql
 var pendingFileCleanupMigration string
+
+// 私人笔记独立于原件与派生文件，外键确保不会出现指向不存在文件的笔记。
+//
+//go:embed migrations/018_resource_notes.sql
+var resourceNotesMigration string

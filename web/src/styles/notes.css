@@ -1,0 +1,13 @@
+.resource-notes { margin-top: 18px; }
+.resource-notes .detail-section-heading small, .resource-note-form small, .resource-note-list small { color: var(--muted); font-size: 12px; }
+.resource-note-form, .resource-note-list { display: grid; gap: 12px; }
+.resource-note-form label { display: grid; gap: 5px; color: var(--ink); font-size: 13px; }
+.resource-note-form input, .resource-note-form textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; }
+.resource-note-form textarea { resize: vertical; }
+.resource-note-form :is(input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.resource-note-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.resource-note-list { margin: 16px 0 0; padding: 0; list-style: none; }
+.resource-note-list li { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow-wrap: anywhere; }
+.resource-note-list blockquote { margin: 8px 0; padding-left: 10px; border-left: 3px solid var(--line); white-space: pre-wrap; }
+.resource-note-list p { margin: 8px 0; white-space: pre-wrap; }
+.resource-note-list .resource-note-actions { margin-top: 10px; }

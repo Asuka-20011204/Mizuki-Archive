@@ -130,7 +130,7 @@ func (store *MySQL) UpdateResourceName(ctx context.Context, id, name string) (mo
 	return store.GetResource(ctx, id)
 }
 
-// DeleteResource 标记资料删除并解除标签关联；重复调用会返回已隐藏资料，让 Service 可以重试清理残留原件。
+// DeleteResource 标记资料删除并清除标签与私人笔记；重复调用仍可让 Service 重试原件清理。
 func (store *MySQL) DeleteResource(ctx context.Context, id string) (model.Resource, error) {
 	var resource resourceRow
 	err := store.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
@@ -145,6 +145,10 @@ func (store *MySQL) DeleteResource(ctx context.Context, id string) (model.Resour
 			if err := scopeResources(transaction.Table("resources"), ctx).Where("id = ? AND deleted_at IS NULL", id).Update("deleted_at", deletedAt).Error; err != nil {
 				return fmt.Errorf("mark resource deleted: %w", err)
 			}
+		}
+		// 笔记属于私有原件，删除原件时在同一事务移除，避免留下不可由用户访问的明文孤儿。
+		if err := transaction.Exec("DELETE FROM resource_notes WHERE resource_id = ? AND user_id = ?", id, resource.UserID).Error; err != nil {
+			return fmt.Errorf("clear deleted resource notes: %w", err)
 		}
 		if err := transaction.Exec("DELETE FROM resource_tags WHERE resource_id = ?", id).Error; err != nil {
 			return fmt.Errorf("clear deleted resource tags: %w", err)
@@ -343,6 +347,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 15, name: "external_resource_favorite", prepare: ensureExternalResourceFavoriteSchema},
 		{version: 16, name: "resource_archive", prepare: ensureArchiveSchema},
 		{version: 17, name: "pending_file_cleanup", sql: pendingFileCleanupMigration},
+		{version: 18, name: "resource_notes", sql: resourceNotesMigration},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int

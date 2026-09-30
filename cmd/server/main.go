@@ -207,6 +207,10 @@ func main() {
 	if err != nil {
 		log.Fatal("cannot prepare search service")
 	}
+	notes, err := service.NewResourceNotes(store)
+	if err != nil {
+		log.Fatal("cannot prepare resource note service")
+	}
 	savedSearches, err := service.NewSavedSearches(store)
 	if err != nil {
 		log.Fatal("cannot prepare saved search service")
@@ -227,7 +231,7 @@ func main() {
 	if err != nil {
 		log.Fatal("cannot prepare batch delete service")
 	}
-	router, err := controller.New(controller.Config{Resources: resources, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, BatchTags: batchTags, BatchFavorites: batchFavorites, Archive: archive, BatchDelete: batchDelete, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
+	router, err := controller.New(controller.Config{Resources: resources, Notes: notes, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, BatchTags: batchTags, BatchFavorites: batchFavorites, Archive: archive, BatchDelete: batchDelete, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}

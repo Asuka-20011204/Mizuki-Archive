@@ -5,6 +5,7 @@ import ExternalResourcePanel from './ExternalResourcePanel.vue'
 import InboxPanel from './InboxPanel.vue'
 import OrganizedPanel from './OrganizedPanel.vue'
 import SearchPanel from './SearchPanel.vue'
+import ResourceNotes from './ResourceNotes.vue'
 import { adjacentResource } from './detail-navigation'
 import { api, type ExternalResource, type ProcessingJob, type Resource } from './api'
 
@@ -51,6 +52,7 @@ const hasMore = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const detailPanel = ref<HTMLElement | null>(null)
+const notesPanel = ref<InstanceType<typeof ResourceNotes> | null>(null)
 const closeButton = ref<HTMLButtonElement | null>(null)
 const downloadLink = ref<HTMLAnchorElement | null>(null)
 const tagInput = ref('')
@@ -178,7 +180,8 @@ async function loadResources() {
     hasMore.value = result.meta.has_more
     // some 的比较回调只匹配当前详情 ID；新列表不含该资料时关闭旧抽屉。
     if (selected.value && !resources.value.some((item) => item.id === selected.value?.id)) {
-      closeDetail()
+      // 筛选后的列表不再包含当前资料时，允许用户先保存仍在编辑的笔记。
+      if (!notesPanel.value?.hasUnsavedDraft()) closeDetail(true)
     }
   } catch (reason) {
     if (requestId === listRequestId) {
@@ -344,7 +347,7 @@ async function logout() {
     recentRequestId++
     searching.value = false
     username.value = ''
-    closeDetail()
+    closeDetail(true)
     resources.value = []
     recentResources.value = []
     tagFilter.value = ''
@@ -417,8 +420,9 @@ function openExternalFromInbox(item: ExternalResource) {
   document.getElementById('external-title')?.scrollIntoView({ behavior: 'auto' })
 }
 
-// closeDetail 关闭详情并使尚未返回的详情请求失效，避免关闭后旧响应重新打开抽屉。
-function closeDetail() {
+// closeDetail 主动关闭时确认笔记草稿；退出或删除时强制清理，旧请求也不能重新打开详情。
+function closeDetail(force = false) {
+  if (!force && notesPanel.value?.hasUnsavedDraft() && !window.confirm('笔记草稿尚未保存，关闭后会丢失。继续吗？')) return
   detailRequestId++
   previewRequestId++
   jobsRequestId++
@@ -571,7 +575,7 @@ async function navigateDetail(step: -1 | 1) {
   const next = step < 0 ? previousDetail.value : nextDetail.value
   if (!current || !next || navigatingDetail.value) return
   const tagsChanged = draftTags.value.length !== current.tags.length || draftTags.value.some((tag, index) => tag !== current.tags[index])
-  if ((nameDraft.value !== current.name || tagsChanged) && !window.confirm('名称或标签尚未保存，切换后草稿会丢失。继续吗？')) return
+  if ((nameDraft.value !== current.name || tagsChanged || notesPanel.value?.hasUnsavedDraft()) && !window.confirm('名称、标签或笔记尚未保存，切换后草稿会丢失。继续吗？')) return
   navigatingDetail.value = true
   try {
     await selectResource(next, detailNavigationItems.value)
@@ -614,7 +618,7 @@ async function deleteResource() {
     resources.value = resources.value.filter((item) => item.id !== resource.id)
     recentResources.value = recentResources.value.filter((item) => item.id !== resource.id)
     void loadRecent()
-    closeDetail()
+    closeDetail(true)
     notice.value = '资料已删除'
   } catch (reason) {
     detailError.value = reason instanceof Error ? reason.message : '删除失败'
@@ -1085,7 +1089,7 @@ onUnmounted(() => {
 
     <!-- 详情是模态检查器：焦点限制与关闭后的焦点恢复由脚本统一处理。 -->
     <Transition name="drawer" @after-leave="restoreDetailFocus">
-      <div v-if="selected" class="detail-backdrop" @click.self="closeDetail">
+      <div v-if="selected" class="detail-backdrop" @click.self="closeDetail()">
         <section
           ref="detailPanel"
           class="detail-panel"
@@ -1093,7 +1097,7 @@ onUnmounted(() => {
           aria-modal="true"
           aria-labelledby="detail-title"
         >
-          <button ref="closeButton" type="button" class="close-button" aria-label="关闭资料详情" @click="closeDetail">×</button>
+          <button ref="closeButton" type="button" class="close-button" aria-label="关闭资料详情" @click="closeDetail()">×</button>
           <header class="detail-header">
             <h2 id="detail-title" class="visually-hidden">{{ selected.name }}的详情</h2>
             <p class="eyebrow">资料检查器 · {{ kindLabel(selected.kind) }}</p>
@@ -1167,6 +1171,7 @@ onUnmounted(() => {
                 </ul>
                 <p v-else-if="!jobsLoading" class="processing-empty">还没有处理记录</p>
               </section>
+              <ResourceNotes ref="notesPanel" :key="selected.id" :resource-id="selected.id" :kind="selected.kind" />
             </div>
             <aside class="detail-side-column" aria-label="资料属性与操作">
               <section class="inspector-section" aria-labelledby="properties-title">

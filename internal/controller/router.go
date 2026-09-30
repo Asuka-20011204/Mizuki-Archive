@@ -16,6 +16,7 @@ import (
 // Config 由 cmd/server 组装；Controller 不自行创建数据库或文件服务。
 type Config struct {
 	Resources         *service.Resources
+	Notes             *service.ResourceNotes
 	ExternalResources *service.ExternalResources
 	Inbox             *service.Inbox
 	Search            *service.Search
@@ -135,6 +136,12 @@ func New(config Config) (*gin.Engine, error) {
 	private.GET("/resources/recent", handler.recent)
 	private.GET("/tags", handler.listTags)
 	private.GET("/resources/:id", handler.get)
+	if config.Notes != nil {
+		private.GET("/resources/:id/notes", handler.listResourceNotes)
+		private.POST("/resources/:id/notes", handler.createResourceNote)
+		private.PUT("/resources/:id/notes/:note_id", handler.updateResourceNote)
+		private.DELETE("/resources/:id/notes/:note_id", handler.deleteResourceNote)
+	}
 	private.PATCH("/resources/:id/name", handler.setName)
 	private.PATCH("/resources/:id/favorite", handler.setFavorite)
 	private.PUT("/resources/:id/tags", handler.setTags)

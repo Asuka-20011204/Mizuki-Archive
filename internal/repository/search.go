@@ -7,7 +7,7 @@ import (
 	"mizuki-archive/internal/model"
 )
 
-// SearchFiles 在同一账号未删除文件的名称、标签和成功提取的正文中检索，返回稳定分页。
+// SearchFiles 在同账号未删除文件的名称、标签、成功提取的正文和私人笔记中检索，返回稳定分页。
 func (store *MySQL) SearchFiles(ctx context.Context, filter model.SearchFilter, limit, offset int) ([]model.Resource, error) {
 	owner, err := externalOwner(ctx)
 	if err != nil {
@@ -21,7 +21,10 @@ func (store *MySQL) SearchFiles(ctx context.Context, filter model.SearchFilter, 
 		WHERE rt.resource_id = resources.id AND LOCATE(?, t.name) > 0
 	) OR EXISTS (
 		SELECT 1 FROM derived_assets da WHERE da.resource_id = resources.id AND da.kind = ? AND LOCATE(?, da.content_text) > 0
-	))`, filter.Query, filter.Query, filter.Query, model.DerivedAssetText, filter.Query)
+	) OR EXISTS (
+		SELECT 1 FROM resource_notes rn WHERE rn.resource_id = resources.id AND rn.user_id = resources.user_id
+		AND (LOCATE(?, rn.content) > 0 OR LOCATE(?, rn.excerpt) > 0 OR LOCATE(?, rn.source) > 0)
+	))`, filter.Query, filter.Query, filter.Query, model.DerivedAssetText, filter.Query, filter.Query, filter.Query, filter.Query)
 	}
 	if filter.Kind != "" {
 		database = database.Where("resources.kind = ?", filter.Kind)

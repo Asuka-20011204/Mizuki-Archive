@@ -23,6 +23,7 @@ Mizuki Archive/
 │   └── migrate/main.go                # 使用独立账号执行生产数据库迁移
 ├── internal/
 │   ├── model/resource.go              # 资料模型、用户归属与列表筛选条件
+│   ├── model/resource_note.go         # 私人笔记、摘录与可选 PDF 页码
 │   ├── model/external_resource.go     # 站外资源卡片模型（不含原件）
 │   ├── model/duplicate.go             # 纯文本链接规范化与同账号重复提示模型
 │   ├── model/search.go                # 组合筛选、视图和分来源搜索结果模型
@@ -40,6 +41,7 @@ Mizuki Archive/
 │   │   ├── auth_controller.go         # 登录、会话中间件、退出
 │   │   ├── phone_auth_controller.go   # 手机验证码 HTTP 边界，按能力注册路由
 │   │   ├── resource_controller.go     # 资料上传、查询、标签、预览、删除和下载
+│   │   ├── resource_note_controller.go # 私人笔记的会话 HTTP 边界
 │   │   ├── external_resource_controller.go # 站外卡片 CRUD HTTP 边界
 │   │   ├── inbox_controller.go         # 待整理列表与状态更新 HTTP 边界
 │   │   ├── batch_tags_controller.go    # 当前用户混合来源批量标签 HTTP 边界
@@ -54,6 +56,7 @@ Mizuki Archive/
 │   │   ├── email_auth.go              # 邮箱验证码注册/登录
 │   │   ├── phone_auth.go              # 大陆手机号验证码业务；发送器未接入
 │   │   ├── resource.go                # 文件校验、存储、元数据流程
+│   │   ├── resource_note.go           # 笔记内容、页码与文件归属校验
 │   │   ├── external_resource.go       # 卡片校验、人工状态与身份约束
 │   │   ├── inbox.go                   # 整理状态、分页与用户身份约束
 │   │   ├── batch_tags.go              # 批次/标签校验与真实变化项
@@ -67,6 +70,7 @@ Mizuki Archive/
 │       ├── repository.go              # 资料/会话/处理任务持久化接口
 │       ├── mysql_gorm.go              # GORM 的 MySQL 资料实现
 │       ├── external_resource.go       # 按用户限定的卡片与标签事务
+│       ├── resource_note.go           # 按账号与文件限定的笔记读写及数量门禁
 │       ├── inbox.go                   # 两类待整理查询、可重试迁移与用户范围更新
 │       ├── batch_tags.go              # 文件与卡片标签的事务增删、归属与上限
 │       ├── batch_favorites.go         # 两类收藏在同一事务内更新
@@ -79,7 +83,7 @@ Mizuki Archive/
 │       ├── email.go                   # 用户、验证码与会话归属持久化
 │       ├── phone.go                   # 手机号唯一身份、挑战和可重试迁移准备
 │       ├── duplicate.go               # 同账号查重、用户范围索引和旧卡片回填
-│       ├── search.go                  # 文件与卡片的用户范围关键词查询
+│       ├── search.go                  # 文件、私人笔记与卡片的用户范围关键词查询
 │       ├── saved_search.go            # 视图归属、上限和唯一名称持久化
 │       └── migrations/
 │           ├── 001_init.sql           # 资料与会话表
@@ -98,7 +102,8 @@ Mizuki Archive/
 │           ├── 014_saved_search_views.sql # 每用户保存组合检索条件
 │           ├── 015_external_resource_favorite.sql # 外部卡片收藏列，可重试检查
 │           ├── 016_resource_archive.sql # 文件与外部卡片的归档时间列
-│           └── 017_pending_file_cleanup.sql # 原件与派生文件的可重试清理记录
+│           ├── 017_pending_file_cleanup.sql # 原件与派生文件的可重试清理记录
+│           └── 018_resource_notes.sql # 私人笔记及账号、文件索引
 ├── web/                               # Vue 3 + TypeScript View
 │   ├── src/SearchPanel.vue            # 组合筛选、保存视图与来源分页
 │   ├── src/search-filter.ts           # 前端筛选预校验（服务端最终校验）
@@ -107,6 +112,8 @@ Mizuki Archive/
 │   ├── src/ArchivePanel.vue           # 分来源分页查看归档项并批量恢复
 │   ├── src/detail-navigation.ts       # 当前页邻项查找与边界保护
 │   ├── src/ExternalResourcePanel.vue  # 独立卡片录入、搜索和人工维护
+│   ├── src/ResourceNotes.vue          # 详情中的笔记编辑、页码和安全文本展示
+│   ├── src/styles/notes.css           # 笔记表单和卡片样式
 │   ├── src/share-parser.ts            # 浏览器内解析粘贴文本，不发网络请求
 │   ├── tests/share-parser.test.mjs    # Node 内置测试运行器校验解析与危险输入
 │   ├── tests/search-filter.test.mjs   # 检索条件长度、空条件及控制字符校验
