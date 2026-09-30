@@ -139,6 +139,28 @@ export interface AuthCapabilities {
 export interface InboxSelection { source: 'file' | 'external'; id: string }
 // ResourceRelation 包含关联另一端的当前名称；关联只属于服务端会话用户。
 export interface ResourceRelation { id: string; target: InboxSelection; name: string; created_at: string }
+// TopicSummary 为当前账号的私人专题索引；数量和时间只由服务端提供。
+export interface TopicSummary {
+  id: string
+  title: string
+  intro: string
+  cover_file_id: string | null
+  created_at: string
+  updated_at: string
+  section_count: number
+  item_count: number
+}
+// TopicItem 的 name 是当前资料名称，写入时只提交 source 与 id。
+export interface TopicItem extends InboxSelection { name: string }
+// TopicDetail 保持服务端分区和条目顺序，查看时不查询任何公开分享地址。
+export interface TopicDetail extends TopicSummary { sections: { title: string; items: TopicItem[] }[] }
+// TopicInput 仅包含编辑字段，服务端负责验证本人归属、图片类型及数量上限。
+export interface TopicInput {
+  title: string
+  intro: string
+  cover_file_id: string | null
+  sections: { title: string; items: InboxSelection[] }[]
+}
 // ApiError 只描述前端需要的安全错误消息，不依赖服务端内部异常细节。
 interface ApiError {
   error?: { code: string; message: string }
@@ -168,6 +190,20 @@ async function requestText(path: string, options?: RequestInit): Promise<string>
 }
 
 export const api = {
+  // listTopics 读取当前会话拥有的专题索引，不缓存到浏览器持久存储。
+  listTopics: () => request<{ data: TopicSummary[] }>('/topics'),
+  // getTopic 读取当下已清理删除引用的专题详情与资料当前名称。
+  getTopic: (id: string) => request<{ data: TopicDetail }>(`/topics/${encodeURIComponent(id)}`),
+  // createTopic 只提交有序的条目引用，不复制任何文件或卡片内容。
+  createTopic: (value: TopicInput) => request<{ data: TopicDetail }>('/topics', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+  }),
+  // updateTopic 用完整编排替换旧版本，归属校验与事务由服务端处理。
+  updateTopic: (id: string, value: TopicInput) => request<{ data: TopicDetail }>(`/topics/${encodeURIComponent(id)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+  }),
+  // deleteTopic 仅移除专题编排，绝不删除被引用的原始资料。
+  deleteTopic: (id: string) => request<void>(`/topics/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // downloadPortableExport 只在服务器成功返回完整清单后交给浏览器保存；错误使用页面文字提示。
   downloadPortableExport: async (): Promise<Blob> => {
     const response = await fetch('/api/export', { credentials: 'same-origin' })

@@ -80,3 +80,8 @@ var resourceNotesMigration string
 //
 //go:embed migrations/019_resource_relations.sql
 var resourceRelationsMigration string
+
+// 专题仅保存私有元数据及有序引用，引用归属由写入事务校验。
+//
+//go:embed migrations/020_topics.sql
+var topicsMigration string

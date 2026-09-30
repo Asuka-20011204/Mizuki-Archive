@@ -26,6 +26,7 @@ type Config struct {
 	Archive           *service.Archive
 	BatchDelete       *service.BatchDelete
 	Relations         *service.Relations
+	Topics            *service.Topics
 	Export            *service.PortableExport
 	Processing        *service.Processing
 	Auth              *service.Auth
@@ -128,6 +129,13 @@ func New(config Config) (*gin.Engine, error) {
 		private.GET("/relations/:source/:id", handler.listRelations)
 		private.POST("/relations", handler.createRelation)
 		private.DELETE("/relations/:id", handler.deleteRelation)
+	}
+	if config.Topics != nil {
+		private.GET("/topics", handler.listTopics)
+		private.POST("/topics", handler.createTopic)
+		private.GET("/topics/:id", handler.getTopic)
+		private.PUT("/topics/:id", handler.updateTopic)
+		private.DELETE("/topics/:id", handler.deleteTopic)
 	}
 	if config.Inbox != nil {
 		private.GET("/inbox", handler.listInbox)

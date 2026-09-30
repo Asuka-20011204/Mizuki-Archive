@@ -8,6 +8,7 @@ import './styles/external.css'
 import './styles/inbox.css'
 import './styles/search.css'
 import './styles/relations.css'
+import './styles/topics.css'
 import './styles/motion.css'
 import './styles/responsive.css'
 

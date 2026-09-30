@@ -157,6 +157,9 @@ func (store *MySQL) DeleteResource(ctx context.Context, id string) (model.Resour
 			if err := removeRelationsForEntries(transaction, resource.UserID, []model.InboxSelection{{Source: "file", ID: id}}); err != nil {
 				return err
 			}
+			if err := removeTopicReferences(transaction, resource.UserID, []model.InboxSelection{{Source: "file", ID: id}}); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -354,6 +357,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 17, name: "pending_file_cleanup", sql: pendingFileCleanupMigration},
 		{version: 18, name: "resource_notes", sql: resourceNotesMigration},
 		{version: 19, name: "resource_relations", sql: resourceRelationsMigration},
+		{version: 20, name: "topics", sql: topicsMigration},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int

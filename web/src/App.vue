@@ -6,6 +6,7 @@ import RelationsPanel from './RelationsPanel.vue'
 import InboxPanel from './InboxPanel.vue'
 import OrganizedPanel from './OrganizedPanel.vue'
 import SearchPanel from './SearchPanel.vue'
+import TopicsPanel from './TopicsPanel.vue'
 import ResourceNotes from './ResourceNotes.vue'
 import { adjacentResource } from './detail-navigation'
 import { api, type ExternalResource, type InboxSelection, type ProcessingJob, type Resource } from './api'
@@ -991,6 +992,7 @@ onUnmounted(() => {
       <div class="site-header-inner">
         <div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div>
         <span class="site-header-label">个人资料库</span>
+        <a class="topics-shortcut" href="#topics">专题展页</a>
         <div class="account">
           <span class="avatar" aria-hidden="true">{{ username.slice(0, 1).toUpperCase() }}</span>
           <span class="account-name">{{ username }}</span>
@@ -1020,6 +1022,7 @@ onUnmounted(() => {
         <OrganizedPanel :refresh-key="organizedRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @changed="refreshCollectionViews" />
         <ArchivePanel :refresh-key="archiveRefreshKey" @open-file="selectResource" @restored="refreshCollectionViews" @deleted="refreshCollectionViews" />
         <ExternalResourcePanel ref="externalPanel" @changed="refreshInbox" @open-related="openRelated" />
+        <TopicsPanel @open="openRelated" />
 
         <nav class="filter-nav" aria-label="按资料类型筛选">
           <button

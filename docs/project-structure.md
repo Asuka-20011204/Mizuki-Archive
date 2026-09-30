@@ -26,6 +26,7 @@ Mizuki Archive/
 │   ├── model/resource_note.go         # 私人笔记、摘录与可选 PDF 页码
 │   ├── model/external_resource.go     # 站外资源卡片模型（不含原件）
 │   ├── model/relation.go              # 两类资料的双向关联列表模型
+│   ├── model/topic.go                 # 私有专题、分区和有序引用模型
 │   ├── model/portable_export.go       # 可携带 JSON 的版本、清单和关联结构
 │   ├── model/duplicate.go             # 纯文本链接规范化与同账号重复提示模型
 │   ├── model/search.go                # 组合筛选、视图和分来源搜索结果模型
@@ -46,6 +47,7 @@ Mizuki Archive/
 │   │   ├── resource_note_controller.go # 私人笔记的会话 HTTP 边界
 │   │   ├── external_resource_controller.go # 站外卡片 CRUD HTTP 边界
 │   │   ├── relations_controller.go    # 关联的列表、创建和解除 HTTP 边界
+│   │   ├── topics_controller.go       # 私有专题 CRUD、输入大小和身份边界
 │   │   ├── portable_export_controller.go # 下载限流、超限错误及附件响应
 │   │   ├── inbox_controller.go         # 待整理列表与状态更新 HTTP 边界
 │   │   ├── batch_tags_controller.go    # 当前用户混合来源批量标签 HTTP 边界
@@ -63,6 +65,7 @@ Mizuki Archive/
 │   │   ├── resource_note.go           # 笔记内容、页码与文件归属校验
 │   │   ├── external_resource.go       # 卡片校验、人工状态与身份约束
 │   │   ├── relations.go               # 关联的身份、来源、ID 与自关联校验
+│   │   ├── topics.go                  # 私有专题名称、引用格式和数量校验
 │   │   ├── portable_export.go         # 会话身份、版本化 JSON 和 32 MiB 边界
 │   │   ├── inbox.go                   # 整理状态、分页与用户身份约束
 │   │   ├── batch_tags.go              # 批次/标签校验与真实变化项
@@ -78,6 +81,7 @@ Mizuki Archive/
 │       ├── external_resource.go       # 按用户限定的卡片与标签事务
 │       ├── resource_note.go           # 按账号与文件限定的笔记读写及数量门禁
 │       ├── relations.go               # 双端归属锁定、双向查询和删除清理
+│       ├── topics.go                  # 专题事务、归属、顺序、上限及引用清理
 │       ├── portable_export.go         # 同账号只读快照、标签与笔记/关系清单
 │       ├── inbox.go                   # 两类待整理查询、可重试迁移与用户范围更新
 │       ├── batch_tags.go              # 文件与卡片标签的事务增删、归属与上限
@@ -112,7 +116,8 @@ Mizuki Archive/
 │           ├── 016_resource_archive.sql # 文件与外部卡片的归档时间列
 │           ├── 017_pending_file_cleanup.sql # 原件与派生文件的可重试清理记录
 │           ├── 018_resource_notes.sql # 私人笔记及账号、文件索引
-│           └── 019_resource_relations.sql # 私有资料的双向关联与索引
+│           ├── 019_resource_relations.sql # 私有资料的双向关联与索引
+│           └── 020_topics.sql         # 私有专题、分区和有序条目引用
 ├── web/                               # Vue 3 + TypeScript View
 │   ├── src/SearchPanel.vue            # 组合筛选、保存视图与来源分页
 │   ├── src/search-filter.ts           # 前端筛选预校验（服务端最终校验）
@@ -122,6 +127,12 @@ Mizuki Archive/
 │   ├── src/detail-navigation.ts       # 当前页邻项查找与边界保护
 │   ├── src/ExternalResourcePanel.vue  # 独立卡片录入、搜索和人工维护
 │   ├── src/ResourceNotes.vue          # 详情中的笔记编辑、页码和安全文本展示
+│   ├── src/TopicsPanel.vue            # 专题创建、编排、查看和条目跳转
+│   ├── src/topic-editor.ts            # 提交字段收敛和不可变顺序移动
+│   ├── src/topic-picker.ts            # 空关键词列表与关键词搜索候选
+│   ├── src/styles/topics.css          # 专题编排及窄屏样式
+│   ├── tests/topic-editor.test.mjs    # 编排顺序和最小提交字段测试
+│   ├── tests/topic-picker.test.mjs    # 空关键词/搜索候选来源测试
 │   ├── src/styles/notes.css           # 笔记表单和卡片样式
 │   ├── src/RelationsPanel.vue         # 文件与卡片共用的关联搜索、列表及解除
 │   ├── src/share-parser.ts            # 浏览器内解析粘贴文本，不发网络请求

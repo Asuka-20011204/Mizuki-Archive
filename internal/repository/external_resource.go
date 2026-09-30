@@ -201,6 +201,9 @@ func (store *MySQL) DeleteExternalResource(ctx context.Context, id string) error
 		if err := removeRelationsForEntries(tx, owner, []model.InboxSelection{{Source: "external", ID: id}}); err != nil {
 			return err
 		}
+		if err := removeTopicReferences(tx, owner, []model.InboxSelection{{Source: "external", ID: id}}); err != nil {
+			return err
+		}
 		result := tx.Table("external_resources").Where("id = ? AND user_id = ?", id, owner).Delete(&externalResourceRow{})
 		if result.Error != nil {
 			return fmt.Errorf("delete external resource: %w", result.Error)

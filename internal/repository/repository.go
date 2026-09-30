@@ -19,6 +19,15 @@ var ErrSavedSearchConflict = errors.New("saved search name already exists")
 var ErrSavedSearchLimit = errors.New("saved search view limit reached")
 var ErrBatchTagLimit = errors.New("resource tag limit reached")
 var ErrPortableExportLimit = errors.New("portable export exceeds row limit")
+var ErrTopicLimit = errors.New("topic limit reached")
+
+// TopicStore 原子校验专题的引用归属并管理私有有序内容。
+type TopicStore interface {
+	SaveTopic(context.Context, string, model.TopicInput, bool) (model.TopicDetail, error)
+	ListTopics(context.Context) ([]model.TopicSummary, error)
+	GetTopic(context.Context, string) (model.TopicDetail, error)
+	DeleteTopic(context.Context, string) error
+}
 
 // PortableExportStore 在数据库快照中读取当前用户的完整可见元数据，不读取原件或验证码。
 type PortableExportStore interface {

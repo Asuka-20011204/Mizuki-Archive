@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
-    "test": "node --test tests/share-parser.test.mjs tests/search-filter.test.mjs tests/detail-navigation.test.mjs",
+    "test": "node --test tests/share-parser.test.mjs tests/search-filter.test.mjs tests/detail-navigation.test.mjs tests/topic-editor.test.mjs tests/topic-picker.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

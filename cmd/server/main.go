@@ -207,6 +207,10 @@ func main() {
 	if err != nil {
 		log.Fatal("cannot prepare search service")
 	}
+	topics, err := service.NewTopics(store)
+	if err != nil {
+		log.Fatal("cannot prepare topic service")
+	}
 	notes, err := service.NewResourceNotes(store)
 	if err != nil {
 		log.Fatal("cannot prepare resource note service")
@@ -239,7 +243,7 @@ func main() {
 	if err != nil {
 		log.Fatal("cannot prepare portable export")
 	}
-	router, err := controller.New(controller.Config{Resources: resources, Notes: notes, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, BatchTags: batchTags, BatchFavorites: batchFavorites, Archive: archive, BatchDelete: batchDelete, Relations: relations, Export: exporter, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
+	router, err := controller.New(controller.Config{Resources: resources, Notes: notes, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, BatchTags: batchTags, BatchFavorites: batchFavorites, Archive: archive, BatchDelete: batchDelete, Relations: relations, Topics: topics, Export: exporter, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}
