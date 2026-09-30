@@ -3,7 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { api, type ExternalResource, type Resource, type SavedSearch, type SearchFilter, type SearchResults } from './api'
 import { normalizeSearchInput } from './search-filter'
 
-const emit = defineEmits<{ openFile: [resource: Resource]; editExternal: [resource: ExternalResource] }>()
+const emit = defineEmits<{ openFile: [resource: Resource, siblings: Resource[]]; editExternal: [resource: ExternalResource] }>()
 const props = defineProps<{ refreshKey: number }>()
 const query = ref('')
 const filter = ref<SearchFilter>({ q: '', source: '', kind: '', tag: '', organization_status: '' })
@@ -166,7 +166,7 @@ watch(() => props.refreshKey, () => { if (results.value || loading.value) void s
         <ul v-else class="search-list">
           <li v-for="item in results.files" :key="item.id">
             <div><strong>{{ item.name }}</strong><small>已上传 · {{ item.kind }} <span v-for="tag in item.tags" :key="tag"> · #{{ tag }}</span></small></div>
-            <button class="secondary-button" type="button" :aria-label="`打开文件 ${item.name} 的详情`" @click="emit('openFile', item)">打开详情</button>
+            <button class="secondary-button" type="button" :aria-label="`打开文件 ${item.name} 的详情`" @click="emit('openFile', item, results.files)">打开详情</button>
           </li>
         </ul>
       </section>

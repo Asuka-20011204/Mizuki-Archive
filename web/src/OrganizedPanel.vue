@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, type ExternalResource, type InboxSelection, type Resource, type SearchFilter } from './api'
 
 const props = defineProps<{ refreshKey: number }>()
-const emit = defineEmits<{ openFile: [resource: Resource]; editExternal: [resource: ExternalResource]; changed: [] }>()
+const emit = defineEmits<{ openFile: [resource: Resource, siblings: Resource[]]; editExternal: [resource: ExternalResource]; changed: [] }>()
 const files = ref<Resource[]>([])
 const cards = ref<ExternalResource[]>([])
 const page = ref(1)
@@ -215,7 +215,7 @@ onUnmounted(() => { requestVersion++ })
           <li v-for="file in files" :key="file.id">
             <label class="inbox-select"><input v-model="selectedKeys" type="checkbox" :value="selectionKey({ source: 'file', id: file.id })" :disabled="busy || loading" /><span class="inbox-select-name">{{ file.name }}</span></label>
             <small>{{ file.kind }} · {{ file.tags.join(' · ') || '无标签' }}{{ file.favorite ? ' · ★ 已收藏' : '' }}</small>
-            <button class="secondary-button" type="button" :disabled="busy" @click="emit('openFile', file)">查看详情</button>
+            <button class="secondary-button" type="button" :disabled="busy" @click="emit('openFile', file, files)">查看详情</button>
           </li>
         </ul>
       </div>

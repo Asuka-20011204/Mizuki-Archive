@@ -5,6 +5,7 @@ import ExternalResourcePanel from './ExternalResourcePanel.vue'
 import InboxPanel from './InboxPanel.vue'
 import OrganizedPanel from './OrganizedPanel.vue'
 import SearchPanel from './SearchPanel.vue'
+import { adjacentResource } from './detail-navigation'
 import { api, type ExternalResource, type ProcessingJob, type Resource } from './api'
 
 // 登录状态、列表筛选和详情面板分别在本视图中管理；服务端始终是权限与资料的权威来源。
@@ -39,6 +40,8 @@ const archiveRefreshKey = ref(0)
 const externalPanel = ref<InstanceType<typeof ExternalResourcePanel> | null>(null)
 const recentResources = ref<Resource[]>([])
 const selected = ref<Resource | null>(null)
+const detailNavigationItems = ref<Resource[]>([])
+const navigatingDetail = ref(false)
 // 搜索条件与页码交给 API 查询，不在浏览器里模拟 MySQL 的筛选和分页。
 const search = ref('')
 const kind = ref('')
@@ -49,6 +52,7 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const detailPanel = ref<HTMLElement | null>(null)
 const closeButton = ref<HTMLButtonElement | null>(null)
+const downloadLink = ref<HTMLAnchorElement | null>(null)
 const tagInput = ref('')
 const draftTags = ref<string[]>([])
 const tagSuggestions = ref<string[]>([])
@@ -85,6 +89,12 @@ const kinds = [
 
 // sectionName 的计算回调从类型表查找当前标题；找不到时回退为“全部资料”。
 const sectionName = computed(() => kinds.find((item) => item.value === kind.value)?.label || '全部资料')
+
+// detailPosition 提示当前文件在打开详情的列表页中的位置，不推测未加载的其他页。
+const detailPosition = computed(() => detailNavigationItems.value.findIndex((item) => item.id === selected.value?.id))
+// previousDetail 和 nextDetail 只允许在当前列表页内切换，单项入口会自动禁用两端按钮。
+const previousDetail = computed(() => selected.value ? adjacentResource(detailNavigationItems.value, selected.value.id, -1) : null)
+const nextDetail = computed(() => selected.value ? adjacentResource(detailNavigationItems.value, selected.value.id, 1) : null)
 
 // PublicView 控制未登录前台的单屏内容切换，避免宣传内容堆成长页面。
 type PublicView = 'home' | 'features' | 'principles' | 'privacy' | 'contact' | 'login'
@@ -414,6 +424,8 @@ function closeDetail() {
   jobsRequestId++
   stopJobPolling()
   selected.value = null
+  detailNavigationItems.value = []
+  navigatingDetail.value = false
   previewText.value = ''
   previewLoading.value = false
   previewError.value = ''
@@ -529,13 +541,14 @@ async function startProcessingJob() {
   }
 }
 // selectResource 从服务端重新获取详情，避免依赖可能已过期的列表快照。
-async function selectResource(resource: Resource): Promise<boolean> {
+async function selectResource(resource: Resource, siblings: Resource[] = resources.value): Promise<boolean> {
   const requestId = ++detailRequestId
   error.value = ''
   detailError.value = ''
   try {
     const detail = (await api.get(resource.id)).data
     if (requestId !== detailRequestId) return false
+    detailNavigationItems.value = siblings.some((item) => item.id === detail.id) ? [...siblings] : [detail]
     selected.value = detail
     void loadRecent()
     nameDraft.value = selected.value.name
@@ -545,8 +558,27 @@ async function selectResource(resource: Resource): Promise<boolean> {
     return true
   } catch (reason) {
     if (requestId !== detailRequestId) return false
-    error.value = reason instanceof Error ? reason.message : '无法打开资料'
+    const message = reason instanceof Error ? reason.message : '无法打开资料'
+    if (selected.value) detailError.value = message
+    else error.value = message
     return false
+  }
+}
+
+// navigateDetail 保留当前页上下文；跳转前提醒未保存的名称或标签不会自动写入。
+async function navigateDetail(step: -1 | 1) {
+  const current = selected.value
+  const next = step < 0 ? previousDetail.value : nextDetail.value
+  if (!current || !next || navigatingDetail.value) return
+  const tagsChanged = draftTags.value.length !== current.tags.length || draftTags.value.some((tag, index) => tag !== current.tags[index])
+  if ((nameDraft.value !== current.name || tagsChanged) && !window.confirm('名称或标签尚未保存，切换后草稿会丢失。继续吗？')) return
+  navigatingDetail.value = true
+  try {
+    await selectResource(next, detailNavigationItems.value)
+    await nextTick()
+    if (selected.value && !detailPanel.value?.contains(document.activeElement)) closeButton.value?.focus()
+  } finally {
+    navigatingDetail.value = false
   }
 }
 
@@ -684,7 +716,7 @@ function clearFilters() {
   searchInput.value?.focus()
 }
 
-// trapDetailFocus 处理 Escape 与 Tab 循环，让模态详情不把键盘焦点漏到背景。
+// trapDetailFocus 处理详情快捷键和 Tab 循环；输入框与系统组合键仍保持原生行为。
 function trapDetailFocus(event: KeyboardEvent) {
   if (!selected.value) return
   // 详情抽屉作为模态层，键盘焦点不能落到背后的资料列表。
@@ -692,6 +724,25 @@ function trapDetailFocus(event: KeyboardEvent) {
     event.preventDefault()
     closeDetail()
     return
+  }
+  const target = event.target instanceof HTMLElement ? event.target : null
+  const editing = target?.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]')
+  if (!editing && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing && !event.repeat) {
+    if (event.key === 'ArrowLeft' && previousDetail.value) {
+      event.preventDefault()
+      void navigateDetail(-1)
+      return
+    }
+    if (event.key === 'ArrowRight' && nextDetail.value) {
+      event.preventDefault()
+      void navigateDetail(1)
+      return
+    }
+    if (event.key.toLowerCase() === 'd' && !navigatingDetail.value) {
+      event.preventDefault()
+      downloadLink.value?.click()
+      return
+    }
   }
   if (event.key !== 'Tab') return
   const focusable = detailPanel.value?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled])')
@@ -914,7 +965,7 @@ onUnmounted(() => {
         <SearchPanel :refresh-key="archiveRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" />
         <InboxPanel :refresh-key="inboxRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @archived="refreshCollectionViews" @deleted="refreshCollectionViews" />
         <OrganizedPanel :refresh-key="organizedRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @changed="refreshCollectionViews" />
-        <ArchivePanel :refresh-key="archiveRefreshKey" @restored="refreshCollectionViews" @deleted="refreshCollectionViews" />
+        <ArchivePanel :refresh-key="archiveRefreshKey" @open-file="selectResource" @restored="refreshCollectionViews" @deleted="refreshCollectionViews" />
         <ExternalResourcePanel ref="externalPanel" @changed="refreshInbox" />
 
         <nav class="filter-nav" aria-label="按资料类型筛选">
@@ -949,7 +1000,7 @@ onUnmounted(() => {
               :key="resource.id"
               type="button"
               class="recent-item"
-              @click="selectResource(resource)"
+              @click="selectResource(resource, recentResources.slice(0, 5))"
             >
               <span class="recent-kind">{{ kindLabel(resource.kind) }}</span>
               <span class="recent-name">{{ resource.name }}</span>
@@ -1044,6 +1095,7 @@ onUnmounted(() => {
         >
           <button ref="closeButton" type="button" class="close-button" aria-label="关闭资料详情" @click="closeDetail">×</button>
           <header class="detail-header">
+            <h2 id="detail-title" class="visually-hidden">{{ selected.name }}的详情</h2>
             <p class="eyebrow">资料检查器 · {{ kindLabel(selected.kind) }}</p>
             <div class="detail-title-row">
               <div class="detail-icon" :class="selected.kind">{{ selected.kind === 'image' ? '◈' : kindLabel(selected.kind) }}</div>
@@ -1057,6 +1109,12 @@ onUnmounted(() => {
               </div>
             </div>
             <p class="detail-description">私有资料 · 仅当前登录会话可访问</p>
+            <nav class="detail-navigation" aria-label="当前列表文件切换">
+              <button type="button" class="secondary-button" :disabled="!previousDetail || navigatingDetail" @click="navigateDetail(-1)">← 上一项</button>
+              <span class="detail-navigation-status" role="status">{{ detailPosition >= 0 ? `第 ${detailPosition + 1} / ${detailNavigationItems.length} 项` : '当前文件' }}</span>
+              <button type="button" class="secondary-button" :disabled="!nextDetail || navigatingDetail" @click="navigateDetail(1)">下一项 →</button>
+              <small>← / → 切换 · Esc 关闭 · D 下载；输入区保留编辑按键，PDF 内请用按钮</small>
+            </nav>
           </header>
           <div class="detail-body">
             <div class="detail-main-column">
@@ -1123,7 +1181,7 @@ onUnmounted(() => {
               </section>
               <div class="detail-actions">
                 <button type="button" class="secondary-button favorite-button" :aria-pressed="selected.favorite" :aria-disabled="savingFavorite" @click="setFavorite"><span aria-hidden="true">{{ selected.favorite ? '★' : '☆' }}</span>{{ savingFavorite ? '正在保存…' : selected.favorite ? '已收藏' : '加入收藏' }}</button>
-                <a class="primary-button download-button" :href="`/api/resources/${selected.id}/download`">下载原文件 <span aria-hidden="true">↗</span></a>
+                <a ref="downloadLink" class="primary-button download-button" :href="`/api/resources/${selected.id}/download`">下载原文件 <span aria-hidden="true">↗</span></a>
                 <button type="button" class="danger-button" :aria-disabled="deleting" @click="deleteResource">{{ deleting ? '正在删除…' : '删除资料' }}</button>
               </div>
               <p v-if="detailError" class="message error" role="alert">{{ detailError }}</p>
