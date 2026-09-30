@@ -75,3 +75,8 @@ var pendingFileCleanupMigration string
 //
 //go:embed migrations/018_resource_notes.sql
 var resourceNotesMigration string
+
+// 双向关联只保存用户范围内的两端标识，删除任一条目时事务内同步清理。
+//
+//go:embed migrations/019_resource_relations.sql
+var resourceRelationsMigration string

@@ -26,6 +26,9 @@ func (store *MySQL) BatchDeleteEntries(ctx context.Context, items []model.InboxS
 		if err != nil {
 			return err
 		}
+		if err := removeRelationsForEntries(tx, owner, items); err != nil {
+			return err
+		}
 		files.OriginalIDs = groups["file"]
 		if len(files.OriginalIDs) > 0 {
 			// 锁住任务后再读取其产物，避免执行中的 Worker 在收集 ID 后写入无法清理的新产物。

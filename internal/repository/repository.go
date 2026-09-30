@@ -18,6 +18,15 @@ var ErrUserExists = errors.New("user already exists")
 var ErrSavedSearchConflict = errors.New("saved search name already exists")
 var ErrSavedSearchLimit = errors.New("saved search view limit reached")
 var ErrBatchTagLimit = errors.New("resource tag limit reached")
+var ErrRelationExists = errors.New("resource relation already exists")
+var ErrRelationLimit = errors.New("resource relation limit reached")
+
+// RelationStore 为两类私有资料提供有界双向关联，创建时必须原子核验两个端点归属。
+type RelationStore interface {
+	CreateRelation(context.Context, model.InboxSelection, model.InboxSelection, string) (model.ResourceRelation, error)
+	ListRelations(context.Context, model.InboxSelection) ([]model.ResourceRelation, error)
+	DeleteRelation(context.Context, string) error
+}
 
 // InboxStore 同时读取用户的两类待整理条目，避免扩大已有文件与外部资源测试替身的接口。
 type InboxStore interface {

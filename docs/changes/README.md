@@ -8,6 +8,8 @@
 
 - [2026-09-30 · 本地登录入口与来源校验](2026-09-30-local-origin-port.md)
 
+- [2026-09-30 · 私有资料关联线索](2026-09-30-resource-relations.md)
+
 - [2026-09-30 · 详情键盘切换与当前页导航](2026-09-30-detail-keyboard-navigation.md)
 
 - [2026-09-30 · 已整理资料批量入口](2026-09-30-organized-batch.md)

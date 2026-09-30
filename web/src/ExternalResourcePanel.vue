@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from 'vue'
 import { api, type ExternalResource, type ExternalResourceInput } from './api'
+import RelationsPanel from './RelationsPanel.vue'
+import type { InboxSelection } from './api'
 import { parseShareText, ShareParseError } from './share-parser'
 
-const emit = defineEmits<{ changed: [] }>()
+const emit = defineEmits<{ changed: []; openRelated: [item: InboxSelection] }>()
 
 const items = ref<ExternalResource[]>([])
 const query = ref('')
@@ -178,6 +180,7 @@ defineExpose({ editCard, refresh: loadExternalCards })
       <label class="external-note">备注 <textarea v-model="draft.note" maxlength="2000" rows="3" /></label>
       <div class="external-actions"><button class="primary-button" type="submit" :disabled="busy">{{ busy ? '保存中…' : '保存卡片' }}</button><button class="secondary-button" type="button" :disabled="busy" @click="formOpen = false">取消</button></div>
     </form>
+    <RelationsPanel v-if="formOpen && editingId" source="external" :id="editingId" @open="emit('openRelated', $event)" />
     <p v-if="loading && !items.length" role="status">正在加载卡片…</p>
     <p v-else-if="!items.length && !error" class="external-empty">暂无卡片。可以先记下网盘链接、网站或本地位置，稍后再整理。</p>
     <ul v-else class="external-list">

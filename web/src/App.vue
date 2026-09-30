@@ -2,12 +2,13 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ArchivePanel from './ArchivePanel.vue'
 import ExternalResourcePanel from './ExternalResourcePanel.vue'
+import RelationsPanel from './RelationsPanel.vue'
 import InboxPanel from './InboxPanel.vue'
 import OrganizedPanel from './OrganizedPanel.vue'
 import SearchPanel from './SearchPanel.vue'
 import ResourceNotes from './ResourceNotes.vue'
 import { adjacentResource } from './detail-navigation'
-import { api, type ExternalResource, type ProcessingJob, type Resource } from './api'
+import { api, type ExternalResource, type InboxSelection, type ProcessingJob, type Resource } from './api'
 
 // 登录状态、列表筛选和详情面板分别在本视图中管理；服务端始终是权限与资料的权威来源。
 const username = ref('')
@@ -420,7 +421,30 @@ function openExternalFromInbox(item: ExternalResource) {
   document.getElementById('external-title')?.scrollIntoView({ behavior: 'auto' })
 }
 
-// closeDetail 主动关闭时确认笔记草稿；退出或删除时强制清理，旧请求也不能重新打开详情。
+// openRelated 先确认未保存的详情草稿，再从服务端重新读取目标和权限。
+async function openRelated(item: InboxSelection) {
+  const current = selected.value
+  if (current) {
+    const tagsChanged = draftTags.value.length !== current.tags.length || draftTags.value.some((tag, index) => tag !== current.tags[index])
+    if ((nameDraft.value !== current.name || tagsChanged || notesPanel.value?.hasUnsavedDraft()) && !window.confirm('名称、标签或笔记尚未保存，跳转后草稿会丢失。继续吗？')) return
+  }
+  try {
+    if (item.source === 'file') {
+      const resource = (await api.get(item.id)).data
+      await selectResource(resource)
+    } else {
+      const card = (await api.getExternalResource(item.id)).data
+      if (selected.value) closeDetail(true)
+      openExternalFromInbox(card)
+    }
+  } catch (reason) {
+    const message = reason instanceof Error ? reason.message : '无法打开关联资料'
+    if (selected.value) detailError.value = message
+    else error.value = message
+  }
+}
+
+// closeDetail 主动关闭时确认笔记草稿；退出或跳转后强制清理旧请求。
 function closeDetail(force = false) {
   if (!force && notesPanel.value?.hasUnsavedDraft() && !window.confirm('笔记草稿尚未保存，关闭后会丢失。继续吗？')) return
   detailRequestId++
@@ -970,7 +994,7 @@ onUnmounted(() => {
         <InboxPanel :refresh-key="inboxRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @archived="refreshCollectionViews" @deleted="refreshCollectionViews" />
         <OrganizedPanel :refresh-key="organizedRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @changed="refreshCollectionViews" />
         <ArchivePanel :refresh-key="archiveRefreshKey" @open-file="selectResource" @restored="refreshCollectionViews" @deleted="refreshCollectionViews" />
-        <ExternalResourcePanel ref="externalPanel" @changed="refreshInbox" />
+        <ExternalResourcePanel ref="externalPanel" @changed="refreshInbox" @open-related="openRelated" />
 
         <nav class="filter-nav" aria-label="按资料类型筛选">
           <button
@@ -1184,6 +1208,7 @@ onUnmounted(() => {
                 <form class="tag-editor" @submit.prevent="addTag"><label class="visually-hidden" for="tag-input">添加标签</label><input id="tag-input" v-model="tagInput" list="tag-suggestions" maxlength="24" placeholder="输入标签后按回车" /><datalist id="tag-suggestions"><option v-for="tag in tagSuggestions" :key="`suggestion-${tag}`" :value="tag" /></datalist><button type="submit" class="secondary-button">添加</button></form>
                 <button type="button" class="primary-button save-tags-button" :aria-disabled="savingTags" @click="saveTags">{{ savingTags ? '正在保存…' : '保存标签' }}</button>
               </section>
+              <RelationsPanel source="file" :id="selected.id" @open="openRelated" />
               <div class="detail-actions">
                 <button type="button" class="secondary-button favorite-button" :aria-pressed="selected.favorite" :aria-disabled="savingFavorite" @click="setFavorite"><span aria-hidden="true">{{ selected.favorite ? '★' : '☆' }}</span>{{ savingFavorite ? '正在保存…' : selected.favorite ? '已收藏' : '加入收藏' }}</button>
                 <a ref="downloadLink" class="primary-button download-button" :href="`/api/resources/${selected.id}/download`">下载原文件 <span aria-hidden="true">↗</span></a>

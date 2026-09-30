@@ -1,0 +1,12 @@
+.relations-panel { border: 1px solid var(--line); border-radius: 18px; padding: 16px; margin-top: 18px; background: var(--surface); }
+.relations-panel h3 { margin: 0 0 8px; font-size: 16px; }
+.relations-panel h3 span { color: var(--muted); font-size: 12px; font-weight: 400; }
+.relations-panel p { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.relations-list { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
+.relations-list li { display: flex; gap: 8px; align-items: center; justify-content: space-between; min-width: 0; }
+.relations-list li > span, .relations-list li > .text-link { min-width: 0; overflow-wrap: anywhere; text-align: left; }
+.relations-list button.text-link { border: 0; background: transparent; padding: 8px 0; cursor: pointer; }
+.relations-search { display: grid; gap: 6px; margin-top: 14px; }
+.relations-search div { display: flex; flex-wrap: wrap; gap: 8px; }
+.relations-search input { flex: 1 1 180px; min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; background: #fff; color: inherit; }
+.relations-hint { margin-bottom: 0; }

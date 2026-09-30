@@ -134,7 +134,7 @@ func (store *MySQL) UpdateResourceName(ctx context.Context, id, name string) (mo
 func (store *MySQL) DeleteResource(ctx context.Context, id string) (model.Resource, error) {
 	var resource resourceRow
 	err := store.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		if err := scopeResources(transaction.Table("resources"), ctx).Where("id = ?", id).Take(&resource).Error; err != nil {
+		if err := scopeResources(transaction.Table("resources").Clauses(clause.Locking{Strength: "UPDATE"}), ctx).Where("id = ?", id).Take(&resource).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrNotFound
 			}
@@ -152,6 +152,11 @@ func (store *MySQL) DeleteResource(ctx context.Context, id string) (model.Resour
 		}
 		if err := transaction.Exec("DELETE FROM resource_tags WHERE resource_id = ?", id).Error; err != nil {
 			return fmt.Errorf("clear deleted resource tags: %w", err)
+		}
+		if resource.UserID != "" {
+			if err := removeRelationsForEntries(transaction, resource.UserID, []model.InboxSelection{{Source: "file", ID: id}}); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -348,6 +353,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 16, name: "resource_archive", prepare: ensureArchiveSchema},
 		{version: 17, name: "pending_file_cleanup", sql: pendingFileCleanupMigration},
 		{version: 18, name: "resource_notes", sql: resourceNotesMigration},
+		{version: 19, name: "resource_relations", sql: resourceRelationsMigration},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int

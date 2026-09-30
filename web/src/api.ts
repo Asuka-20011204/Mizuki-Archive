@@ -137,6 +137,8 @@ export interface AuthCapabilities {
 
 // InboxSelection 区分站内文件与外部卡片，批量请求不由浏览器声明用户身份。
 export interface InboxSelection { source: 'file' | 'external'; id: string }
+// ResourceRelation 包含关联另一端的当前名称；关联只属于服务端会话用户。
+export interface ResourceRelation { id: string; target: InboxSelection; name: string; created_at: string }
 // ApiError 只描述前端需要的安全错误消息，不依赖服务端内部异常细节。
 interface ApiError {
   error?: { code: string; message: string }
@@ -166,6 +168,14 @@ async function requestText(path: string, options?: RequestInit): Promise<string>
 }
 
 export const api = {
+  // listRelations 读取当前资料的双向关联，服务端再次核验归属。
+  listRelations: (source: InboxSelection) => request<{ data: ResourceRelation[] }>(`/relations/${source.source}/${encodeURIComponent(source.id)}`),
+  // createRelation 两端都由当前用户拥有时才能成功，重复关联由服务端拒绝。
+  createRelation: (source: InboxSelection, target: InboxSelection) => request<{ data: ResourceRelation }>('/relations', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source, target }),
+  }),
+  // deleteRelation 只解除线索，不删除文件或卡片。
+  deleteRelation: (id: string) => request<void>(`/relations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // searchAll 在服务端权限边界查询文件、标签、提取正文、私人笔记与卡片备注，不在浏览器拼接私有索引。
   searchAll: (filter: SearchFilter, page: number) => request<{ data: SearchResults }>(`/search?${new URLSearchParams({ ...filter, page: String(page) })}`),
   // listSavedSearches 仅列出当前账号的视图定义，不自动执行昂贵的正文搜索。
@@ -212,6 +222,8 @@ export const api = {
     }),
   // listExternalResources 只查询当前用户卡片，服务器限制返回数量。
   listExternalResources: (query = '') => request<{ data: ExternalResource[] }>(`/external-resources?${new URLSearchParams({ q: query })}`),
+  // getExternalResource 打开关联目标前从服务端重新获取权限与当前卡片名称。
+  getExternalResource: (id: string) => request<{ data: ExternalResource }>(`/external-resources/${encodeURIComponent(id)}`),
   // createExternalResource 保存资源位置文本，绝不上传或自动访问外部链接。
   createExternalResource: (value: ExternalResourceInput) => request<{ data: ExternalResource }>('/external-resources', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),

@@ -194,12 +194,20 @@ func (store *MySQL) DeleteExternalResource(ctx context.Context, id string) error
 	if err != nil {
 		return err
 	}
-	result := store.db.WithContext(ctx).Table("external_resources").Where("id = ? AND user_id = ?", id, owner).Delete(&externalResourceRow{})
-	if result.Error != nil {
-		return fmt.Errorf("delete external resource: %w", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if _, err := lockRelationEndpoint(tx, owner, model.InboxSelection{Source: "external", ID: id}); err != nil {
+			return err
+		}
+		if err := removeRelationsForEntries(tx, owner, []model.InboxSelection{{Source: "external", ID: id}}); err != nil {
+			return err
+		}
+		result := tx.Table("external_resources").Where("id = ? AND user_id = ?", id, owner).Delete(&externalResourceRow{})
+		if result.Error != nil {
+			return fmt.Errorf("delete external resource: %w", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }

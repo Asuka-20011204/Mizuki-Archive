@@ -231,7 +231,11 @@ func main() {
 	if err != nil {
 		log.Fatal("cannot prepare batch delete service")
 	}
-	router, err := controller.New(controller.Config{Resources: resources, Notes: notes, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, BatchTags: batchTags, BatchFavorites: batchFavorites, Archive: archive, BatchDelete: batchDelete, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
+	relations, err := service.NewRelations(store)
+	if err != nil {
+		log.Fatal("cannot prepare resource relations")
+	}
+	router, err := controller.New(controller.Config{Resources: resources, Notes: notes, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, BatchTags: batchTags, BatchFavorites: batchFavorites, Archive: archive, BatchDelete: batchDelete, Relations: relations, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}
