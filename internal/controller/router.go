@@ -18,6 +18,7 @@ type Config struct {
 	Resources         *service.Resources
 	ExternalResources *service.ExternalResources
 	Inbox             *service.Inbox
+	Search            *service.Search
 	Processing        *service.Processing
 	Auth              *service.Auth
 	EmailAuth         *service.EmailAuth
@@ -31,9 +32,10 @@ type Config struct {
 }
 
 type Controller struct {
-	config       Config
-	limiter      *loginLimiter
-	emailLimiter *requestLimiter
+	config        Config
+	limiter       *loginLimiter
+	emailLimiter  *requestLimiter
+	searchLimiter *requestLimiter
 }
 
 // New 注册公开路由和需要会话的私有路由，是 HTTP 层的入口。
@@ -46,7 +48,7 @@ func New(config Config) (*gin.Engine, error) {
 		return nil, err
 	}
 	engine.Use(gin.Recovery())
-	handler := &Controller{config: config, limiter: newLoginLimiter(), emailLimiter: newRequestLimiter()}
+	handler := &Controller{config: config, limiter: newLoginLimiter(), emailLimiter: newRequestLimiter(), searchLimiter: newRequestLimiter()}
 	engine.Use(handler.headersAndOrigin)
 	// 健康检查回调只报告进程存活，不查询数据库，也不返回私有资料或配置细节。
 	engine.GET("/healthz", func(ctx *gin.Context) { ctx.Status(http.StatusNoContent) })
@@ -90,6 +92,9 @@ func New(config Config) (*gin.Engine, error) {
 	})
 	private.POST("/logout", handler.logout)
 	private.POST("/resources", handler.upload)
+	if config.Search != nil {
+		private.GET("/search", handler.searchAll)
+	}
 	if config.Inbox != nil {
 		private.GET("/inbox", handler.listInbox)
 		private.PATCH("/inbox/batch", handler.batchSetInboxStatus)

@@ -203,7 +203,11 @@ func main() {
 	if err != nil {
 		log.Fatal("cannot prepare inbox service")
 	}
-	router, err := controller.New(controller.Config{Resources: resources, ExternalResources: externalResources, Inbox: inbox, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
+	search, err := service.NewSearch(store)
+	if err != nil {
+		log.Fatal("cannot prepare search service")
+	}
+	router, err := controller.New(controller.Config{Resources: resources, ExternalResources: externalResources, Inbox: inbox, Search: search, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}

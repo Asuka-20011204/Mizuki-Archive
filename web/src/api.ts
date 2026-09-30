@@ -46,6 +46,15 @@ export interface InboxPage {
   has_more: boolean
 }
 
+// SearchResults 分别标明上传文件和外部卡片，下一页以两类结果各自是否还有数据为准。
+export interface SearchResults {
+  files: Resource[]
+  external_resources: ExternalResource[]
+  page: number
+  has_more_files: boolean
+  has_more_external: boolean
+}
+
 // DerivedAsset 描述成功任务生成的可下载派生文件，不把服务端存储键交给浏览器。
 export interface DerivedAsset {
   id: string
@@ -114,6 +123,8 @@ async function requestText(path: string, options?: RequestInit): Promise<string>
 }
 
 export const api = {
+  // searchAll 在同一个服务端权限边界查询文件、标签、正文与卡片笔记，不在浏览器拼接私有索引。
+  searchAll: (query: string, page: number) => request<{ data: SearchResults }>(`/search?${new URLSearchParams({ q: query, page: String(page) })}`),
   // listInbox 读取当前用户的两类待整理资料，避免浏览器在本地拼装越权列表。
   listInbox: (page: number) => request<{ data: InboxPage }>(`/inbox?${new URLSearchParams({ page: String(page) })}`),
   // setInboxStatus 显式指定目标状态，重复提交不会反转状态或触碰外部链接可用性。

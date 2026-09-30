@@ -25,6 +25,7 @@ Mizuki Archive/
 │   ├── model/resource.go              # 资料模型、用户归属与列表筛选条件
 │   ├── model/external_resource.go     # 站外资源卡片模型（不含原件）
 │   ├── model/duplicate.go             # 纯文本链接规范化与同账号重复提示模型
+│   ├── model/search.go                # 分来源统一搜索结果模型
 │   ├── model/user.go                  # 多用户身份模型
 │   ├── model/phone.go                 # 大陆手机号一次性挑战模型
 │   ├── model/inbox.go                 # 批量整理条目的来源与 ID
@@ -41,6 +42,7 @@ Mizuki Archive/
 │   │   ├── resource_controller.go     # 资料上传、查询、标签、预览、删除和下载
 │   │   ├── external_resource_controller.go # 站外卡片 CRUD HTTP 边界
 │   │   ├── inbox_controller.go         # 待整理列表与状态更新 HTTP 边界
+│   │   ├── search_controller.go       # 私有统一搜索与参数校验 HTTP 边界
 │   │   └── processing_controller.go   # 任务创建、任务查看和派生文件下载
 │   ├── service/
 │   │   ├── auth.go                    # 兼容密码校验、用户会话和身份上下文
@@ -49,6 +51,7 @@ Mizuki Archive/
 │   │   ├── resource.go                # 文件校验、存储、元数据流程
 │   │   ├── external_resource.go       # 卡片校验、人工状态与身份约束
 │   │   ├── inbox.go                   # 整理状态、分页与用户身份约束
+│   │   ├── search.go                  # 搜索输入限制、来源分组与分页
 │   │   └── processing.go              # 任务幂等、Worker 执行和派生文件
 │   └── repository/
 │       ├── repository.go              # 资料/会话/处理任务持久化接口
@@ -61,6 +64,7 @@ Mizuki Archive/
 │       ├── email.go                   # 用户、验证码与会话归属持久化
 │       ├── phone.go                   # 手机号唯一身份、挑战和可重试迁移准备
 │       ├── duplicate.go               # 同账号查重、用户范围索引和旧卡片回填
+│       ├── search.go                  # 文件与卡片的用户范围关键词查询
 │       └── migrations/
 │           ├── 001_init.sql           # 资料与会话表
 │           ├── 002_manual_tags.sql    # 标签与资料关联
@@ -76,6 +80,7 @@ Mizuki Archive/
 │           ├── 012_mainland_phone_identity.sql # 手机挑战表；用户列和索引可重试创建
 │           └── 013_duplicate_hints.sql # 查重迁移登记；DDL 和回填由准备函数执行
 ├── web/                               # Vue 3 + TypeScript View
+│   ├── src/SearchPanel.vue            # 搜索两种资料并区分来源、翻页与打开详情
 │   ├── src/InboxPanel.vue             # 统一查看两类待整理条目
 │   ├── src/ExternalResourcePanel.vue  # 独立卡片录入、搜索和人工维护
 │   ├── src/share-parser.ts            # 浏览器内解析粘贴文本，不发网络请求

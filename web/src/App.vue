@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ExternalResourcePanel from './ExternalResourcePanel.vue'
 import InboxPanel from './InboxPanel.vue'
+import SearchPanel from './SearchPanel.vue'
 import { api, type ExternalResource, type ProcessingJob, type Resource } from './api'
 
 // 登录状态、列表筛选和详情面板分别在本视图中管理；服务端始终是权限与资料的权威来源。
@@ -894,6 +895,7 @@ onUnmounted(() => {
           <div class="archive-stats"><div v-for="stat in archiveStats" :key="stat.label" class="archive-stat"><strong>{{ stat.value }}</strong><span>{{ stat.label }}</span></div></div>
         </section>
 
+        <SearchPanel @open-file="selectResource" @edit-external="openExternalFromInbox" />
         <InboxPanel :refresh-key="inboxRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" />
         <ExternalResourcePanel ref="externalPanel" @changed="refreshInbox" />
 

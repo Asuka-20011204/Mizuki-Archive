@@ -5,6 +5,7 @@ import './styles/login.css'
 import './styles/library.css'
 import './styles/external.css'
 import './styles/inbox.css'
+import './styles/search.css'
 import './styles/motion.css'
 import './styles/responsive.css'
 

@@ -40,6 +40,12 @@ type DuplicateStore interface {
 	FindExternalDuplicate(context.Context, string, string) (*model.DuplicateHint, error)
 }
 
+// SearchStore 查询当前会话范围内的文件元数据、标签、正文及外部卡片线索。
+type SearchStore interface {
+	SearchFiles(context.Context, string, int, int) ([]model.Resource, error)
+	SearchExternal(context.Context, string, int, int) ([]model.ExternalResource, error)
+}
+
 // Store 包含首期资料和会话的持久化操作，测试可用内存实现替换 MySQL。
 type Store interface {
 	SaveResource(context.Context, model.Resource) error
