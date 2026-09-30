@@ -64,7 +64,7 @@
    `rabbitmq`、`redis`、`mailpit` 都是 Compose profile，**单独的 `docker compose up -d mysql` 不会启动它们**。如三个容器都需要，先完成证书和配置，再分别执行上表命令，最后用 `docker compose --profile v3 --profile v4 --profile email ps` 检查状态。
 4. **启动 Go API**（单独终端，仓库根目录）：`go run ./cmd/server`。它读取 `.env` 并在本地开发模式应用迁移；检查 `http://127.0.0.1:8080/healthz` 是否返回 `204`。`APP_ORIGIN` 必须与浏览器实际访问的协议、主机和端口完全一致。若配置真实邮箱 SMTP，须同时填写 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM` 和至少 32 字节随机的 `EMAIL_CODE_SECRET`，不完整配置会导致启动失败；详见下文链接。
 5. **启动 Worker**（单独终端，仓库根目录）：`go run ./cmd/worker`。即使使用默认 MySQL 队列，只要需要执行资料处理任务就必须启动它；API 与 Worker 使用同一 MySQL 和 `APP_DATA_DIR`，且任务模式一致。不要同时运行数据库模式和 RabbitMQ 模式 Worker。
-6. **启动前端**（另一个终端）：`cd web; npm ci; npm run dev`，按 Vite 输出访问页面；默认 `.env.example` 的 `APP_ORIGIN` 对应 `http://localhost:5173/`。检查 `http://127.0.0.1:8080/api/auth/capabilities`：只有 SMTP 配置完整时 `email_verification` 才为 `true`。本地邮件可在 `http://localhost:8025/` 查看；真实邮箱服务需自行向邮件提供方获取主机、端口及授权码。手机号短信发送器**尚未接入运行中的 API**，不能靠填手机号或 SMTP 配置启用注册。
+6. **启动前端**（另一个终端）：`cd web; npm ci; npm run dev`，只打开 `http://localhost:5173/`；Vite 默认固定 5173，端口被占用时不会自动换端口。`.env` 的 `APP_ORIGIN` 必须与浏览器地址完全一致，不能用 5175 或 `127.0.0.1:5173` 代替。检查 `http://127.0.0.1:8080/api/auth/capabilities`：只有 SMTP 配置完整时 `email_verification` 才为 `true`。本地邮件可在 `http://localhost:8025/` 查看；真实邮箱服务需自行向邮件提供方获取主机、端口及授权码。手机号短信发送器**尚未接入运行中的 API**，不能靠填手机号或 SMTP 配置启用注册。
 
 退出时在 API、Worker、Vite 终端按 `Ctrl+C`，容器使用 `docker compose --profile v3 --profile v4 --profile email stop` 停止。不要运行 `down -v`，那会删除数据库及队列卷。
 
