@@ -3,6 +3,15 @@
 .search-heading p, .search-groups small, .search-empty, .search-pages span { color: var(--muted); }
 .search-form { margin: 24px 0; }
 .search-form label { display: block; margin-bottom: 8px; font-weight: 600; }
+.search-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.search-filters label { font-size: 14px; }
+.search-filters input, .search-filters select, .saved-search-form input { display: block; box-sizing: border-box; width: 100%; margin-top: 6px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; color: inherit; }
+.saved-searches { margin: 20px 0 28px; padding: 18px; border-radius: 18px; background: var(--surface, #f7f9fa); }
+.saved-searches h3 { margin: 0 0 12px; }
+.saved-search-form { display: flex; align-items: end; gap: 10px; }
+.saved-search-form label { flex: 1; }
+.saved-search-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 12px 0 0; list-style: none; }
+.saved-search-list li { display: flex; gap: 4px; }
 .search-controls { display: flex; gap: 12px; }
 .search-controls input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
 .search-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
@@ -14,5 +23,5 @@
 .search-list li strong, .search-list li small { display: block; }
 .search-list li small { margin-top: 4px; }
 .search-pages { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 22px; }
-@media (max-width: 760px) { .search-groups { grid-template-columns: 1fr; } }
-@media (max-width: 640px) { .search-panel { margin: 24px auto; padding: 20px; } .search-controls, .search-list li { flex-direction: column; align-items: stretch; } }
+@media (max-width: 760px) { .search-groups, .search-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .search-panel { margin: 24px auto; padding: 20px; } .search-controls, .saved-search-form, .search-list li { flex-direction: column; align-items: stretch; } .search-filters { grid-template-columns: 1fr; } }

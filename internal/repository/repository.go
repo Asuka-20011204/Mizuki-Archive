@@ -15,6 +15,8 @@ var ErrJobLeaseLost = errors.New("processing job lease lost")
 var ErrProcessingJobExists = errors.New("processing job already exists")
 var ErrProcessingQueueFull = errors.New("processing queue is full")
 var ErrUserExists = errors.New("user already exists")
+var ErrSavedSearchConflict = errors.New("saved search name already exists")
+var ErrSavedSearchLimit = errors.New("saved search view limit reached")
 
 // InboxStore 同时读取用户的两类待整理条目，避免扩大已有文件与外部资源测试替身的接口。
 type InboxStore interface {
@@ -42,8 +44,15 @@ type DuplicateStore interface {
 
 // SearchStore 查询当前会话范围内的文件元数据、标签、正文及外部卡片线索。
 type SearchStore interface {
-	SearchFiles(context.Context, string, int, int) ([]model.Resource, error)
-	SearchExternal(context.Context, string, int, int) ([]model.ExternalResource, error)
+	SearchFiles(context.Context, model.SearchFilter, int, int) ([]model.Resource, error)
+	SearchExternal(context.Context, model.SearchFilter, int, int) ([]model.ExternalResource, error)
+}
+
+// SavedSearchStore 只存放已验证用户的检索条件；仓储必须约束数量并强制账号归属。
+type SavedSearchStore interface {
+	CreateSavedSearch(context.Context, model.SavedSearch) error
+	ListSavedSearches(context.Context) ([]model.SavedSearch, error)
+	DeleteSavedSearch(context.Context, string) error
 }
 
 // Store 包含首期资料和会话的持久化操作，测试可用内存实现替换 MySQL。

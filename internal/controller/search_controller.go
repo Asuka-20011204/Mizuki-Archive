@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"mizuki-archive/internal/model"
 	"mizuki-archive/internal/repository"
 	"mizuki-archive/internal/service"
 )
@@ -39,9 +40,10 @@ func (handler *Controller) searchAll(ctx *gin.Context) {
 	}
 	searchContext, cancel := context.WithTimeout(ctx.Request.Context(), 5*time.Second)
 	defer cancel()
-	results, err := handler.config.Search.Query(searchContext, ctx.Query("q"), page)
+	filter := model.SearchFilter{Query: ctx.Query("q"), Source: ctx.Query("source"), Kind: ctx.Query("kind"), Tag: ctx.Query("tag"), OrganizationStatus: ctx.Query("organization_status")}
+	results, err := handler.config.Search.QueryFiltered(searchContext, filter, page)
 	if errors.Is(err, service.ErrInvalidSearch) {
-		failure(ctx, http.StatusBadRequest, "invalid_search", "请输入 1 至 100 个不含控制字符的关键词")
+		failure(ctx, http.StatusBadRequest, "invalid_search", "请输入关键词或有效筛选条件")
 		return
 	}
 	if err != nil {

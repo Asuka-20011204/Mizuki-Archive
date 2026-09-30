@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -14,12 +15,49 @@ import (
 
 type searchHTTPStore struct{ *externalHTTPStore }
 
+type savedSearchHTTPStore struct {
+	*searchHTTPStore
+	views      map[string]model.SavedSearch
+	viewOwners map[string]string
+}
+
+// CreateSavedSearch 仅在测试中存当前登录用户的视图，不复制检索结果。
+func (store *savedSearchHTTPStore) CreateSavedSearch(ctx context.Context, view model.SavedSearch) error {
+	owner, _ := repository.UserIDFromContext(ctx)
+	store.views[view.ID] = view
+	store.viewOwners[view.ID] = owner
+	return nil
+}
+
+// ListSavedSearches 模拟视图归属过滤，验证 HTTP 层不会泄漏别人的筛选条件。
+func (store *savedSearchHTTPStore) ListSavedSearches(ctx context.Context) ([]model.SavedSearch, error) {
+	owner, _ := repository.UserIDFromContext(ctx)
+	result := []model.SavedSearch{}
+	for id, view := range store.views {
+		if store.viewOwners[id] == owner {
+			result = append(result, view)
+		}
+	}
+	return result, nil
+}
+
+// DeleteSavedSearch 模拟跨用户与不存在统一返回未找到。
+func (store *savedSearchHTTPStore) DeleteSavedSearch(ctx context.Context, id string) error {
+	owner, _ := repository.UserIDFromContext(ctx)
+	if store.viewOwners[id] != owner {
+		return repository.ErrNotFound
+	}
+	delete(store.views, id)
+	delete(store.viewOwners, id)
+	return nil
+}
+
 // SearchFiles 只返回当前登录用户匹配的文件，模拟持久层的用户范围查询。
-func (store *searchHTTPStore) SearchFiles(ctx context.Context, term string, _, _ int) ([]model.Resource, error) {
+func (store *searchHTTPStore) SearchFiles(ctx context.Context, filter model.SearchFilter, _, _ int) ([]model.Resource, error) {
 	owner, _ := repository.UserIDFromContext(ctx)
 	items := []model.Resource{}
 	for _, item := range store.resources {
-		if item.OwnerID == owner && strings.Contains(item.Name, term) {
+		if item.OwnerID == owner && strings.Contains(item.Name, filter.Query) {
 			items = append(items, item)
 		}
 	}
@@ -27,11 +65,11 @@ func (store *searchHTTPStore) SearchFiles(ctx context.Context, term string, _, _
 }
 
 // SearchExternal 只返回当前登录用户匹配的外部卡片，避免通过搜索枚举他人内容。
-func (store *searchHTTPStore) SearchExternal(ctx context.Context, term string, _, _ int) ([]model.ExternalResource, error) {
+func (store *searchHTTPStore) SearchExternal(ctx context.Context, filter model.SearchFilter, _, _ int) ([]model.ExternalResource, error) {
 	owner, _ := repository.UserIDFromContext(ctx)
 	items := []model.ExternalResource{}
 	for id, item := range store.cards {
-		if store.owners[id] == owner && strings.Contains(item.Note, term) {
+		if store.owners[id] == owner && strings.Contains(item.Note, filter.Query) {
 			items = append(items, item)
 		}
 	}
@@ -41,7 +79,7 @@ func (store *searchHTTPStore) SearchExternal(ctx context.Context, term string, _
 // TestUnifiedSearchHTTP 验证会话、无效输入、返回来源分组与跨用户私有数据边界。
 func TestUnifiedSearchHTTP(t *testing.T) {
 	base := &multiUserHTTPStore{resources: map[string]model.Resource{}, sessions: map[string]string{}, users: map[string]model.User{}}
-	store := &searchHTTPStore{externalHTTPStore: &externalHTTPStore{multiUserHTTPStore: base, cards: map[string]model.ExternalResource{}, owners: map[string]string{}}}
+	store := &savedSearchHTTPStore{searchHTTPStore: &searchHTTPStore{externalHTTPStore: &externalHTTPStore{multiUserHTTPStore: base, cards: map[string]model.ExternalResource{}, owners: map[string]string{}}}, views: map[string]model.SavedSearch{}, viewOwners: map[string]string{}}
 	hash, err := bcrypt.GenerateFromPassword([]byte("correct horse battery staple"), bcrypt.MinCost)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +96,11 @@ func TestUnifiedSearchHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := New(Config{Resources: files, Search: search, Auth: auth, Origin: "http://localhost:5173"})
+	views, err := service.NewSavedSearches(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(Config{Resources: files, Search: search, SavedSearches: views, Auth: auth, Origin: "http://localhost:5173"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,5 +137,31 @@ func TestUnifiedSearchHTTP(t *testing.T) {
 	other := userCookie(t, auth, "user-b")
 	if result := externalRequest(server, http.MethodGet, "/api/search?q=课程", "", other); result.Code != http.StatusOK || strings.Contains(result.Body.String(), "file-a") {
 		t.Fatalf("other user's search after rate limit: %d %s", result.Code, result.Body.String())
+	}
+	if result := externalRequest(server, http.MethodGet, "/api/search/views", "", nil); result.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous saved views: %d", result.Code)
+	}
+	if result := externalRequest(server, http.MethodPost, "/api/search/views", `{"name":"空条件","filter":{}}`, owner); result.Code != http.StatusBadRequest {
+		t.Fatalf("invalid saved view: %d", result.Code)
+	}
+	created := externalRequest(server, http.MethodPost, "/api/search/views", `{"name":"待整理课程","filter":{"source":"file","organization_status":"pending"}}`, owner)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create saved view: %d %s", created.Code, created.Body.String())
+	}
+	var body struct {
+		Data model.SavedSearch `json:"data"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &body); err != nil || len(body.Data.ID) != 32 {
+		t.Fatalf("saved view response: %+v, %v", body, err)
+	}
+	if result := externalRequest(server, http.MethodGet, "/api/search/views", "", other); result.Code != http.StatusOK || strings.Contains(result.Body.String(), body.Data.ID) {
+		t.Fatalf("other user's views: %d %s", result.Code, result.Body.String())
+	}
+	path := "/api/search/views/" + body.Data.ID
+	if result := externalRequest(server, http.MethodDelete, path, "", other); result.Code != http.StatusNotFound {
+		t.Fatalf("cross-user view delete: %d", result.Code)
+	}
+	if result := externalRequest(server, http.MethodDelete, path, "", owner); result.Code != http.StatusNoContent {
+		t.Fatalf("owner view delete: %d", result.Code)
 	}
 }

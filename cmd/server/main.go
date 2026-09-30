@@ -207,7 +207,11 @@ func main() {
 	if err != nil {
 		log.Fatal("cannot prepare search service")
 	}
-	router, err := controller.New(controller.Config{Resources: resources, ExternalResources: externalResources, Inbox: inbox, Search: search, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
+	savedSearches, err := service.NewSavedSearches(store)
+	if err != nil {
+		log.Fatal("cannot prepare saved search service")
+	}
+	router, err := controller.New(controller.Config{Resources: resources, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}

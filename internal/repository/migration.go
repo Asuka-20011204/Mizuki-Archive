@@ -50,3 +50,8 @@ var mainlandPhoneIdentityMigration string
 //
 //go:embed migrations/013_duplicate_hints.sql
 var duplicateHintsMigration string
+
+// 私有检索视图只保存条件，并在账号范围内限制重名。
+//
+//go:embed migrations/014_saved_search_views.sql
+var savedSearchViewsMigration string

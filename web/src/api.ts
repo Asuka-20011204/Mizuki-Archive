@@ -55,6 +55,18 @@ export interface SearchResults {
   has_more_external: boolean
 }
 
+// SearchFilter 将关键词、来源、类型、标签与整理状态作为一个可保存的组合条件。
+export interface SearchFilter {
+  q: string
+  source: '' | 'file' | 'external'
+  kind: string
+  tag: string
+  organization_status: '' | 'pending' | 'organized'
+}
+
+// SavedSearch 只包含私有检索条件，不包含任何资料或提取正文。
+export interface SavedSearch { id: string; name: string; filter: SearchFilter; created_at: string }
+
 // DerivedAsset 描述成功任务生成的可下载派生文件，不把服务端存储键交给浏览器。
 export interface DerivedAsset {
   id: string
@@ -124,7 +136,15 @@ async function requestText(path: string, options?: RequestInit): Promise<string>
 
 export const api = {
   // searchAll 在同一个服务端权限边界查询文件、标签、正文与卡片笔记，不在浏览器拼接私有索引。
-  searchAll: (query: string, page: number) => request<{ data: SearchResults }>(`/search?${new URLSearchParams({ q: query, page: String(page) })}`),
+  searchAll: (filter: SearchFilter, page: number) => request<{ data: SearchResults }>(`/search?${new URLSearchParams({ ...filter, page: String(page) })}`),
+  // listSavedSearches 仅列出当前账号的视图定义，不自动执行昂贵的正文搜索。
+  listSavedSearches: () => request<{ data: SavedSearch[] }>('/search/views'),
+  // createSavedSearch 保存检索条件而非结果，服务端限制同账号重名与总数。
+  createSavedSearch: (name: string, filter: SearchFilter) => request<{ data: SavedSearch }>('/search/views', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, filter }),
+  }),
+  // deleteSavedSearch 只删除视图，不触碰该视图匹配的文件或外部卡片。
+  deleteSavedSearch: (id: string) => request<void>(`/search/views/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // listInbox 读取当前用户的两类待整理资料，避免浏览器在本地拼装越权列表。
   listInbox: (page: number) => request<{ data: InboxPage }>(`/inbox?${new URLSearchParams({ page: String(page) })}`),
   // setInboxStatus 显式指定目标状态，重复提交不会反转状态或触碰外部链接可用性。

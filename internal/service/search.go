@@ -24,25 +24,67 @@ func NewSearch(store repository.SearchStore) (*Search, error) {
 	return &Search{store: store}, nil
 }
 
-// Query 限制搜索输入与分页范围，每类最多返回 20 条；任何一类查询失败都不返回部分结果。
+// normalizeSearchFilter 校验可保存的筛选组合；至少有一个条件，避免无意列出整个资料库。
+func normalizeSearchFilter(filter model.SearchFilter) (model.SearchFilter, error) {
+	for _, field := range []string{filter.Query, filter.Source, filter.Kind, filter.Tag, filter.OrganizationStatus} {
+		if strings.IndexFunc(field, unicode.IsControl) >= 0 {
+			return model.SearchFilter{}, ErrInvalidSearch
+		}
+	}
+	filter.Query = strings.TrimSpace(filter.Query)
+	filter.Source = strings.TrimSpace(filter.Source)
+	filter.Kind = strings.TrimSpace(filter.Kind)
+	filter.Tag = strings.TrimSpace(filter.Tag)
+	filter.OrganizationStatus = strings.TrimSpace(filter.OrganizationStatus)
+	if utf8.RuneCountInString(filter.Query) > 100 || utf8.RuneCountInString(filter.Kind) > 40 || utf8.RuneCountInString(filter.Tag) > 40 {
+		return model.SearchFilter{}, ErrInvalidSearch
+	}
+	if filter.Query == "" && filter.Kind == "" && filter.Tag == "" && filter.OrganizationStatus == "" {
+		return model.SearchFilter{}, ErrInvalidSearch
+	}
+	if filter.Source != "" && filter.Source != "file" && filter.Source != "external" {
+		return model.SearchFilter{}, ErrInvalidSearch
+	}
+	if filter.OrganizationStatus != "" && filter.OrganizationStatus != "pending" && filter.OrganizationStatus != "organized" {
+		return model.SearchFilter{}, ErrInvalidSearch
+	}
+	if filter.Tag != "" {
+		tags, err := NormalizeTags([]string{filter.Tag})
+		if err != nil || len(tags) != 1 {
+			return model.SearchFilter{}, ErrInvalidSearch
+		}
+		filter.Tag = tags[0]
+	}
+	return filter, nil
+}
+
+// Query 保留关键词检索调用方式；筛选检索由 QueryFiltered 执行。
 func (search *Search) Query(ctx context.Context, term string, page int) (model.SearchResults, error) {
+	return search.QueryFiltered(ctx, model.SearchFilter{Query: term}, page)
+}
+
+// QueryFiltered 验证当前用户与所有筛选项，来源独立分页；一类查询失败不返回部分结果。
+func (search *Search) QueryFiltered(ctx context.Context, filter model.SearchFilter, page int) (model.SearchResults, error) {
 	if _, ok := repository.UserIDFromContext(ctx); !ok {
 		return model.SearchResults{}, ErrExternalResourceIdentity
 	}
-	if strings.IndexFunc(term, unicode.IsControl) >= 0 {
+	filter, err := normalizeSearchFilter(filter)
+	if err != nil || page < 1 || page > 1000 {
 		return model.SearchResults{}, ErrInvalidSearch
 	}
-	term = strings.TrimSpace(term)
-	if utf8.RuneCountInString(term) == 0 || utf8.RuneCountInString(term) > 100 || page < 1 || page > 1000 {
-		return model.SearchResults{}, ErrInvalidSearch
+	files := []model.Resource{}
+	if filter.Source != "external" {
+		files, err = search.store.SearchFiles(ctx, filter, 21, (page-1)*20)
+		if err != nil {
+			return model.SearchResults{}, err
+		}
 	}
-	files, err := search.store.SearchFiles(ctx, term, 21, (page-1)*20)
-	if err != nil {
-		return model.SearchResults{}, err
-	}
-	externals, err := search.store.SearchExternal(ctx, term, 21, (page-1)*20)
-	if err != nil {
-		return model.SearchResults{}, err
+	externals := []model.ExternalResource{}
+	if filter.Source != "file" {
+		externals, err = search.store.SearchExternal(ctx, filter, 21, (page-1)*20)
+		if err != nil {
+			return model.SearchResults{}, err
+		}
 	}
 	results := model.SearchResults{Files: files, ExternalResources: externals, Page: page, HasMoreFiles: len(files) > 20, HasMoreExternal: len(externals) > 20}
 	if results.HasMoreFiles {

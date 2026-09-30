@@ -25,7 +25,7 @@ Mizuki Archive/
 │   ├── model/resource.go              # 资料模型、用户归属与列表筛选条件
 │   ├── model/external_resource.go     # 站外资源卡片模型（不含原件）
 │   ├── model/duplicate.go             # 纯文本链接规范化与同账号重复提示模型
-│   ├── model/search.go                # 分来源统一搜索结果模型
+│   ├── model/search.go                # 组合筛选、视图和分来源搜索结果模型
 │   ├── model/user.go                  # 多用户身份模型
 │   ├── model/phone.go                 # 大陆手机号一次性挑战模型
 │   ├── model/inbox.go                 # 批量整理条目的来源与 ID
@@ -43,6 +43,7 @@ Mizuki Archive/
 │   │   ├── external_resource_controller.go # 站外卡片 CRUD HTTP 边界
 │   │   ├── inbox_controller.go         # 待整理列表与状态更新 HTTP 边界
 │   │   ├── search_controller.go       # 私有统一搜索与参数校验 HTTP 边界
+│   │   ├── saved_search_controller.go # 私有检索视图 CRUD HTTP 边界
 │   │   └── processing_controller.go   # 任务创建、任务查看和派生文件下载
 │   ├── service/
 │   │   ├── auth.go                    # 兼容密码校验、用户会话和身份上下文
@@ -52,6 +53,7 @@ Mizuki Archive/
 │   │   ├── external_resource.go       # 卡片校验、人工状态与身份约束
 │   │   ├── inbox.go                   # 整理状态、分页与用户身份约束
 │   │   ├── search.go                  # 搜索输入限制、来源分组与分页
+│   │   ├── saved_search.go            # 视图名称、条件和随机 ID 校验
 │   │   └── processing.go              # 任务幂等、Worker 执行和派生文件
 │   └── repository/
 │       ├── repository.go              # 资料/会话/处理任务持久化接口
@@ -65,6 +67,7 @@ Mizuki Archive/
 │       ├── phone.go                   # 手机号唯一身份、挑战和可重试迁移准备
 │       ├── duplicate.go               # 同账号查重、用户范围索引和旧卡片回填
 │       ├── search.go                  # 文件与卡片的用户范围关键词查询
+│       ├── saved_search.go            # 视图归属、上限和唯一名称持久化
 │       └── migrations/
 │           ├── 001_init.sql           # 资料与会话表
 │           ├── 002_manual_tags.sql    # 标签与资料关联
@@ -78,13 +81,16 @@ Mizuki Archive/
 │           ├── 010_external_resources.sql # 卡片与独立标签表
 │           ├── 011_inbox.sql          # 整理状态迁移登记，DDL 在迁移锁内按需执行
 │           ├── 012_mainland_phone_identity.sql # 手机挑战表；用户列和索引可重试创建
-│           └── 013_duplicate_hints.sql # 查重迁移登记；DDL 和回填由准备函数执行
+│           ├── 013_duplicate_hints.sql # 查重迁移登记；DDL 和回填由准备函数执行
+│           └── 014_saved_search_views.sql # 每用户保存组合检索条件
 ├── web/                               # Vue 3 + TypeScript View
-│   ├── src/SearchPanel.vue            # 搜索两种资料并区分来源、翻页与打开详情
+│   ├── src/SearchPanel.vue            # 组合筛选、保存视图与来源分页
+│   ├── src/search-filter.ts           # 前端筛选预校验（服务端最终校验）
 │   ├── src/InboxPanel.vue             # 统一查看两类待整理条目
 │   ├── src/ExternalResourcePanel.vue  # 独立卡片录入、搜索和人工维护
 │   ├── src/share-parser.ts            # 浏览器内解析粘贴文本，不发网络请求
-│   └── tests/share-parser.test.mjs    # Node 内置测试运行器校验解析与危险输入
+│   ├── tests/share-parser.test.mjs    # Node 内置测试运行器校验解析与危险输入
+│   └── tests/search-filter.test.mjs   # 检索条件长度、空条件及控制字符校验
 ├── docs/                              # 产品、架构、安全、设计和变更记录
 ├── compose.yaml                       # MySQL 与可选 RabbitMQ/Redis 容器
 ├── compose.deploy.yaml                # V6 独立单机编排：Web/API/Worker/MySQL

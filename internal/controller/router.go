@@ -19,6 +19,7 @@ type Config struct {
 	ExternalResources *service.ExternalResources
 	Inbox             *service.Inbox
 	Search            *service.Search
+	SavedSearches     *service.SavedSearches
 	Processing        *service.Processing
 	Auth              *service.Auth
 	EmailAuth         *service.EmailAuth
@@ -94,6 +95,11 @@ func New(config Config) (*gin.Engine, error) {
 	private.POST("/resources", handler.upload)
 	if config.Search != nil {
 		private.GET("/search", handler.searchAll)
+	}
+	if config.SavedSearches != nil {
+		private.GET("/search/views", handler.listSavedSearches)
+		private.POST("/search/views", handler.createSavedSearch)
+		private.DELETE("/search/views/:id", handler.deleteSavedSearch)
 	}
 	if config.Inbox != nil {
 		private.GET("/inbox", handler.listInbox)

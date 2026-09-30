@@ -337,6 +337,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 11, name: "inbox", sql: inboxMigration, prepare: ensureInboxSchema},
 		{version: 12, name: "mainland_phone_identity", sql: mainlandPhoneIdentityMigration, prepare: ensurePhoneIdentitySchema},
 		{version: 13, name: "duplicate_hints", sql: duplicateHintsMigration, prepare: ensureDuplicateSchema},
+		{version: 14, name: "saved_search_views", sql: savedSearchViewsMigration},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int
@@ -346,17 +347,18 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		if locked != 1 {
 			return errors.New("acquire migration lock: timeout")
 		}
-		defer connection.Exec("SELECT RELEASE_LOCK(?)", "mizuki_archive_schema_migration")
+		defer connection.Session(&gorm.Session{NewDB: true}).Exec("SELECT RELEASE_LOCK(?)", "mizuki_archive_schema_migration")
 		for _, migration := range migrations {
 			var applied int64
-			if err := connection.Table("schema_migrations").Where("version = ?", migration.version).Count(&applied).Error; err != nil {
+			// 每次从同一条锁定连接创建干净会话，避免前次回填的 WHERE 泄漏到下一版迁移检查。
+			if err := connection.Session(&gorm.Session{NewDB: true}).Table("schema_migrations").Where("version = ?", migration.version).Count(&applied).Error; err != nil {
 				return fmt.Errorf("check migration %d: %w", migration.version, err)
 			}
 			if applied > 0 {
 				continue
 			}
 			if migration.prepare != nil {
-				if err := migration.prepare(connection); err != nil {
+				if err := migration.prepare(connection.Session(&gorm.Session{NewDB: true})); err != nil {
 					return fmt.Errorf("prepare migration %d: %w", migration.version, err)
 				}
 			}
@@ -365,11 +367,11 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 				if statement == "" {
 					continue
 				}
-				if err := connection.Exec(statement).Error; err != nil {
+				if err := connection.Session(&gorm.Session{NewDB: true}).Exec(statement).Error; err != nil {
 					return fmt.Errorf("execute migration %d: %w", migration.version, err)
 				}
 			}
-			if err := connection.Exec(
+			if err := connection.Session(&gorm.Session{NewDB: true}).Exec(
 				"INSERT IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
 				migration.version,
 				migration.name,

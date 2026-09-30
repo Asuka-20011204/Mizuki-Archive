@@ -1,14 +1,31 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { api, type ExternalResource, type Resource, type SearchResults } from './api'
+import { onMounted, ref } from 'vue'
+import { api, type ExternalResource, type Resource, type SavedSearch, type SearchFilter, type SearchResults } from './api'
+import { normalizeSearchInput } from './search-filter'
 
 const emit = defineEmits<{ openFile: [resource: Resource]; editExternal: [resource: ExternalResource] }>()
 const query = ref('')
-const submitted = ref('')
+const filter = ref<SearchFilter>({ q: '', source: '', kind: '', tag: '', organization_status: '' })
+const submitted = ref<SearchFilter>({ ...filter.value })
 const results = ref<SearchResults | null>(null)
 const loading = ref(false)
 const error = ref('')
+const views = ref<SavedSearch[]>([])
+const viewName = ref('')
+const viewError = ref('')
+const viewNotice = ref('')
+const savingView = ref(false)
 let requestVersion = 0
+
+// currentFilter 在提交/保存前统一修剪文本，避免空条件触发无限制的私有数据列表。
+function currentFilter(): SearchFilter | null {
+  const value = normalizeSearchInput(query.value, filter.value)
+  if (!value) {
+    error.value = '请输入有效关键词或类型、标签、整理状态筛选条件'
+    return null
+  }
+  return value
+}
 
 // searchPage 将同一关键词的每组结果独立限制在每页 20 项，旧响应不得覆盖新搜索。
 async function searchPage(page: number) {
@@ -29,16 +46,15 @@ async function searchPage(page: number) {
 
 // submitSearch 校验后才记录查询词；空搜索清除上一轮结果，不读取整个私人资料库。
 function submitSearch() {
-  const text = query.value.trim()
-  if (!text || Array.from(text).length > 100 || /\p{Cc}/u.test(query.value)) {
+  const nextFilter = currentFilter()
+  if (!nextFilter) {
     ++requestVersion
     loading.value = false
-    submitted.value = ''
+    submitted.value = { q: '', source: '', kind: '', tag: '', organization_status: '' }
     results.value = null
-    error.value = '请输入 1 至 100 个不含控制字符的关键词'
     return
   }
-  submitted.value = text
+  submitted.value = nextFilter
   void searchPage(1)
 }
 
@@ -47,6 +63,57 @@ function changePage(page: number) {
   if (page < 1 || page > 1000 || loading.value) return
   void searchPage(page)
 }
+
+// loadViews 读取当前用户保存的筛选组合，不自动查询或暴露匹配的资料。
+async function loadViews() {
+  try {
+    views.value = (await api.listSavedSearches()).data
+  } catch (reason) {
+    viewError.value = reason instanceof Error ? reason.message : '检索视图暂时无法加载'
+  }
+}
+
+// saveView 保存输入框里的当前筛选组合，成功后刷新可点击的视图列表。
+async function saveView() {
+  const current = currentFilter()
+  if (!current || savingView.value) return
+  savingView.value = true
+  viewError.value = ''
+  viewNotice.value = ''
+  try {
+    const saved = (await api.createSavedSearch(viewName.value.trim(), current)).data
+    views.value = [saved, ...views.value]
+    viewName.value = ''
+    viewNotice.value = `已保存检索视图「${saved.name}」`
+  } catch (reason) {
+    viewError.value = reason instanceof Error ? reason.message : '暂时无法保存检索视图'
+  } finally {
+    savingView.value = false
+  }
+}
+
+// openView 应用已保存的组合条件，并按当前账号权限重新搜索最新资料。
+function openView(view: SavedSearch) {
+  filter.value = { ...view.filter }
+  query.value = view.filter.q
+  submitSearch()
+}
+
+// deleteView 先确认视图名称，仅删除当前账号的筛选条件，不删除任何资料。
+async function deleteView(view: SavedSearch) {
+  if (!window.confirm(`删除检索视图「${view.name}」？匹配的资料不会删除。`)) return
+  viewError.value = ''
+  viewNotice.value = ''
+  try {
+    await api.deleteSavedSearch(view.id)
+    views.value = views.value.filter((item) => item.id !== view.id)
+    viewNotice.value = `已删除检索视图「${view.name}」`
+  } catch (reason) {
+    viewError.value = reason instanceof Error ? reason.message : '暂时无法删除检索视图'
+  }
+}
+
+onMounted(loadViews)
 </script>
 
 <template>
@@ -62,7 +129,30 @@ function changePage(page: number) {
         <input id="unified-query" v-model="query" type="search" maxlength="100" placeholder="例如：课程、PDF 标注、游戏存档" />
         <button class="primary-button" type="submit" :disabled="loading">{{ loading ? '查找中…' : '查找线索' }}</button>
       </div>
+      <div class="search-filters">
+        <label>来源<select v-model="filter.source"><option value="">全部来源</option><option value="file">已上传文件</option><option value="external">外部卡片</option></select></label>
+        <label>类型<input v-model="filter.kind" maxlength="40" placeholder="如 pdf、course" /></label>
+        <label>标签<input v-model="filter.tag" maxlength="40" placeholder="如 学习" /></label>
+        <label>整理状态<select v-model="filter.organization_status"><option value="">全部状态</option><option value="pending">待整理</option><option value="organized">已整理</option></select></label>
+      </div>
     </form>
+    <section class="saved-searches" aria-labelledby="saved-searches-title">
+      <h3 id="saved-searches-title">我的检索视图</h3>
+      <form class="saved-search-form" @submit.prevent="saveView">
+        <label for="search-view-name">视图名称</label>
+        <input id="search-view-name" v-model="viewName" maxlength="60" required placeholder="例如：尚未整理的课程 PDF" />
+        <button class="secondary-button" type="submit" :disabled="savingView || views.length >= 30">{{ savingView ? '保存中…' : '保存当前条件' }}</button>
+      </form>
+      <p v-if="viewError" class="message error" role="alert">{{ viewError }}</p>
+      <p v-if="viewNotice" role="status">{{ viewNotice }}</p>
+      <ul v-if="views.length" class="saved-search-list">
+        <li v-for="view in views" :key="view.id">
+          <button class="secondary-button" type="button" @click="openView(view)">{{ view.name }}</button>
+          <button class="secondary-button" type="button" :aria-label="`删除检索视图 ${view.name}`" @click="deleteView(view)">删除</button>
+        </li>
+      </ul>
+      <p v-else class="search-empty">还没有保存的检索视图；选好筛选条件后可保存。</p>
+    </section>
     <p v-if="error" class="message error" role="alert">{{ error }}</p>
     <p v-if="loading" role="status">正在搜索你的资料…</p>
     <p v-if="results && !loading" role="status">找到 {{ results.files.length }} 个文件和 {{ results.external_resources.length }} 张外部卡片（第 {{ results.page }} 页）。</p>
