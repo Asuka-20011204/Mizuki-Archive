@@ -8,6 +8,7 @@
 .inbox-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .inbox-list li { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; overflow-wrap: anywhere; }
 .inbox-list li strong, .inbox-list li small { display: block; }
+.organized-panel .inbox-list li > button { justify-self: start; }
 .inbox-list li small { margin-top: 4px; }
 .inbox-select { display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; }
 .inbox-select input { flex: 0 0 auto; accent-color: var(--accent); }

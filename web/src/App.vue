@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ArchivePanel from './ArchivePanel.vue'
 import ExternalResourcePanel from './ExternalResourcePanel.vue'
 import InboxPanel from './InboxPanel.vue'
+import OrganizedPanel from './OrganizedPanel.vue'
 import SearchPanel from './SearchPanel.vue'
 import { api, type ExternalResource, type ProcessingJob, type Resource } from './api'
 
@@ -33,6 +34,7 @@ const error = ref('')
 const notice = ref('')
 const resources = ref<Resource[]>([])
 const inboxRefreshKey = ref(0)
+const organizedRefreshKey = ref(0)
 const archiveRefreshKey = ref(0)
 const externalPanel = ref<InstanceType<typeof ExternalResourcePanel> | null>(null)
 const recentResources = ref<Resource[]>([])
@@ -386,6 +388,7 @@ async function upload(event: Event) {
 // refreshInbox 通知独立面板读取服务端最新的待整理列表，不在前端拼装归属状态。
 function refreshInbox() {
   inboxRefreshKey.value++
+  organizedRefreshKey.value++
 }
 
 // refreshCollectionViews 让归档、恢复及删除后各独立视图重新读取服务端状态。
@@ -656,6 +659,7 @@ async function setFavorite() {
     if (selected.value?.id === updated.id) selected.value = updated
     // 列表项只替换同一资料，避免重新请求时误清空当前筛选和页码。
     resources.value = resources.value.map((item) => item.id === updated.id ? updated : item)
+    refreshInbox()
   } catch (reason) {
     if (selected.value?.id === resource.id) {
       detailError.value = reason instanceof Error ? reason.message : '收藏状态更新失败'
@@ -909,6 +913,7 @@ onUnmounted(() => {
 
         <SearchPanel :refresh-key="archiveRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" />
         <InboxPanel :refresh-key="inboxRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @archived="refreshCollectionViews" @deleted="refreshCollectionViews" />
+        <OrganizedPanel :refresh-key="organizedRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @changed="refreshCollectionViews" />
         <ArchivePanel :refresh-key="archiveRefreshKey" @restored="refreshCollectionViews" @deleted="refreshCollectionViews" />
         <ExternalResourcePanel ref="externalPanel" @changed="refreshInbox" />
 

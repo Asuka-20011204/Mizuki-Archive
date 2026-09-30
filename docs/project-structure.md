@@ -103,6 +103,7 @@ Mizuki Archive/
 │   ├── src/SearchPanel.vue            # 组合筛选、保存视图与来源分页
 │   ├── src/search-filter.ts           # 前端筛选预校验（服务端最终校验）
 │   ├── src/InboxPanel.vue             # 统一查看两类待整理条目
+│   ├── src/OrganizedPanel.vue         # 已整理两类资料分页与批量操作
 │   ├── src/ArchivePanel.vue           # 分来源分页查看归档项并批量恢复
 │   ├── src/ExternalResourcePanel.vue  # 独立卡片录入、搜索和人工维护
 │   ├── src/share-parser.ts            # 浏览器内解析粘贴文本，不发网络请求
