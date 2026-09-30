@@ -63,7 +63,9 @@ Mizuki Archive/
 │           ├── 009_multi_user_identity_indexes.sql # 可重试的用户范围索引迁移
 │           └── 010_external_resources.sql # 卡片与独立标签表
 ├── web/                               # Vue 3 + TypeScript View
-│   └── src/ExternalResourcePanel.vue  # 独立卡片录入、搜索和人工维护
+│   ├── src/ExternalResourcePanel.vue  # 独立卡片录入、搜索和人工维护
+│   ├── src/share-parser.ts            # 浏览器内解析粘贴文本，不发网络请求
+│   └── tests/share-parser.test.mjs    # Node 内置测试运行器校验解析与危险输入
 ├── docs/                              # 产品、架构、安全、设计和变更记录
 ├── compose.yaml                       # MySQL 与可选 RabbitMQ/Redis 容器
 ├── compose.deploy.yaml                # V6 独立单机编排：Web/API/Worker/MySQL

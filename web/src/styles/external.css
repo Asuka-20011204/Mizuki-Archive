@@ -4,6 +4,11 @@
 .external-heading p { color: var(--muted); }
 .external-heading .primary-button { flex-shrink: 0; }
 .external-search { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 24px 0; }
+.external-paste { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px 16px; margin-top: 24px; padding: 18px; border: 1px dashed var(--line); border-radius: 18px; background: #f8fbfc; }
+.external-paste label, .external-paste small { grid-column: 1 / -1; }
+.external-paste small { color: var(--muted); }
+.external-paste textarea { min-width: 0; width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font: inherit; }
+.external-paste textarea:focus-visible { outline: 3px solid #426e80; outline-offset: 3px; }
 .external-search input, .external-form input, .external-form textarea, .external-form select { min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; color: inherit; font: inherit; }
 .external-search input { flex: 1; min-width: 180px; }
 .external-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 22px 0; padding: 24px; border-radius: 20px; background: #f5f9fa; }
@@ -19,4 +24,4 @@
 .external-card-main { min-width: 0; }
 .external-location { white-space: pre-wrap; }
 .external-form textarea:focus-visible, .external-form select:focus-visible { outline: 3px solid #426e80; outline-offset: 3px; }
-@media (max-width: 640px) { .external-panel { padding: 20px; margin: 24px auto; } .external-heading, .external-card { flex-direction: column; } .external-form { grid-template-columns: 1fr; padding: 16px; } }
+@media (max-width: 640px) { .external-panel { padding: 20px; margin: 24px auto; } .external-heading, .external-card { flex-direction: column; } .external-form, .external-paste { grid-template-columns: 1fr; padding: 16px; } }
