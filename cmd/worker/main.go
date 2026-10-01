@@ -173,9 +173,6 @@ func runRabbitWorker(ctx context.Context, processor *service.Processing, workers
 			log.Println("archive processing worker connected to RabbitMQ")
 			err = broker.ConsumeJobs(session, func(ctx context.Context, jobID string) (bool, error) {
 				err := processor.RunJob(ctx, jobID)
-				if errors.Is(err, service.ErrJobNotReady) {
-					return false, nil
-				}
 				return err == nil, err
 			}, prefetch)
 			cancel()

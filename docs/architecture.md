@@ -131,9 +131,9 @@ V7 固定文本任务负载发现数据库 Worker 即使有积压也每完成一
 V2 通过同一持久任务模型提供两类手动处理器：
 
 1. 详情页通过 `POST /api/resources/:id/jobs` 手动创建 `extract_text` 或 `generate_thumbnail` 任务，Service 校验资料仍可见、类型允许并记录来源 SHA-256。
-2. `cmd/worker` 从 `processing_jobs` 领取 `pending` 或租约过期任务；MySQL 事务使用行锁和 `SKIP LOCKED`，租约令牌防止旧 Worker 覆盖新结果。
+2. `cmd/worker` 从 `processing_jobs` 领取 `pending` 或租约过期任务；MySQL 事务使用行锁和 `SKIP LOCKED`，租约令牌防止旧 Worker 覆盖新结果。启用多个槽位时仅第一个数据库领取槽位可领取缩略图，其余槽位在领取前排除 `generate_thumbnail`；RabbitMQ 模式则在按任务 ID 领取前用进程内图片槽位门禁。槽位繁忙时确认旧消息并延迟发布同一任务，避免未确认消息占满 prefetch 或 `Nack(requeue=true)` 把图片反复压回队首；这只保护单个进程，不是全局并发上限。
 3. `internal/processing/text.go` 将 TXT/Markdown 原文或 PDF 文本转为 UTF-8；`internal/processing/thumbnail.go` 在解码前检查图片边长和像素总量，再生成最大 640×640 的 PNG；处理失败保存固定中文摘要，不回显本地路径。
 4. 结果先写入 `data/derived` 临时文件并原子移动，再在事务中写入 `derived_assets` 和成功状态；原件始终只读。
 5. `derived_assets.content_text` 作为受控检索索引参与资料名称、原始名称和派生正文的关键词检索；文本和缩略图均可下载，缩略图另提供受权限保护的内联预览，不把正文拼入 JSON。
 
-V2 当前不做 OCR、AI 摘要、自动任务和消息队列。图片缩略图不复用文本任务类型，独立记录 `generate_thumbnail` 任务和 `thumbnail` 派生产物。
+V2 当前不做 OCR、AI 摘要和自动任务。图片缩略图不复用文本任务类型，独立记录 `generate_thumbnail` 任务和 `thumbnail` 派生产物。图片槽位限制只覆盖单个 Worker 进程；多进程/多节点总并发仍需结合容器 RSS、CPU、数据库连接数和恢复时间实测，不能把它当成全局容量保证。

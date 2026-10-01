@@ -213,6 +213,11 @@ type ProcessingClaimStore interface {
 	ClaimProcessingJob(context.Context, string, time.Time) (model.ProcessingJob, error)
 }
 
+// ProcessingTextClaimStore 让多槽位 Worker 只由一个槽位领取高内存图片，其余槽位仍可处理文本。
+type ProcessingTextClaimStore interface {
+	ClaimNextTextProcessingJob(context.Context, time.Time) (model.ProcessingJob, error)
+}
+
 // ProcessingCapacityStore 原子限制待处理和执行中任务总数，适用于多个 API 进程并发提交。
 type ProcessingCapacityStore interface {
 	CreateProcessingJobWithinLimit(context.Context, model.ProcessingJob, int, bool) error

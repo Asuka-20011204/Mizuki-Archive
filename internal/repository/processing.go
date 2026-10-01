@@ -247,6 +247,16 @@ func (store *MySQL) ListProcessingJobs(ctx context.Context, resourceID string) (
 
 // ClaimNextProcessingJob 在事务和行锁内领取一个到期任务，避免多个 Worker 重复处理同一原件。
 func (store *MySQL) ClaimNextProcessingJob(ctx context.Context, now time.Time) (model.ProcessingJob, error) {
+	return store.claimNextProcessingJob(ctx, now, false)
+}
+
+// ClaimNextTextProcessingJob 在数据库领取前排除缩略图，避免非图片槽位占用图片租约。
+func (store *MySQL) ClaimNextTextProcessingJob(ctx context.Context, now time.Time) (model.ProcessingJob, error) {
+	return store.claimNextProcessingJob(ctx, now, true)
+}
+
+// claimNextProcessingJob 在行锁事务中执行领取，类型过滤必须在获取租约之前完成。
+func (store *MySQL) claimNextProcessingJob(ctx context.Context, now time.Time, textOnly bool) (model.ProcessingJob, error) {
 	leaseToken, err := newProcessingID()
 	if err != nil {
 		return model.ProcessingJob{}, err
@@ -255,7 +265,11 @@ func (store *MySQL) ClaimNextProcessingJob(ctx context.Context, now time.Time) (
 	var job model.ProcessingJob
 	err = store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row processingJobRow
-		query := tx.Table("processing_jobs").Where("(status = ? AND available_at <= ?) OR (status = ? AND lease_until IS NOT NULL AND lease_until <= ?)", model.ProcessingStatusPending, now, model.ProcessingStatusProcessing, now).Order("available_at ASC").Order("created_at ASC").Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Take(&row)
+		query := tx.Table("processing_jobs").Where("(status = ? AND available_at <= ?) OR (status = ? AND lease_until IS NOT NULL AND lease_until <= ?)", model.ProcessingStatusPending, now, model.ProcessingStatusProcessing, now)
+		if textOnly {
+			query = query.Where("type <> ?", model.ProcessingTypeGenerateThumbnail)
+		}
+		query = query.Order("available_at ASC").Order("created_at ASC").Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Take(&row)
 		if errors.Is(query.Error, gorm.ErrRecordNotFound) {
 			return ErrNoPendingJob
 		}

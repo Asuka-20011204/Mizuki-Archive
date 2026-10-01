@@ -31,6 +31,11 @@ type JobMessage struct {
 // Handler 是消费者收到合法任务 ID 后执行的业务回调；false 表示任务租约尚未到期，不应 ACK。
 type Handler func(context.Context, string) (bool, error)
 
+// deferredHandlerError 标记业务暂时无法处理的消息，消费者应延迟重发而不是 NACK 回队首。
+type deferredHandlerError interface {
+	DeferProcessing() bool
+}
+
 // RabbitMQ 管理发布通道和消费通道；两者分离避免发布确认阻塞 ACK。
 type RabbitMQ struct {
 	connection *amqp.Connection
@@ -204,6 +209,9 @@ func (broker *RabbitMQ) consumeDelivery(ctx context.Context, handler Handler, de
 	}
 	finished, err := handler(ctx, message.JobID)
 	if err != nil {
+		if deferred, ok := err.(deferredHandlerError); ok && deferred.DeferProcessing() {
+			return broker.deferDelivery(ctx, delivery, message.JobID, retryCount)
+		}
 		if retryCount < maxBrokerRetry {
 			select {
 			case <-ctx.Done():
@@ -237,6 +245,22 @@ func (broker *RabbitMQ) consumeDelivery(ctx context.Context, handler Handler, de
 	}
 	if err := broker.finishDelivery(delivery, true, false); err != nil {
 		return fmt.Errorf("ack RabbitMQ processing message: %w", err)
+	}
+	return nil
+}
+
+// deferDelivery 确认当前投递后再延迟发布同一任务，避免未确认消息占满 prefetch 或反复回到队首。
+func (broker *RabbitMQ) deferDelivery(ctx context.Context, delivery amqp.Delivery, jobID string, retryCount int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(time.Second):
+	}
+	if err := broker.publish(ctx, broker.queue, jobID, retryCount); err != nil {
+		return fmt.Errorf("defer processing message: %w", err)
+	}
+	if err := broker.finishDelivery(delivery, true, false); err != nil {
+		return fmt.Errorf("ack deferred processing message: %w", err)
 	}
 	return nil
 }

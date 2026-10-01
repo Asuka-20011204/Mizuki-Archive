@@ -80,6 +80,11 @@ func (store *processingFakeStore) ClaimNextProcessingJob(_ context.Context, _ ti
 	return model.ProcessingJob{}, repository.ErrNoPendingJob
 }
 
+// ClaimNextTextProcessingJob 复用假仓储的领取逻辑，满足多槽位 Worker 的类型领取能力契约。
+func (store *processingFakeStore) ClaimNextTextProcessingJob(ctx context.Context, now time.Time) (model.ProcessingJob, error) {
+	return store.ClaimNextProcessingJob(ctx, now)
+}
+
 // CompleteProcessingJob 保存资产并将任务置为成功，模拟数据库事务的最终结果。
 func (store *processingFakeStore) CompleteProcessingJob(_ context.Context, id, leaseToken string, asset model.DerivedAsset) error {
 	job, ok := store.jobs[id]
@@ -309,6 +314,11 @@ func (store *blockingClaimStore) ClaimNextProcessingJob(ctx context.Context, _ t
 	return model.ProcessingJob{}, ctx.Err()
 }
 
+// ClaimNextTextProcessingJob 让测试替身显式声明支持图片安全领取，避免测试绕过生产门禁。
+func (store *blockingClaimStore) ClaimNextTextProcessingJob(ctx context.Context, now time.Time) (model.ProcessingJob, error) {
+	return store.ClaimNextProcessingJob(ctx, now)
+}
+
 // TestRunPoolBoundedAndCancelable 验证池大小限制同时领取数且取消后所有 Worker 退出。
 func TestRunPoolBoundedAndCancelable(t *testing.T) {
 	store := &blockingClaimStore{entered: make(chan struct{}, 4)}
@@ -337,5 +347,105 @@ func TestRunPoolBoundedAndCancelable(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("取消后 Worker 未退出")
+	}
+}
+
+// imageClaimStore 记录通用领取和纯文本领取的调用，模拟数据库按类型分流。
+type imageClaimStore struct {
+	repository.ProcessingStore
+	allClaims  chan struct{}
+	textClaims chan struct{}
+}
+
+// ClaimNextProcessingJob 表示允许领取图片的唯一槽位。
+func (store *imageClaimStore) ClaimNextProcessingJob(ctx context.Context, _ time.Time) (model.ProcessingJob, error) {
+	store.allClaims <- struct{}{}
+	<-ctx.Done()
+	return model.ProcessingJob{}, ctx.Err()
+}
+
+// ClaimNextTextProcessingJob 表示其余槽位只领取文本任务。
+func (store *imageClaimStore) ClaimNextTextProcessingJob(ctx context.Context, _ time.Time) (model.ProcessingJob, error) {
+	store.textClaims <- struct{}{}
+	<-ctx.Done()
+	return model.ProcessingJob{}, ctx.Err()
+}
+
+// TestRunPoolLimitsImageEligibleClaims 验证四槽位中只有一个能领取图片，取消后全部退出。
+func TestRunPoolLimitsImageEligibleClaims(t *testing.T) {
+	store := &imageClaimStore{allClaims: make(chan struct{}, 4), textClaims: make(chan struct{}, 4)}
+	processor := &Processing{jobs: store}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	finished := make(chan error, 1)
+	go func() { finished <- processor.RunPool(ctx, 4, time.Millisecond) }()
+	var imageClaims, textClaims int
+	for imageClaims+textClaims < 4 {
+		select {
+		case <-store.allClaims:
+			imageClaims++
+		case <-store.textClaims:
+			textClaims++
+		case <-time.After(time.Second):
+			t.Fatal("Worker 未按时领取任务")
+		}
+	}
+	if imageClaims != 1 || textClaims != 3 {
+		t.Fatalf("通用领取=%d，纯文本领取=%d", imageClaims, textClaims)
+	}
+	cancel()
+	if err := <-finished; !errors.Is(err, context.Canceled) {
+		t.Fatalf("退出错误 = %v", err)
+	}
+}
+
+// blockingImageJobStore 让第一条图片消息停在领取前，观察第二条消息是否抢占租约。
+type blockingImageJobStore struct {
+	repository.ProcessingStore
+	entered chan struct{}
+	release chan struct{}
+	claims  chan struct{}
+}
+
+// GetProcessingJob 提供待处理图片任务的类型，供消息消费门禁读取。
+func (store *blockingImageJobStore) GetProcessingJob(_ context.Context, id string) (model.ProcessingJob, error) {
+	return model.ProcessingJob{ID: id, Type: model.ProcessingTypeGenerateThumbnail, Status: model.ProcessingStatusPending}, nil
+}
+
+// ClaimProcessingJob 记录真正的数据库领取次数，并等待测试放行。
+func (store *blockingImageJobStore) ClaimProcessingJob(ctx context.Context, _ string, _ time.Time) (model.ProcessingJob, error) {
+	store.claims <- struct{}{}
+	close(store.entered)
+	select {
+	case <-store.release:
+		return model.ProcessingJob{}, repository.ErrNoPendingJob
+	case <-ctx.Done():
+		return model.ProcessingJob{}, ctx.Err()
+	}
+}
+
+// TestRabbitImageGateBeforeClaim 验证繁忙图片消息没有消耗数据库尝试次数，供 Broker 延迟重排。
+func TestRabbitImageGateBeforeClaim(t *testing.T) {
+	store := &blockingImageJobStore{entered: make(chan struct{}), release: make(chan struct{}), claims: make(chan struct{}, 2)}
+	processor, err := NewProcessing(newFakeStore(), store, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := make(chan error, 1)
+	go func() { first <- processor.RunJob(context.Background(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") }()
+	select {
+	case <-store.entered:
+	case <-time.After(time.Second):
+		t.Fatal("第一条消息未进入领取阶段")
+	}
+	if err := processor.RunJob(context.Background(), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"); !errors.Is(err, ErrJobNotReady) {
+		t.Fatalf("图片槽位繁忙时应等待 Broker 重排，得到 %v", err)
+	}
+	if len(store.claims) != 1 {
+		t.Fatalf("图片领取次数 = %d", len(store.claims))
+	}
+	close(store.release)
+	if err := <-first; !errors.Is(err, ErrJobNotReady) {
+		t.Fatalf("第一条模拟租约状态 = %v", err)
 	}
 }

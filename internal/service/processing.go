@@ -38,9 +38,18 @@ var (
 	ErrProcessingResource = errors.New("resource cannot be processed")
 	// ErrQueueNotConfigured 表示当前 Worker 没有可用的消息发布器，调用方应继续使用数据库回退模式。
 	ErrQueueNotConfigured = errors.New("processing queue not configured")
-	// ErrJobNotReady 表示任务仍处于别的 Worker 租约或退避窗口，消息不可提前确认。
-	ErrJobNotReady = errors.New("processing job not ready")
+	// ErrJobNotReady 表示任务仍处于别的 Worker 租约或图片处理槽位，消息应延迟重发。
+	ErrJobNotReady error = jobNotReadyError{}
 )
+
+// jobNotReadyError 让 RabbitMQ 适配器识别“延迟重发”而不是把消息压回队首。
+type jobNotReadyError struct{}
+
+// Error 返回稳定的内部错误文本，Controller 不会把它直接展示给用户。
+func (jobNotReadyError) Error() string { return "processing job not ready" }
+
+// DeferProcessing 标记该错误可以确认旧消息后再发布，不消耗业务任务尝试次数。
+func (jobNotReadyError) DeferProcessing() bool { return true }
 
 // JobPublisher 只暴露发布任务 ID 的能力，Service 不依赖 RabbitMQ 客户端类型。
 type JobPublisher interface {
@@ -55,6 +64,7 @@ type Processing struct {
 	cache          cache.Cache
 	outboxEnabled  bool
 	maxOutstanding int
+	imageSlot      chan struct{}
 }
 
 // NewProcessing 校验任务存储和派生目录；目录不可用时拒绝启动处理功能。
@@ -71,7 +81,7 @@ func NewProcessingWithCache(store repository.Store, jobs repository.ProcessingSt
 	if err := os.MkdirAll(derivedDir, 0700); err != nil {
 		return nil, fmt.Errorf("create derived directory: %w", err)
 	}
-	return &Processing{store: store, jobs: jobs, dataDir: dataDir, cache: processingCache, maxOutstanding: DefaultProcessingCapacity}, nil
+	return &Processing{store: store, jobs: jobs, dataDir: dataDir, cache: processingCache, maxOutstanding: DefaultProcessingCapacity, imageSlot: make(chan struct{}, 1)}, nil
 }
 
 // SetMaxOutstanding 在 API 启动时配置全局未完成任务配额，拒绝无界积压或异常配置。
@@ -235,7 +245,18 @@ func (service *Processing) OpenAsset(asset model.DerivedAsset) (*os.File, error)
 
 // RunOnce 领取并执行一个任务；没有可执行任务时返回 false，不把空队列当成错误。
 func (service *Processing) RunOnce(ctx context.Context) (bool, error) {
-	job, err := service.jobs.ClaimNextProcessingJob(ctx, time.Now().UTC())
+	return service.runOnce(ctx, false)
+}
+
+// runOnce 在领取租约之前选择任务类型，避免等待图片槽位时租约过期或耗尽重试。
+func (service *Processing) runOnce(ctx context.Context, textOnly bool) (bool, error) {
+	var job model.ProcessingJob
+	var err error
+	if textOnly {
+		job, err = service.jobs.(repository.ProcessingTextClaimStore).ClaimNextTextProcessingJob(ctx, time.Now().UTC())
+	} else {
+		job, err = service.jobs.ClaimNextProcessingJob(ctx, time.Now().UTC())
+	}
 	if errors.Is(err, repository.ErrNoPendingJob) {
 		return false, nil
 	}
@@ -250,6 +271,22 @@ func (service *Processing) RunJob(ctx context.Context, jobID string) error {
 	claimer, ok := service.jobs.(repository.ProcessingClaimStore)
 	if !ok {
 		return ErrQueueNotConfigured
+	}
+	// 消息只携带 ID；先读数据库中的任务类型，再决定是否有图片处理槽位。
+	current, err := service.jobs.GetProcessingJob(ctx, jobID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if current.Type == model.ProcessingTypeGenerateThumbnail && service.imageSlot != nil {
+		select {
+		case service.imageSlot <- struct{}{}:
+			defer func() { <-service.imageSlot }()
+		default:
+			return ErrJobNotReady
+		}
 	}
 	job, err := claimer.ClaimProcessingJob(ctx, jobID, time.Now().UTC())
 	if errors.Is(err, repository.ErrNoPendingJob) {
@@ -349,11 +386,16 @@ func (service *Processing) retryClaimedJob(ctx context.Context, job model.Proces
 
 // RunLoop 有积压时连续领取，只有队列空闲才按间隔轮询，避免每个已处理任务额外等待一秒。
 func (service *Processing) RunLoop(ctx context.Context, interval time.Duration) error {
+	return service.runLoop(ctx, interval, false)
+}
+
+// runLoop 让附加槽位只领取非缩略图任务，空队列时保持可取消轮询。
+func (service *Processing) runLoop(ctx context.Context, interval time.Duration, textOnly bool) error {
 	if interval <= 0 {
 		interval = time.Second
 	}
 	for {
-		processed, err := service.RunOnce(ctx)
+		processed, err := service.runOnce(ctx, textOnly)
 		if err != nil {
 			return err
 		}
@@ -371,8 +413,13 @@ func (service *Processing) RunPool(ctx context.Context, workers int, interval ti
 		return errors.New("processing worker count must be between 1 and 4")
 	}
 	group, workerContext := errgroup.WithContext(ctx)
+	_, supportsTextClaim := service.jobs.(repository.ProcessingTextClaimStore)
+	if workers > 1 && !supportsTextClaim {
+		return errors.New("processing store does not support image-safe task claiming")
+	}
 	for index := 0; index < workers; index++ {
-		group.Go(func() error { return service.RunLoop(workerContext, interval) })
+		textOnly := supportsTextClaim && index > 0
+		group.Go(func() error { return service.runLoop(workerContext, interval, textOnly) })
 	}
 	return group.Wait()
 }

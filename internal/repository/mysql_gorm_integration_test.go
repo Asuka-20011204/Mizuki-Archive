@@ -113,3 +113,65 @@ func TestMySQLSetFavorite(t *testing.T) {
 		}
 	}
 }
+
+// TestMySQLTextClaimSkipsImage 验证真实 MySQL 在加锁领取前排除图片，图片保留给通用槽位。
+func TestMySQLTextClaimSkipsImage(t *testing.T) {
+	dsn := os.Getenv("MIZUKI_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("仅在设置隔离测试库 DSN 时运行")
+	}
+	config, err := driver.ParseDSN(dsn)
+	if err != nil || !strings.HasPrefix(config.DBName, "mizuki_test_") {
+		t.Fatal("测试 DSN 必须指向 mizuki_test_ 前缀的独立数据库")
+	}
+	config.ParseTime = true
+	config.Loc = time.UTC
+	database, err := gorm.Open(mysql.Open(config.FormatDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatal("连接隔离库失败")
+	}
+	connection, err := database.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	store := NewMySQL(database)
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, 2)
+	t.Cleanup(func() { _ = database.Exec("DELETE FROM resources WHERE id IN ?", ids).Error })
+	for _, kind := range []string{"image", "text"} {
+		resourceID, idErr := newProcessingID()
+		if idErr != nil {
+			t.Fatal(idErr)
+		}
+		jobID, idErr := newProcessingID()
+		if idErr != nil {
+			t.Fatal(idErr)
+		}
+		resource := model.Resource{ID: resourceID, Name: kind, OriginalName: kind, Kind: kind, MIME: "application/octet-stream", StorageKey: resourceID, SHA256: strings.Repeat("a", 64), CreatedAt: time.Now().UTC()}
+		if err := store.SaveResource(ctx, resource); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, resourceID)
+		jobType := model.ProcessingTypeExtractText
+		if kind == "image" {
+			jobType = model.ProcessingTypeGenerateThumbnail
+		}
+		job := model.ProcessingJob{ID: jobID, ResourceID: resourceID, Type: jobType, SourceSHA256: resource.SHA256, Status: model.ProcessingStatusPending, MaxAttempts: 3, AvailableAt: time.Now().UTC(), CreatedAt: time.Now().UTC()}
+		if err := store.CreateProcessingJob(ctx, job); err != nil {
+			t.Fatal(err)
+		}
+	}
+	textJob, err := store.ClaimNextTextProcessingJob(ctx, time.Now().UTC())
+	if err != nil || textJob.Type != model.ProcessingTypeExtractText {
+		t.Fatalf("纯文本槽位领取 = %s, %v", textJob.Type, err)
+	}
+	imageJob, err := store.ClaimNextProcessingJob(ctx, time.Now().UTC())
+	if err != nil || imageJob.Type != model.ProcessingTypeGenerateThumbnail {
+		t.Fatalf("图片槽位领取 = %s, %v", imageJob.Type, err)
+	}
+}

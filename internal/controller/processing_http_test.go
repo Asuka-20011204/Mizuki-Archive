@@ -73,6 +73,11 @@ func (store *httpJobStore) ClaimNextProcessingJob(_ context.Context, _ time.Time
 	return model.ProcessingJob{}, repository.ErrNoPendingJob
 }
 
+// ClaimNextTextProcessingJob 让 HTTP 测试仓储明确实现 Worker 的类型领取接口。
+func (store *httpJobStore) ClaimNextTextProcessingJob(_ context.Context, _ time.Time) (model.ProcessingJob, error) {
+	return model.ProcessingJob{}, repository.ErrNoPendingJob
+}
+
 // CompleteProcessingJob 保存测试派生产物并完成任务。
 func (store *httpJobStore) CompleteProcessingJob(_ context.Context, id, leaseToken string, asset model.DerivedAsset) error {
 	job, ok := store.jobs[id]
