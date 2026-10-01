@@ -3,6 +3,7 @@
   .login-art { min-height: 360px; }
   .login-art-content { gap: 36px; }
   .site-header-inner { padding: 0 18px; }
+  .workspace-nav { gap: 20px; }
   .welcome { min-height: 300px; padding: 42px 52px; }
   .toolbar-hint { display: none; }
 }
@@ -24,6 +25,16 @@
   .site-header-label, .account-name, .avatar { display: none; }
   .account { margin-left: auto; }
   .content-inner { padding: 0 12px 70px; }
+  .workspace-nav { gap: 16px; margin: 14px 0 0; overflow-x: auto; padding: 0 4px; scrollbar-width: none; }
+  .workspace-nav::-webkit-scrollbar { display: none; }
+  .workspace-nav a { flex: none; font-size: 12px; }
+  .workspace-view-heading { margin-top: 36px; }
+  .workspace-view-heading h1 { font-size: clamp(31px, 9vw, 42px); }
+  .workspace-view-heading > p:last-child { font-size: 13px; }
+  .workspace-subnav { gap: 18px; margin-top: 26px; overflow-x: auto; padding: 0 2px; scrollbar-width: none; }
+  .workspace-subnav::-webkit-scrollbar { display: none; }
+  .workspace-subnav a { flex: none; font-size: 12px; }
+  .workspace-library { padding-top: 22px; }
   .welcome { min-height: 288px; margin-top: 16px; padding: 38px 26px 50px; }
   .welcome::after { width: 300px; top: -35%; right: -45%; }
   .welcome-orbit { display: none; }

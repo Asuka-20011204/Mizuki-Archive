@@ -9,6 +9,7 @@ import SearchPanel from './SearchPanel.vue'
 import TopicsPanel from './TopicsPanel.vue'
 import ResourceNotes from './ResourceNotes.vue'
 import { adjacentResource } from './detail-navigation'
+import { workspaceViewFromHash, type WorkspaceView } from './workspace-navigation'
 import { api, type ExternalResource, type InboxSelection, type ProcessingJob, type Resource } from './api'
 
 // 登录状态、列表筛选和详情面板分别在本视图中管理；服务端始终是权限与资料的权威来源。
@@ -107,11 +108,58 @@ type PublicView = 'home' | 'features' | 'principles' | 'privacy' | 'contact' | '
 const publicViews: PublicView[] = ['home', 'features', 'principles', 'privacy', 'contact', 'login']
 const publicView = ref<PublicView>('home')
 const qqCopyStatus = ref('')
+const workspaceView = ref<WorkspaceView>('library')
+const openedWorkspaceViews = ref(new Set<WorkspaceView>(['library']))
+const organizingViews: WorkspaceView[] = ['inbox', 'organized', 'archive']
+const workspaceTitles: Record<WorkspaceView, string> = {
+  library: '我的文件', search: '查找资料', inbox: '待整理', organized: '已整理',
+  archive: '归档', external: '外部资源', topics: '专题展页',
+}
+const workspaceDescriptions: Record<WorkspaceView, string> = {
+  library: '上传、查看和管理你保存的文件。', search: '跨文件与外部卡片查找线索。',
+  inbox: '先收进来，再决定怎么整理。', organized: '查看已经整理好的资料。',
+  archive: '暂时收起的资料可以从这里找回。', external: '记录站外资源的位置和线索。',
+  topics: '把自己的资料编排成有顺序的专题。',
+}
 
 // syncPublicViewFromURL 支持刷新直达和浏览器前进/后退；无效片段回到首页。
 function syncPublicViewFromURL() {
   const view = window.location.hash.slice(1) as PublicView
   publicView.value = publicViews.includes(view) ? view : 'home'
+}
+
+// syncWorkspaceViewFromURL 同步私有视图的直达与前进后退；仅由已登录状态调用。
+function syncWorkspaceViewFromURL() {
+  const view = workspaceViewFromHash(window.location.hash)
+  if (view !== workspaceView.value && selected.value && !closeDetail()) {
+    window.history.replaceState(null, '', `#${workspaceView.value}`)
+    return
+  }
+  workspaceView.value = view
+  openedWorkspaceViews.value.add(view)
+  void nextTick(() => document.getElementById('workspace-view-title')?.focus({ preventScroll: true }))
+}
+
+// syncCurrentViewFromURL 按真实会话状态选择前台或后台视图，不用 URL 判断权限。
+function syncCurrentViewFromURL() {
+  if (username.value) syncWorkspaceViewFromURL()
+  else syncPublicViewFromURL()
+}
+
+// activateWorkspaceFromURL 登录后保留有效私有地址，公开地址则替换为文件页。
+function activateWorkspaceFromURL() {
+  const view = workspaceViewFromHash(window.location.hash)
+  if (window.location.hash !== `#${view}`) window.history.replaceState(null, '', `#${view}`)
+  syncWorkspaceViewFromURL()
+}
+
+// showWorkspaceView 切换业务页面；已访问的表单保留草稿而不重复创建。
+function showWorkspaceView(view: WorkspaceView) {
+  if (workspaceView.value === view) return
+  if (selected.value && !closeDetail()) return
+  window.history.pushState(null, '', `#${view}`)
+  syncWorkspaceViewFromURL()
+  window.scrollTo({ top: 0, behavior: 'auto' })
 }
 
 // showPublicView 用浏览器历史记录切换视图，保留查询参数和可分享地址。
@@ -137,19 +185,6 @@ async function copyContactQQ() {
     qqCopyStatus.value = '复制失败，请手动选择号码'
   }
 }
-
-// archiveStats 只统计当前服务端返回的视图，避免把分页数据误报成整库总量。
-const archiveStats = computed(() => {
-  const favoriteCount = resources.value.filter((resource) => resource.favorite).length
-  const tagCount = new Set(resources.value.flatMap((resource) => resource.tags || [])).size
-  const typeCount = new Set(resources.value.map((resource) => resource.kind)).size
-  return [
-    { value: String(resources.value.length).padStart(2, '0'), label: '当前视图资料' },
-    { value: String(favoriteCount).padStart(2, '0'), label: '已收藏内容' },
-    { value: String(tagCount).padStart(2, '0'), label: '正在使用的标签' },
-    { value: String(typeCount).padStart(2, '0'), label: '资料类型' },
-  ]
-})
 
 // formatSize 将字节数转为列表可扫读的单位，小文件仍显示至少 1 KB。
 function formatSize(size: number) {
@@ -239,6 +274,7 @@ async function checkSession() {
     username.value = ''
   } finally {
     if (username.value) {
+      activateWorkspaceFromURL()
       await Promise.all([loadResources(), loadTagSuggestions(), loadRecent()])
     }
     loadingSession.value = false
@@ -253,6 +289,7 @@ async function login() {
   try {
     username.value = (await api.login(loginName.value, password.value)).username
     password.value = ''
+    activateWorkspaceFromURL()
     await Promise.all([loadResources(), loadTagSuggestions(), loadRecent()])
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '登录失败'
@@ -290,6 +327,7 @@ async function loginWithEmail() {
       : await api.loginWithEmailCode(emailAddress.value, verificationCode.value)
     username.value = result.username
     verificationCode.value = ''
+    activateWorkspaceFromURL()
     await Promise.all([loadResources(), loadTagSuggestions(), loadRecent()])
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '邮箱登录失败'
@@ -333,6 +371,7 @@ async function loginWithPhone() {
       : await api.loginWithPhoneCode(phoneNumber.value, verificationCode.value)
     username.value = result.username
     verificationCode.value = ''
+    activateWorkspaceFromURL()
     await Promise.all([loadResources(), loadTagSuggestions(), loadRecent()])
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '手机号验证失败'
@@ -354,6 +393,10 @@ async function logout() {
     closeDetail(true)
     resources.value = []
     recentResources.value = []
+    openedWorkspaceViews.value = new Set<WorkspaceView>(['library'])
+    workspaceView.value = 'library'
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+    syncPublicViewFromURL()
     tagFilter.value = ''
     draftTags.value = []
     tagSuggestions.value = []
@@ -442,7 +485,10 @@ function refreshCollectionViews() {
 }
 
 // openExternalFromInbox 直接打开目标卡片的编辑表单，避免用户再次搜索同一条记录。
-function openExternalFromInbox(item: ExternalResource) {
+async function openExternalFromInbox(item: ExternalResource) {
+  showWorkspaceView('external')
+  await nextTick()
+  if (!username.value || workspaceView.value !== 'external') return
   externalPanel.value?.editCard(item)
   document.getElementById('external-title')?.scrollIntoView({ behavior: 'auto' })
 }
@@ -461,7 +507,7 @@ async function openRelated(item: InboxSelection) {
     } else {
       const card = (await api.getExternalResource(item.id)).data
       if (selected.value) closeDetail(true)
-      openExternalFromInbox(card)
+      await openExternalFromInbox(card)
     }
   } catch (reason) {
     const message = reason instanceof Error ? reason.message : '无法打开关联资料'
@@ -471,8 +517,8 @@ async function openRelated(item: InboxSelection) {
 }
 
 // closeDetail 主动关闭时确认笔记草稿；退出或跳转后强制清理旧请求。
-function closeDetail(force = false) {
-  if (!force && notesPanel.value?.hasUnsavedDraft() && !window.confirm('笔记草稿尚未保存，关闭后会丢失。继续吗？')) return
+function closeDetail(force = false): boolean {
+  if (!force && notesPanel.value?.hasUnsavedDraft() && !window.confirm('笔记草稿尚未保存，关闭后会丢失。继续吗？')) return false
   detailRequestId++
   previewRequestId++
   jobsRequestId++
@@ -485,6 +531,7 @@ function closeDetail(force = false) {
   previewError.value = ''
   jobs.value = []
   jobError.value = ''
+  return true
 }
 
 // loadTextPreview 读取文本资料的预览内容；Vue 以纯文本节点渲染，避免 HTML/脚本执行。
@@ -851,17 +898,17 @@ watch([search, kind, tagFilter, page], (_current, _previous, onCleanup) => {
 // 模态详情打开期间在文档级处理键盘；即使异步任务使焦点暂时离开抽屉，Escape 和 Tab 仍有效。
 onMounted(() => {
   document.addEventListener('keydown', trapDetailFocus)
-  window.addEventListener('popstate', syncPublicViewFromURL)
-  window.addEventListener('hashchange', syncPublicViewFromURL)
-  syncPublicViewFromURL()
+  window.addEventListener('popstate', syncCurrentViewFromURL)
+  window.addEventListener('hashchange', syncCurrentViewFromURL)
+  syncCurrentViewFromURL()
   void checkSession()
 })
 // 离开页面时同时清理任务轮询与键盘监听，避免组件销毁后继续处理用户输入。
 onUnmounted(() => {
   stopJobPolling()
   document.removeEventListener('keydown', trapDetailFocus)
-  window.removeEventListener('popstate', syncPublicViewFromURL)
-  window.removeEventListener('hashchange', syncPublicViewFromURL)
+  window.removeEventListener('popstate', syncCurrentViewFromURL)
+  window.removeEventListener('hashchange', syncCurrentViewFromURL)
 })
 </script>
 
@@ -992,37 +1039,54 @@ onUnmounted(() => {
       <div class="site-header-inner">
         <div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div>
         <span class="site-header-label">个人资料库</span>
-        <a class="topics-shortcut" href="#topics">专题展页</a>
         <div class="account">
           <span class="avatar" aria-hidden="true">{{ username.slice(0, 1).toUpperCase() }}</span>
           <span class="account-name">{{ username }}</span>
           <button type="button" class="text-button mobile-logout" @click="logout">退出</button>
         </div>
       </div>
+      <nav class="workspace-nav" aria-label="资料库导航">
+        <a href="#library" :aria-current="workspaceView === 'library' ? 'page' : undefined" @click.prevent="showWorkspaceView('library')">文件资料</a>
+        <a href="#search" :aria-current="workspaceView === 'search' ? 'page' : undefined" @click.prevent="showWorkspaceView('search')">查找</a>
+        <a href="#inbox" :aria-current="organizingViews.includes(workspaceView) ? 'page' : undefined" @click.prevent="showWorkspaceView('inbox')">整理</a>
+        <a href="#external" :aria-current="workspaceView === 'external' ? 'page' : undefined" @click.prevent="showWorkspaceView('external')">外部资源</a>
+        <a href="#topics" :aria-current="workspaceView === 'topics' ? 'page' : undefined" @click.prevent="showWorkspaceView('topics')">专题</a>
+      </nav>
     </header>
 
     <main class="content">
       <div class="content-inner">
-        <section class="welcome" aria-labelledby="page-title">
-          <div class="welcome-copy">
-            <p class="eyebrow">MIZUKI · PERSONAL ARCHIVE</p>
-            <h1 id="page-title">每一份资料，<br />都有自己的位置。</h1>
-            <p>从这里整理、查找和取回你的文件。你的内容只在登录后可见。</p>
-          </div>
-          <div class="welcome-manifest" aria-hidden="true"><span>ARCHIVE<br />MANIFEST</span><strong>01</strong><i></i><small>COLLECT / RETURN / PROCESS</small></div>
-          <span class="welcome-orbit" aria-hidden="true"><span>M.</span></span>
-        </section>
-        <section class="archive-brief" aria-label="资料库状态">
-          <div class="archive-brief-copy"><p class="eyebrow">ARCHIVE PULSE</p><h2>让整理变成一种轻盈的习惯。</h2><p>当前数字来自已加载的资料视图，列表筛选后会同步变化。</p></div>
-          <div class="archive-stats"><div v-for="stat in archiveStats" :key="stat.label" class="archive-stat"><strong>{{ stat.value }}</strong><span>{{ stat.label }}</span></div></div>
-        </section>
+        <div class="workspace-view-heading">
+          <p class="eyebrow">MIZUKI / PRIVATE SPACE</p>
+          <h1 id="workspace-view-title" tabindex="-1">{{ workspaceTitles[workspaceView] }}</h1>
+          <p>{{ workspaceDescriptions[workspaceView] }}</p>
+        </div>
+        <nav v-if="organizingViews.includes(workspaceView)" class="workspace-subnav" aria-label="整理阶段">
+          <a href="#inbox" :aria-current="workspaceView === 'inbox' ? 'page' : undefined" @click.prevent="showWorkspaceView('inbox')">待整理</a>
+          <a href="#organized" :aria-current="workspaceView === 'organized' ? 'page' : undefined" @click.prevent="showWorkspaceView('organized')">已整理</a>
+          <a href="#archive" :aria-current="workspaceView === 'archive' ? 'page' : undefined" @click.prevent="showWorkspaceView('archive')">归档</a>
+        </nav>
 
-        <SearchPanel :refresh-key="archiveRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" />
-        <InboxPanel :refresh-key="inboxRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @archived="refreshCollectionViews" @deleted="refreshCollectionViews" />
-        <OrganizedPanel :refresh-key="organizedRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @changed="refreshCollectionViews" />
-        <ArchivePanel :refresh-key="archiveRefreshKey" @open-file="selectResource" @restored="refreshCollectionViews" @deleted="refreshCollectionViews" />
-        <ExternalResourcePanel ref="externalPanel" @changed="refreshInbox" @open-related="openRelated" />
-        <TopicsPanel @open="openRelated" />
+        <div v-if="openedWorkspaceViews.has('search')" v-show="workspaceView === 'search'" class="workspace-page">
+          <SearchPanel :refresh-key="archiveRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" />
+        </div>
+        <div v-if="openedWorkspaceViews.has('inbox')" v-show="workspaceView === 'inbox'" class="workspace-page">
+          <InboxPanel :refresh-key="inboxRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @archived="refreshCollectionViews" @deleted="refreshCollectionViews" />
+        </div>
+        <div v-if="openedWorkspaceViews.has('organized')" v-show="workspaceView === 'organized'" class="workspace-page">
+          <OrganizedPanel :refresh-key="organizedRefreshKey" @open-file="selectResource" @edit-external="openExternalFromInbox" @changed="refreshCollectionViews" />
+        </div>
+        <div v-if="openedWorkspaceViews.has('archive')" v-show="workspaceView === 'archive'" class="workspace-page">
+          <ArchivePanel :refresh-key="archiveRefreshKey" @open-file="selectResource" @restored="refreshCollectionViews" @deleted="refreshCollectionViews" />
+        </div>
+        <div v-if="openedWorkspaceViews.has('external')" v-show="workspaceView === 'external'" class="workspace-page">
+          <ExternalResourcePanel ref="externalPanel" @changed="refreshInbox" @open-related="openRelated" />
+        </div>
+        <div v-if="openedWorkspaceViews.has('topics')" v-show="workspaceView === 'topics'" class="workspace-page">
+          <TopicsPanel @open="openRelated" />
+        </div>
+
+        <div v-show="workspaceView === 'library'" class="workspace-page workspace-library">
 
         <nav class="filter-nav" aria-label="按资料类型筛选">
           <button
@@ -1138,6 +1202,7 @@ onUnmounted(() => {
             <button type="button" :disabled="!hasMore" @click="page++">下一页</button>
           </div>
         </section>
+        </div>
       </div>
     </main>
 

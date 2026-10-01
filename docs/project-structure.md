@@ -125,6 +125,7 @@ Mizuki Archive/
 │   ├── src/OrganizedPanel.vue         # 已整理两类资料分页与批量操作
 │   ├── src/ArchivePanel.vue           # 分来源分页查看归档项并批量恢复
 │   ├── src/detail-navigation.ts       # 当前页邻项查找与边界保护
+│   ├── src/workspace-navigation.ts    # 后台分区地址与未知片段回退
 │   ├── src/ExternalResourcePanel.vue  # 独立卡片录入、搜索和人工维护
 │   ├── src/ResourceNotes.vue          # 详情中的笔记编辑、页码和安全文本展示
 │   ├── src/TopicsPanel.vue            # 专题创建、编排、查看和条目跳转
@@ -138,7 +139,8 @@ Mizuki Archive/
 │   ├── src/share-parser.ts            # 浏览器内解析粘贴文本，不发网络请求
 │   ├── tests/share-parser.test.mjs    # Node 内置测试运行器校验解析与危险输入
 │   ├── tests/search-filter.test.mjs   # 检索条件长度、空条件及控制字符校验
-│   └── tests/detail-navigation.test.mjs # 详情相邻文件与列表边界校验
+│   ├── tests/detail-navigation.test.mjs # 详情相邻文件与列表边界校验
+│   └── tests/workspace-navigation.test.mjs # 后台分区直达与回退校验
 ├── docs/                              # 产品、架构、安全、设计和变更记录
 ├── compose.yaml                       # MySQL 与可选 RabbitMQ/Redis 容器
 ├── compose.deploy.yaml                # V6 独立单机编排：Web/API/Worker/MySQL
