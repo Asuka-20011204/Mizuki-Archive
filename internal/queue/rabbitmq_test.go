@@ -159,6 +159,91 @@ func TestRabbitMQBoundedConsumers(t *testing.T) {
 	}
 }
 
+// deferredImageTestError 模拟图片槽位忙，但不消耗数据库租约或任务尝试次数。
+type deferredImageTestError struct{}
+
+// Error 返回供测试断言的稳定描述。
+func (deferredImageTestError) Error() string { return "image slot busy" }
+
+// DeferProcessing 通知队列在确认发布后把消息排到队尾。
+func (deferredImageTestError) DeferProcessing() bool { return true }
+
+// TestRabbitMQDeferredImageDoesNotBlockText 验证图片占位时文本仍可在首张图片释放前处理。
+func TestRabbitMQDeferredImageDoesNotBlockText(t *testing.T) {
+	url := os.Getenv("MIZUKI_TEST_RABBITMQ_URL")
+	if url == "" {
+		t.Skip("仅在设置隔离 RabbitMQ 地址时运行")
+	}
+	name := "mizuki.test.image.defer." + time.Now().UTC().Format("150405.000000000")
+	broker, err := NewRabbitMQ(url, name, name+".jobs", name+".dead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = broker.publisher.QueueDelete(name+".jobs", false, false, false)
+		_, _ = broker.publisher.QueueDelete(name+".dead", false, false, false)
+		_ = broker.publisher.ExchangeDelete(name, false, false)
+		_ = broker.Close()
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	firstImage := strings.Repeat("a", 32)
+	busyImage := strings.Repeat("b", 32)
+	textJob := strings.Repeat("c", 32)
+	imageStarted := make(chan struct{})
+	textProcessed := make(chan struct{}, 1)
+	releaseImage := make(chan struct{})
+	defer close(releaseImage)
+	finished := make(chan error, 1)
+	go func() {
+		finished <- broker.ConsumeJobs(ctx, func(ctx context.Context, jobID string) (bool, error) {
+			switch jobID {
+			case firstImage:
+				select {
+				case <-imageStarted:
+				default:
+					close(imageStarted)
+				}
+				select {
+				case <-releaseImage:
+					return true, nil
+				case <-ctx.Done():
+					return false, ctx.Err()
+				}
+			case busyImage:
+				return false, deferredImageTestError{}
+			case textJob:
+				textProcessed <- struct{}{}
+				return true, nil
+			default:
+				return false, errors.New("unexpected job")
+			}
+		}, 2)
+	}()
+	if err := broker.PublishJob(ctx, firstImage); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-imageStarted:
+	case <-ctx.Done():
+		t.Fatal("第一张图片未开始")
+	}
+	for _, id := range []string{busyImage, textJob} {
+		if err := broker.PublishJob(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	select {
+	case <-textProcessed:
+	case <-ctx.Done():
+		t.Fatal("文本被未确认的图片消息阻塞")
+	}
+	cancel()
+	if err := <-finished; !errors.Is(err, context.Canceled) {
+		t.Fatalf("停止消费者失败: %v", err)
+	}
+}
+
 // TestRabbitMQDeadLetter 使用真实 Broker 验证有限重试后消息进入隔离队列，而不是无限重发。
 func TestRabbitMQDeadLetter(t *testing.T) {
 	url := os.Getenv("MIZUKI_TEST_RABBITMQ_URL")

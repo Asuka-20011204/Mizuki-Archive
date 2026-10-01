@@ -14,7 +14,7 @@ V7 的固定负载显示，3000×3000 图片并发处理时 Go 堆峰值显著�
 
 ## 取舍与边界
 
-图片槽位是**每个 Worker 进程**的内存保护，不是跨进程或跨节点的全局限流。数据库模式把图片留给一个专用领取槽位，文本槽位不会因等待图片而持有租约；RabbitMQ 模式利用已有 ACK/NACK 与重排机制，避免在 Service 内部阻塞消息消费者。
+图片槽位是**每个 Worker 进程**的内存保护，不是跨进程或跨节点的全局限流。数据库模式把图片留给一个专用领取槽位，文本槽位不会因等待图片而持有租约；RabbitMQ 模式对忙碌图片确认后重新发布到队尾，不增加业务任务尝试次数。重新发布确认前仍占用消费槽位约一秒，连续海量图片可能延迟排在其后的文本任务；本轮只验证了有限图片竞争，尚未证明持续洪峰下的公平性。
 
 当前仍不改变 4000 万像素和 12000 单边尺寸上限，也不把 Go 堆采样换算成容器 RSS。多实例部署时必须根据实际镜像内存上限重新测量，不能仅依据本轮单元测试调整 Worker 数量。
 
@@ -22,11 +22,13 @@ V7 的固定负载显示，3000×3000 图片并发处理时 Go 堆峰值显著�
 
 - `go test ./internal/service ./internal/repository ./cmd/worker -count=1`：通过；没有设置隔离 MySQL DSN 时，MySQL 集成测试按约定跳过。
 - `go test ./internal/service -run 'TestRunPoolLimitsImageEligibleClaims|TestRabbitImageGateBeforeClaim' -count=1`：通过。
-- `go test ./internal/repository -run '^TestMySQLTextClaimSkipsImage$' -count=1`：测试逻辑已编译；未设置 `MIZUKI_TEST_MYSQL_DSN` 时按约定跳过。
+- 独立 `mizuki_test_image_20261001` MySQL 8.4 数据库中，`TestMySQLTextClaimSkipsImage` 通过；测试后临时库已删除。首次因未授测试账号该库权限导致连接失败，补授临时权限后复测通过。
+- 真实隔离 RabbitMQ 交换机/队列中，`TestRabbitMQDeferredImageDoesNotBlockText` 通过：prefetch=2，一张图片持续占用一个槽位、第二张图片被延迟发布时，排在后面的文本任务仍能在首张图片完成前送达；测试交换机/队列已清理。此测试不覆盖持续洪峰。
 - `gofmt` 与 `git diff --check`：通过。
 
 ## 遗留风险与下一步
 
 - 还没有在目标 Docker 镜像内采集 RSS/CPU，也没有完成 Worker 进程重启后的恢复耗时测量。
 - 多个 Worker 进程仍可能同时处理图片；上线前需要在目标机器执行混合 PDF/图片/文本负载，记录峰值、连接数、失败率和恢复窗口。
+- RabbitMQ 对连续图片洪峰的长期公平性未验证；如果出现文本长期等待，需评估按任务类型分队列或专门延迟队列，而不是仅调整 prefetch。
 - OCR、真实浏览器回归及其他路线图未完成项不因本轮门禁而自动标记完成。
