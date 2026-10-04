@@ -60,6 +60,8 @@ const recentResources = ref<Resource[]>([])
 const selected = ref<Resource | null>(null)
 type DetailSection = 'preview' | 'organize' | 'processing'
 const detailSection = ref<DetailSection>('preview')
+// PDF 阅读模式只改变当前详情布局；原件仍经服务端鉴权的预览接口读取。
+const pdfFocused = ref(false)
 const detailNavigationItems = ref<Resource[]>([])
 const navigatingDetail = ref(false)
 // 搜索条件与页码交给 API 查询，不在浏览器里模拟 MySQL 的筛选和分页。
@@ -710,6 +712,7 @@ async function selectResource(resource: Resource, siblings: Resource[] = resourc
     detailNavigationItems.value = siblings.some((item) => item.id === detail.id) ? [...siblings] : [detail]
     selected.value = detail
     detailSection.value = 'preview'
+    pdfFocused.value = detail.kind === 'pdf'
     void loadRecent()
     nameDraft.value = selected.value.name
     draftTags.value = [...(selected.value.tags || [])]
@@ -905,8 +908,10 @@ function trapDetailFocus(event: KeyboardEvent) {
     }
   }
   if (event.key !== 'Tab') return
-  const focusable = detailPanel.value?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled])')
-  if (!focusable?.length) return
+  // v-show 保留隐藏分区的 DOM；焦点循环只包含当前可见控件，避免跳入收起的属性栏。
+  const focusable = Array.from(detailPanel.value?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), select:not([disabled])') || [])
+    .filter((element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden')
+  if (!focusable.length) return
   if (!detailPanel.value?.contains(document.activeElement)) {
     event.preventDefault()
     const target = event.shiftKey ? focusable[focusable.length - 1] : focusable[0]
@@ -1263,6 +1268,7 @@ onUnmounted(() => {
         <section
           ref="detailPanel"
           class="detail-panel"
+          :class="{ 'pdf-detail': selected.kind === 'pdf' && detailSection === 'preview', 'pdf-focused': selected.kind === 'pdf' && detailSection === 'preview' && pdfFocused }"
           role="dialog"
           aria-modal="true"
           aria-labelledby="detail-title"
@@ -1281,7 +1287,8 @@ onUnmounted(() => {
               <button type="button" class="secondary-button" :disabled="!previousDetail || navigatingDetail" @click="navigateDetail(-1)">← 上一项</button>
               <span class="detail-navigation-status" role="status">{{ detailPosition >= 0 ? `第 ${detailPosition + 1} / ${detailNavigationItems.length} 项` : '当前文件' }}</span>
               <button type="button" class="secondary-button" :disabled="!nextDetail || navigatingDetail" @click="navigateDetail(1)">下一项 →</button>
-              <small>← / → 切换 · Esc 关闭 · D 下载；输入区保留编辑按键，PDF 内请用按钮</small>
+              <small v-if="selected.kind === 'pdf'">Esc 关闭 · D 下载 · PDF 内请用按钮</small>
+              <small v-else>← / → 切换 · Esc 关闭 · D 下载；输入区保留编辑按键，PDF 内请用按钮</small>
             </nav>
           </header>
           <nav class="detail-section-nav" role="group" aria-label="资料详情分区">
@@ -1294,7 +1301,12 @@ onUnmounted(() => {
               <section v-show="detailSection === 'preview'" class="preview-section" aria-labelledby="preview-title">
                 <div class="detail-section-heading">
                   <div><p class="eyebrow">内容</p><h3 id="preview-title">预览</h3></div>
-                  <span class="preview-format">{{ selected.mime }}</span>
+                  <div v-if="selected.kind === 'pdf'" class="pdf-preview-actions">
+                    <button type="button" class="secondary-button" :aria-pressed="pdfFocused" @click="pdfFocused = !pdfFocused">{{ pdfFocused ? '显示属性栏' : '专注阅读' }}</button>
+                    <a class="secondary-button" :href="previewURL(selected.id)" target="_blank" rel="noopener noreferrer">新标签页阅读 ↗</a>
+                    <a class="secondary-button" :href="`/api/resources/${selected.id}/download`">下载原件</a>
+                  </div>
+                  <span v-else class="preview-format">{{ selected.mime }}</span>
                 </div>
                 <div v-if="selected.kind === 'image'" class="preview-frame">
                   <img :src="previewURL(selected.id)" :alt="`预览：${selected.name}`" />
@@ -1302,7 +1314,7 @@ onUnmounted(() => {
                 <iframe
                   v-else-if="selected.kind === 'pdf'"
                   class="preview-frame pdf-preview"
-                  :src="previewURL(selected.id)"
+                  :src="`${previewURL(selected.id)}#page=1&view=Fit`"
                   :title="`PDF 预览：${selected.name}`"
                 ></iframe>
                 <div
@@ -1371,7 +1383,7 @@ onUnmounted(() => {
                 <ResourceNotes ref="notesPanel" :key="selected.id" :resource-id="selected.id" :kind="selected.kind" />
               </div>
             </div>
-            <aside v-show="detailSection !== 'processing'" class="detail-side-column" aria-label="资料属性与操作">
+            <aside v-show="detailSection !== 'processing' && !(detailSection === 'preview' && pdfFocused)" class="detail-side-column" aria-label="资料属性与操作">
               <section v-show="detailSection === 'preview'" class="inspector-section" aria-labelledby="properties-title">
                  <div class="detail-section-heading"><div><p class="eyebrow">属性检查器</p><h3 id="properties-title">属性</h3></div></div>
                 <dl class="detail-meta"><div><dt>类型</dt><dd>{{ kindLabel(selected.kind) }}</dd></div><div><dt>大小</dt><dd>{{ formatSize(selected.size) }}</dd></div><div><dt>加入时间</dt><dd>{{ formatDate(selected.created_at) }}</dd></div><div><dt>文件指纹</dt><dd class="hash">{{ selected.sha256.slice(0, 18) }}…</dd></div></dl>

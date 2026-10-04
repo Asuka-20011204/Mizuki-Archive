@@ -291,6 +291,18 @@
 /* 详情采用企业属性检查器：主区看内容，侧栏看属性和动作，避免一条超长功能抽屉。 */
 .detail-backdrop { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; background: #253b4470; backdrop-filter: blur(7px); padding: 24px; }
 .detail-panel { position: relative; display: flex; width: min(980px, 100%); height: min(760px, calc(100dvh - 48px)); flex-direction: column; overflow: hidden; border: 1px solid #fff; border-radius: 20px; background: #fffffffc; box-shadow: 0 30px 90px #12252d35; }
+/* PDF 默认让原件占据阅读宽度；专注模式隐藏侧栏，但不改变其他格式详情。 */
+.detail-panel.pdf-detail { width: min(1320px, 100%); height: min(900px, calc(100dvh - 24px)); }
+.detail-panel.pdf-detail.pdf-focused { width: min(1560px, 100%); }
+.pdf-detail .detail-header { padding: 12px 64px 10px 24px; }
+.pdf-detail .detail-header .eyebrow { margin-bottom: 4px; }
+.pdf-detail .detail-icon { width: 42px; height: 46px; }
+.pdf-detail .detail-display-name { font-size: clamp(17px, 1.6vw, 22px); }
+.pdf-detail .detail-description { display: none; }
+.pdf-detail .detail-navigation { margin-top: 8px; }
+.pdf-detail .detail-navigation small { flex-basis: auto; }
+.pdf-detail .detail-section-nav { padding-top: 0; }
+.pdf-detail .detail-section-nav button { padding-top: 9px; padding-bottom: 9px; }
 .close-button { position: absolute; z-index: 2; top: 20px; right: 22px; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--ink); font-size: 22px; }
 .close-button:hover { background: var(--surface-hover); }
 .detail-header { flex: none; border-bottom: 1px solid var(--line); background: linear-gradient(115deg, #f4f9fa, #ffffff 68%); padding: 26px 74px 22px 32px; }
@@ -315,6 +327,12 @@
 .detail-section-nav button:hover, .detail-section-nav button.active { border-bottom-color: var(--accent); color: var(--ink); }
 .detail-section-nav button:focus-visible, .auth-mode-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .detail-body { display: grid; min-height: 0; flex: 1; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .75fr); }
+.pdf-detail .detail-body { grid-template-columns: minmax(0, 1fr) 250px; overflow: hidden; }
+.pdf-detail.pdf-focused .detail-body { grid-template-columns: minmax(0, 1fr); }
+.pdf-detail.pdf-focused .detail-main-column { border-right: 0; }
+.pdf-detail .detail-main-column { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; padding: 14px 20px 16px; }
+.pdf-detail .preview-section { display: flex; min-height: 0; flex: 1; flex-direction: column; margin: 0; }
+.pdf-detail .detail-section-heading { flex: none; margin-bottom: 8px; }
 .detail-body-full { grid-template-columns: minmax(0, 1fr); }
 .detail-body-full .detail-main-column { border-right: 0; }
 .detail-main-column, .detail-side-column { min-width: 0; overflow-y: auto; padding: 26px 28px 30px; }
@@ -324,10 +342,13 @@
 .detail-section-heading .eyebrow { margin: 0 0 3px; }
 .detail-section-heading h3 { margin: 0; color: var(--ink); font-size: 18px; letter-spacing: -.025em; }
 .preview-format { max-width: 48%; overflow: hidden; color: var(--subtle); font-family: Consolas, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.pdf-preview-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.pdf-preview-actions .secondary-button { text-decoration: none; white-space: nowrap; }
 .preview-section { margin-bottom: 22px; }
 .preview-frame { display: block; width: 100%; max-height: 310px; margin: 0 0 20px; border: 1px solid var(--line); border-radius: 12px; background: #f5f9fa; object-fit: contain; }
 .preview-frame img { display: block; width: 100%; height: 100%; max-height: 308px; object-fit: contain; }
 .pdf-preview { height: 520px; max-height: none; background: #eef3f4; }
+.pdf-detail .pdf-preview { flex: 1; min-height: 0; height: 100%; margin-bottom: 0; }
 .preview-frame.text-preview { height: 220px; padding: 16px; overflow: auto; background: #fff; }
 .preview-frame.text-preview pre { margin: 0; color: var(--ink); font: 0.84rem/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .preview-placeholder { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.6; }
