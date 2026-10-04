@@ -1279,7 +1279,7 @@ onUnmounted(() => {
             <div class="detail-title-row">
               <div class="detail-icon" :class="selected.kind">{{ selected.kind === 'image' ? '◈' : kindLabel(selected.kind) }}</div>
               <div class="detail-title-content">
-                <h2 id="detail-title" class="detail-display-name">{{ selected.name }}</h2>
+                <h2 id="detail-title" class="detail-display-name" :title="selected.kind === 'pdf' ? selected.name : undefined">{{ selected.name }}</h2>
               </div>
             </div>
             <p class="detail-description">私有资料 · 仅当前登录会话可访问</p>
@@ -1287,7 +1287,7 @@ onUnmounted(() => {
               <button type="button" class="secondary-button" :disabled="!previousDetail || navigatingDetail" @click="navigateDetail(-1)">← 上一项</button>
               <span class="detail-navigation-status" role="status">{{ detailPosition >= 0 ? `第 ${detailPosition + 1} / ${detailNavigationItems.length} 项` : '当前文件' }}</span>
               <button type="button" class="secondary-button" :disabled="!nextDetail || navigatingDetail" @click="navigateDetail(1)">下一项 →</button>
-              <small v-if="selected.kind === 'pdf'">Esc 关闭 · D 下载 · PDF 内请用按钮</small>
+              <small v-if="selected.kind === 'pdf'" class="visually-hidden">Esc 关闭 · D 下载 · PDF 内请用按钮</small>
               <small v-else>← / → 切换 · Esc 关闭 · D 下载；输入区保留编辑按键，PDF 内请用按钮</small>
             </nav>
           </header>
@@ -1300,7 +1300,7 @@ onUnmounted(() => {
             <div class="detail-main-column">
               <section v-show="detailSection === 'preview'" class="preview-section" aria-labelledby="preview-title">
                 <div class="detail-section-heading">
-                  <div><p class="eyebrow">内容</p><h3 id="preview-title">预览</h3></div>
+                  <div :class="{ 'visually-hidden': selected.kind === 'pdf' }"><p class="eyebrow">内容</p><h3 id="preview-title">预览</h3></div>
                   <div v-if="selected.kind === 'pdf'" class="pdf-preview-actions">
                     <button type="button" class="secondary-button" :aria-pressed="pdfFocused" @click="pdfFocused = !pdfFocused">{{ pdfFocused ? '显示属性栏' : '专注阅读' }}</button>
                     <a class="secondary-button" :href="previewURL(selected.id)" target="_blank" rel="noopener noreferrer">新标签页阅读 ↗</a>

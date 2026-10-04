@@ -294,13 +294,14 @@
 /* PDF 默认让原件占据阅读宽度；专注模式隐藏侧栏，但不改变其他格式详情。 */
 .detail-panel.pdf-detail { width: min(1320px, 100%); height: min(900px, calc(100dvh - 24px)); }
 .detail-panel.pdf-detail.pdf-focused { width: min(1560px, 100%); }
-.pdf-detail .detail-header { padding: 12px 64px 10px 24px; }
-.pdf-detail .detail-header .eyebrow { margin-bottom: 4px; }
-.pdf-detail .detail-icon { width: 42px; height: 46px; }
-.pdf-detail .detail-display-name { font-size: clamp(17px, 1.6vw, 22px); }
+.pdf-detail .detail-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 10px 64px 10px 20px; }
+.pdf-detail .detail-header > .eyebrow { display: none; }
+.pdf-detail .detail-title-row { min-width: 0; gap: 10px; }
+.pdf-detail .detail-icon { flex: none; width: 38px; height: 38px; }
+.pdf-detail .detail-display-name { overflow: hidden; font-size: clamp(17px, 1.6vw, 22px); text-overflow: ellipsis; white-space: nowrap; }
 .pdf-detail .detail-description { display: none; }
-.pdf-detail .detail-navigation { margin-top: 8px; }
-.pdf-detail .detail-navigation small { flex-basis: auto; }
+.pdf-detail .detail-navigation { flex-wrap: nowrap; margin: 0; }
+.pdf-detail .detail-navigation .secondary-button { padding: 7px 10px; }
 .pdf-detail .detail-section-nav { padding-top: 0; }
 .pdf-detail .detail-section-nav button { padding-top: 9px; padding-bottom: 9px; }
 .close-button { position: absolute; z-index: 2; top: 20px; right: 22px; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--ink); font-size: 22px; }
@@ -332,7 +333,7 @@
 .pdf-detail.pdf-focused .detail-main-column { border-right: 0; }
 .pdf-detail .detail-main-column { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; padding: 14px 20px 16px; }
 .pdf-detail .preview-section { display: flex; min-height: 0; flex: 1; flex-direction: column; margin: 0; }
-.pdf-detail .detail-section-heading { flex: none; margin-bottom: 8px; }
+.pdf-detail .detail-section-heading { flex: none; justify-content: flex-end; margin-bottom: 8px; }
 .detail-body-full { grid-template-columns: minmax(0, 1fr); }
 .detail-body-full .detail-main-column { border-right: 0; }
 .detail-main-column, .detail-side-column { min-width: 0; overflow-y: auto; padding: 26px 28px 30px; }
@@ -344,6 +345,7 @@
 .preview-format { max-width: 48%; overflow: hidden; color: var(--subtle); font-family: Consolas, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .pdf-preview-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .pdf-preview-actions .secondary-button { text-decoration: none; white-space: nowrap; }
+.pdf-detail .pdf-preview-actions .secondary-button { padding: 7px 12px; }
 .preview-section { margin-bottom: 22px; }
 .preview-frame { display: block; width: 100%; max-height: 310px; margin: 0 0 20px; border: 1px solid var(--line); border-radius: 12px; background: #f5f9fa; object-fit: contain; }
 .preview-frame img { display: block; width: 100%; height: 100%; max-height: 308px; object-fit: contain; }
