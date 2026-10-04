@@ -59,7 +59,9 @@ services:
         condition: service_completed_successfully
     restart: "no"
   api:
-    build: .
+    build:
+      context: .
+      target: api
     image: mizuki-archive-api:local
     environment:
       <<: &app_environment
@@ -102,7 +104,10 @@ services:
     restart: unless-stopped
 
   worker:
-    image: mizuki-archive-api:local
+    build:
+      context: .
+      target: ocr-worker
+    image: mizuki-archive-worker:local
     command: ["/app/worker"]
     environment:
       <<: *app_environment
@@ -116,7 +121,7 @@ services:
         condition: service_completed_successfully
     read_only: true
     tmpfs:
-      - /tmp:mode=1777
+      - /tmp:mode=1777,size=256m
     security_opt:
       - no-new-privileges:true
     cap_drop:

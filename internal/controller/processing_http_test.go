@@ -193,6 +193,46 @@ func TestProcessingJobRoutes(t *testing.T) {
 	}
 }
 
+// TestOCRJobRoutes 验证 OCR 必须登录、仅图片/PDF 可手动发起，同一来源重复请求复用原任务。
+func TestOCRJobRoutes(t *testing.T) {
+	server, store, jobs := processingTestServer(t)
+	imageID := strings.Repeat("a", 32)
+	textID := strings.Repeat("b", 32)
+	store.resources[imageID] = model.Resource{ID: imageID, Name: "scan.png", Kind: "image", SHA256: "image-hash"}
+	store.resources[textID] = model.Resource{ID: textID, Name: "memo.txt", Kind: "text", SHA256: "text-hash"}
+	send := func(resourceID string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/resources/"+resourceID+"/jobs", strings.NewReader(`{"type":"ocr_text"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", "http://localhost:5173")
+		if cookie != nil {
+			request.AddCookie(cookie)
+		}
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		return response
+	}
+	if response := send(imageID, nil); response.Code != http.StatusUnauthorized {
+		t.Fatalf("匿名 OCR 状态码 = %d", response.Code)
+	}
+	cookie := login(t, server)
+	if response := send(textID, cookie); response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("TXT 不能执行 OCR，状态码 = %d", response.Code)
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		if response := send(imageID, cookie); response.Code != http.StatusAccepted {
+			t.Fatalf("第 %d 次 OCR 创建状态码 = %d", attempt+1, response.Code)
+		}
+	}
+	if len(jobs.jobs) != 1 {
+		t.Fatalf("重复 OCR 请求生成 %d 个任务", len(jobs.jobs))
+	}
+	for _, job := range jobs.jobs {
+		if job.Type != model.ProcessingTypeOCR {
+			t.Fatalf("创建任务类型 = %s", job.Type)
+		}
+	}
+}
+
 // TestProcessingCapacityReturns429 验证积压过多时返回可重试错误，不把数据库细节暴露给浏览器。
 func TestProcessingCapacityReturns429(t *testing.T) {
 	server, store, jobs := processingTestServer(t)

@@ -20,11 +20,11 @@ func (store *MySQL) SearchFiles(ctx context.Context, filter model.SearchFilter, 
 		SELECT 1 FROM resource_tags rt JOIN tags t ON t.id = rt.tag_id
 		WHERE rt.resource_id = resources.id AND LOCATE(?, t.name) > 0
 	) OR EXISTS (
-		SELECT 1 FROM derived_assets da WHERE da.resource_id = resources.id AND da.kind = ? AND LOCATE(?, da.content_text) > 0
+		SELECT 1 FROM derived_assets da WHERE da.resource_id = resources.id AND da.kind IN ? AND LOCATE(?, da.content_text) > 0
 	) OR EXISTS (
 		SELECT 1 FROM resource_notes rn WHERE rn.resource_id = resources.id AND rn.user_id = resources.user_id
 		AND (LOCATE(?, rn.content) > 0 OR LOCATE(?, rn.excerpt) > 0 OR LOCATE(?, rn.source) > 0)
-	))`, filter.Query, filter.Query, filter.Query, model.DerivedAssetText, filter.Query, filter.Query, filter.Query, filter.Query)
+	))`, filter.Query, filter.Query, filter.Query, []string{model.DerivedAssetText, model.DerivedAssetOCR}, filter.Query, filter.Query, filter.Query, filter.Query)
 	}
 	if filter.Kind != "" {
 		database = database.Where("resources.kind = ?", filter.Kind)

@@ -112,12 +112,17 @@ func (service *Processing) CreateThumbnailJob(ctx context.Context, resourceID st
 	return service.createJob(ctx, resourceID, model.ProcessingTypeGenerateThumbnail)
 }
 
+// CreateOCRJob 创建图片或扫描 PDF 的手动 OCR 任务，结果会进入检索索引但不覆盖原件。
+func (service *Processing) CreateOCRJob(ctx context.Context, resourceID string) (model.ProcessingJob, error) {
+	return service.createJob(ctx, resourceID, model.ProcessingTypeOCR)
+}
+
 // createJob 统一处理任务类型白名单、资源格式校验和重复点击幂等性。
 func (service *Processing) createJob(ctx context.Context, resourceID, jobType string) (model.ProcessingJob, error) {
 	if !validResourceID(resourceID) {
 		return model.ProcessingJob{}, repository.ErrNotFound
 	}
-	if jobType != model.ProcessingTypeExtractText && jobType != model.ProcessingTypeGenerateThumbnail {
+	if jobType != model.ProcessingTypeExtractText && jobType != model.ProcessingTypeGenerateThumbnail && jobType != model.ProcessingTypeOCR {
 		return model.ProcessingJob{}, ErrProcessingType
 	}
 	resource, err := service.store.GetResource(ctx, resourceID)
@@ -280,7 +285,7 @@ func (service *Processing) RunJob(ctx context.Context, jobID string) error {
 	if err != nil {
 		return err
 	}
-	if current.Type == model.ProcessingTypeGenerateThumbnail && service.imageSlot != nil {
+	if (current.Type == model.ProcessingTypeGenerateThumbnail || current.Type == model.ProcessingTypeOCR) && service.imageSlot != nil {
 		select {
 		case service.imageSlot <- struct{}{}:
 			defer func() { <-service.imageSlot }()
@@ -344,11 +349,11 @@ func (service *Processing) runClaimedJob(ctx context.Context, job model.Processi
 	}
 	workContext, cancel := context.WithTimeout(ctx, ProcessingExecutionTimeout)
 	defer cancel()
-	content, assetKind, assetName, assetMIME, contentText, err := service.processJob(workContext, resource, job)
+	content, assetKind, assetName, assetMIME, contentText, ocrPages, ocrConfidence, err := service.processJob(workContext, resource, job)
 	if err != nil {
 		return service.failPermanent(ctx, job, processingErrorMessage(job.Type, err))
 	}
-	asset, temporaryPath, err := service.writeDerivedAsset(resource, job, content, assetKind, assetName, assetMIME, contentText)
+	asset, temporaryPath, err := service.writeDerivedAsset(resource, job, content, assetKind, assetName, assetMIME, contentText, ocrPages, ocrConfidence)
 	if err != nil {
 		return service.retryClaimedJob(ctx, job, "派生产物暂时无法写入")
 	}
@@ -437,22 +442,25 @@ func waitForProcessingTick(ctx context.Context, interval time.Duration) error {
 }
 
 // processJob 根据任务类型调用对应处理器，并返回派生产物的业务元数据。
-func (service *Processing) processJob(ctx context.Context, resource model.Resource, job model.ProcessingJob) ([]byte, string, string, string, string, error) {
+func (service *Processing) processJob(ctx context.Context, resource model.Resource, job model.ProcessingJob) ([]byte, string, string, string, string, int, float64, error) {
 	sourcePath := filepath.Join(service.dataDir, resource.StorageKey)
 	switch job.Type {
 	case model.ProcessingTypeExtractText:
 		content, err := processing.ExtractText(ctx, resource, sourcePath)
-		return content, model.DerivedAssetText, resource.Name + ".extracted.txt", "text/plain; charset=utf-8", string(content), err
+		return content, model.DerivedAssetText, resource.Name + ".extracted.txt", "text/plain; charset=utf-8", string(content), 0, 0, err
 	case model.ProcessingTypeGenerateThumbnail:
 		content, err := processing.GenerateThumbnail(ctx, resource, sourcePath)
-		return content, model.DerivedAssetThumbnail, resource.Name + ".thumbnail.png", "image/png", "", err
+		return content, model.DerivedAssetThumbnail, resource.Name + ".thumbnail.png", "image/png", "", 0, 0, err
+	case model.ProcessingTypeOCR:
+		result, err := processing.RecognizeText(ctx, resource, sourcePath)
+		return []byte(result.Text), model.DerivedAssetOCR, resource.Name + ".ocr.txt", "text/plain; charset=utf-8", result.Text, len(result.Pages), result.AverageConfidence, err
 	default:
-		return nil, "", "", "", "", ErrProcessingType
+		return nil, "", "", "", "", 0, 0, ErrProcessingType
 	}
 }
 
 // writeDerivedAsset 原子写入派生文件并计算哈希；数据库提交前保留临时文件名以便失败清理。
-func (service *Processing) writeDerivedAsset(resource model.Resource, job model.ProcessingJob, content []byte, assetKind, assetName, assetMIME, contentText string) (model.DerivedAsset, string, error) {
+func (service *Processing) writeDerivedAsset(resource model.Resource, job model.ProcessingJob, content []byte, assetKind, assetName, assetMIME, contentText string, ocrPages int, ocrConfidence float64) (model.DerivedAsset, string, error) {
 	derivedDir := filepath.Join(service.dataDir, "derived")
 	temporary, err := os.CreateTemp(derivedDir, "pending-*")
 	if err != nil {
@@ -483,7 +491,7 @@ func (service *Processing) writeDerivedAsset(resource model.Resource, job model.
 		return model.DerivedAsset{}, "", fmt.Errorf("commit derived asset: %w", err)
 	}
 	digest := sha256.Sum256(content)
-	asset := model.DerivedAsset{ID: assetID, JobID: job.ID, ResourceID: resource.ID, Kind: assetKind, Name: assetName, StorageKey: assetID, MIME: assetMIME, Size: int64(len(content)), SHA256: hex.EncodeToString(digest[:]), ContentText: contentText, CreatedAt: time.Now().UTC()}
+	asset := model.DerivedAsset{ID: assetID, JobID: job.ID, ResourceID: resource.ID, Kind: assetKind, Name: assetName, StorageKey: assetID, MIME: assetMIME, Size: int64(len(content)), SHA256: hex.EncodeToString(digest[:]), ContentText: contentText, OCRPages: ocrPages, OCRConfidence: ocrConfidence, CreatedAt: time.Now().UTC()}
 	return asset, finalPath, nil
 }
 
@@ -499,6 +507,8 @@ func isProcessable(kind, jobType string) bool {
 		return kind == "pdf" || kind == "text" || kind == "markdown"
 	case model.ProcessingTypeGenerateThumbnail:
 		return kind == "image"
+	case model.ProcessingTypeOCR:
+		return kind == "image" || kind == "pdf"
 	default:
 		return false
 	}
@@ -527,6 +537,14 @@ func processingErrorMessage(jobType string, err error) string {
 		return "提取结果不是合法 UTF-8 文本"
 	case errors.Is(err, processing.ErrImageTooLarge):
 		return "图片尺寸超过缩略图处理限制"
+	case errors.Is(err, processing.ErrOCRUnavailable):
+		return "当前运行环境未安装 OCR 处理工具"
+	case errors.Is(err, processing.ErrOCRInvalidSource):
+		return "原件不是可识别的图片或扫描 PDF"
+	case errors.Is(err, processing.ErrOCRInvalidOutput):
+		return "OCR 工具返回了无法识别的结果"
+	case errors.Is(err, processing.ErrOCREmpty):
+		return "没有识别到可检索的文字，请核对原件清晰度"
 	case errors.Is(err, processing.ErrInvalidImage):
 		return "图片内容无法识别"
 	case errors.Is(err, ErrProcessingType):

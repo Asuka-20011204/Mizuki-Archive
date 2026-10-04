@@ -33,17 +33,19 @@ type processingJobRow struct {
 
 // derivedAssetRow 隔离派生文件元数据和用于关键词检索的内容列。
 type derivedAssetRow struct {
-	ID          string    `gorm:"column:id;primaryKey"`
-	JobID       string    `gorm:"column:job_id"`
-	ResourceID  string    `gorm:"column:resource_id"`
-	Kind        string    `gorm:"column:kind"`
-	Name        string    `gorm:"column:name"`
-	StorageKey  string    `gorm:"column:storage_key"`
-	MIME        string    `gorm:"column:mime"`
-	Size        int64     `gorm:"column:size_bytes"`
-	SHA256      string    `gorm:"column:sha256"`
-	ContentText string    `gorm:"column:content_text"`
-	CreatedAt   time.Time `gorm:"column:created_at"`
+	ID            string    `gorm:"column:id;primaryKey"`
+	JobID         string    `gorm:"column:job_id"`
+	ResourceID    string    `gorm:"column:resource_id"`
+	Kind          string    `gorm:"column:kind"`
+	Name          string    `gorm:"column:name"`
+	StorageKey    string    `gorm:"column:storage_key"`
+	MIME          string    `gorm:"column:mime"`
+	Size          int64     `gorm:"column:size_bytes"`
+	SHA256        string    `gorm:"column:sha256"`
+	ContentText   string    `gorm:"column:content_text"`
+	OCRPages      int       `gorm:"column:ocr_pages"`
+	OCRConfidence float64   `gorm:"column:ocr_confidence"`
+	CreatedAt     time.Time `gorm:"column:created_at"`
 }
 
 // processingJobFromRow 将任务数据库行转换为可供 Controller 和 Worker 使用的模型。
@@ -53,7 +55,7 @@ func processingJobFromRow(row processingJobRow) model.ProcessingJob {
 
 // derivedAssetFromRow 将派生文件数据库行转换为对外模型，并保留内容列只供仓储检索使用。
 func derivedAssetFromRow(row derivedAssetRow) model.DerivedAsset {
-	return model.DerivedAsset{ID: row.ID, JobID: row.JobID, ResourceID: row.ResourceID, Kind: row.Kind, Name: row.Name, StorageKey: row.StorageKey, MIME: row.MIME, Size: row.Size, SHA256: row.SHA256, ContentText: row.ContentText, CreatedAt: row.CreatedAt}
+	return model.DerivedAsset{ID: row.ID, JobID: row.JobID, ResourceID: row.ResourceID, Kind: row.Kind, Name: row.Name, StorageKey: row.StorageKey, MIME: row.MIME, Size: row.Size, SHA256: row.SHA256, ContentText: row.ContentText, OCRPages: row.OCRPages, OCRConfidence: row.OCRConfidence, CreatedAt: row.CreatedAt}
 }
 
 // newProcessingID 生成任务、租约和派生产物共用的随机十六进制 ID。
@@ -267,7 +269,7 @@ func (store *MySQL) claimNextProcessingJob(ctx context.Context, now time.Time, t
 		var row processingJobRow
 		query := tx.Table("processing_jobs").Where("(status = ? AND available_at <= ?) OR (status = ? AND lease_until IS NOT NULL AND lease_until <= ?)", model.ProcessingStatusPending, now, model.ProcessingStatusProcessing, now)
 		if textOnly {
-			query = query.Where("type <> ?", model.ProcessingTypeGenerateThumbnail)
+			query = query.Where("type NOT IN ?", []string{model.ProcessingTypeGenerateThumbnail, model.ProcessingTypeOCR})
 		}
 		query = query.Order("available_at ASC").Order("created_at ASC").Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Take(&row)
 		if errors.Is(query.Error, gorm.ErrRecordNotFound) {
@@ -365,7 +367,7 @@ func (store *MySQL) CompleteProcessingJob(ctx context.Context, jobID, leaseToken
 		if row.Status != model.ProcessingStatusProcessing || row.LeaseToken != leaseToken {
 			return ErrJobLeaseLost
 		}
-		assetRow := derivedAssetRow{ID: asset.ID, JobID: asset.JobID, ResourceID: asset.ResourceID, Kind: asset.Kind, Name: asset.Name, StorageKey: asset.StorageKey, MIME: asset.MIME, Size: asset.Size, SHA256: asset.SHA256, ContentText: asset.ContentText, CreatedAt: asset.CreatedAt}
+		assetRow := derivedAssetRow{ID: asset.ID, JobID: asset.JobID, ResourceID: asset.ResourceID, Kind: asset.Kind, Name: asset.Name, StorageKey: asset.StorageKey, MIME: asset.MIME, Size: asset.Size, SHA256: asset.SHA256, ContentText: asset.ContentText, OCRPages: asset.OCRPages, OCRConfidence: asset.OCRConfidence, CreatedAt: asset.CreatedAt}
 		if err := tx.Table("derived_assets").Create(&assetRow).Error; err != nil {
 			return fmt.Errorf("save derived asset: %w", err)
 		}

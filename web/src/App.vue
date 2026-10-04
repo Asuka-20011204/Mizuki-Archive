@@ -69,6 +69,11 @@ const previewLoading = ref(false)
 const previewError = ref('')
 const jobs = ref<ProcessingJob[]>([])
 const jobsLoading = ref(false)
+const ocrPreviewText = ref('')
+const ocrPreviewId = ref('')
+const ocrPreviewLoading = ref(false)
+const ocrPreviewError = ref('')
+let ocrPreviewRequestId = 0
 const startingJob = ref(false)
 const jobError = ref('')
 let previousFocus: HTMLElement | null = null
@@ -522,6 +527,7 @@ function closeDetail(force = false): boolean {
   detailRequestId++
   previewRequestId++
   jobsRequestId++
+  ocrPreviewRequestId++
   stopJobPolling()
   selected.value = null
   detailNavigationItems.value = []
@@ -530,6 +536,10 @@ function closeDetail(force = false): boolean {
   previewLoading.value = false
   previewError.value = ''
   jobs.value = []
+  ocrPreviewText.value = ''
+  ocrPreviewId.value = ''
+  ocrPreviewError.value = ''
+  ocrPreviewLoading.value = false
   jobError.value = ''
   return true
 }
@@ -605,12 +615,14 @@ async function loadJobs(resourceId: string) {
 
 // processingTitle 根据资料类型说明当前可手动触发的处理器，避免用户误以为图片也会提取文本。
 function processingTitle(kindValue: Resource['kind']) {
-  return kindValue === 'image' ? '图片缩略图' : '文本提取'
+  return kindValue === 'image' ? '图片处理' : kindValue === 'pdf' ? 'PDF 处理' : '文本提取'
 }
 
 // processingHelp 解释处理器的结果和原件关系，明确说明任务不会覆盖用户原始文件。
 function processingHelp(kindValue: Resource['kind']) {
-  return kindValue === 'image' ? '生成适合预览和分享的 PNG 缩略图，原文件不会被修改。' : '生成独立的文本副本，原文件不会被修改。'
+  if (kindValue === 'image') return '可以生成缩略图或 OCR 文本；识别结果仅供检索和校对，原文件不会被修改。'
+  if (kindValue === 'pdf') return '可以提取已有文本层或对扫描页执行 OCR；识别结果仅供检索和校对，原文件不会被修改。'
+  return '生成独立的文本副本，原文件不会被修改。'
 }
 
 // canProcess 判断详情页当前资料是否支持本轮已开放的手动处理器。
@@ -620,19 +632,50 @@ function canProcess(kindValue: Resource['kind']) {
 
 // jobOutputLabel 为不同派生产物提供明确的下载文字，避免所有结果都显示成“提取文本”。
 function jobOutputLabel(job: ProcessingJob) {
-  return job.type === 'generate_thumbnail' ? '下载缩略图' : '下载提取文本'
+  if (job.type === 'generate_thumbnail') return '下载缩略图'
+  return job.type === 'ocr_text' ? '下载 OCR 文本' : '下载提取文本'
 }
 
-// startProcessingJob 手动提交文本或缩略图任务；重复点击由后端幂等返回已有任务。
-async function startProcessingJob() {
+// toggleOCRPreview 与上方原件预览并排在同一详情中展示受控纯文本，切换资料时丢弃过期响应。
+async function toggleOCRPreview(assetId: string) {
+  const resourceId = selected.value?.id
+  const requestId = ++ocrPreviewRequestId
+  if (ocrPreviewId.value === assetId) {
+    ocrPreviewId.value = ''
+    ocrPreviewText.value = ''
+    return
+  }
+  ocrPreviewId.value = assetId
+  ocrPreviewText.value = ''
+  ocrPreviewError.value = ''
+  ocrPreviewLoading.value = true
+  try {
+    const content = await api.readOCRText(assetId)
+    if (requestId === ocrPreviewRequestId && selected.value?.id === resourceId) ocrPreviewText.value = content
+  } catch (reason) {
+    if (requestId === ocrPreviewRequestId && selected.value?.id === resourceId) {
+      ocrPreviewError.value = reason instanceof Error ? reason.message : '识别文本读取失败'
+    }
+  } finally {
+    if (requestId === ocrPreviewRequestId && selected.value?.id === resourceId) ocrPreviewLoading.value = false
+  }
+}
+
+// startProcessingJob 手动提交文本、缩略图或 OCR 任务；重复点击由后端幂等返回已有任务。
+async function startProcessingJob(requestedType?: ProcessingJob['type']) {
   const resource = selected.value
   if (!resource || startingJob.value || !canProcess(resource.kind)) return
   startingJob.value = true
   jobError.value = ''
   try {
-    const result = resource.kind === 'image' ? await api.createThumbnailJob(resource.id) : await api.createTextJob(resource.id)
+    const jobType = requestedType || (resource.kind === 'image' ? 'generate_thumbnail' : 'extract_text')
+    const result = jobType === 'generate_thumbnail'
+      ? await api.createThumbnailJob(resource.id)
+      : jobType === 'ocr_text'
+        ? await api.createOCRJob(resource.id)
+        : await api.createTextJob(resource.id)
     jobs.value = [result.data, ...jobs.value.filter((job) => job.id !== result.data.id)]
-    const outputName = resource.kind === 'image' ? '缩略图' : '文本提取结果'
+    const outputName = jobType === 'generate_thumbnail' ? '缩略图' : jobType === 'ocr_text' ? 'OCR 文本' : '文本提取结果'
     notice.value = result.data.status === 'succeeded' ? `已有成功的${outputName}` : `${outputName}任务已提交`
     scheduleJobPolling(resource.id)
   } catch (reason) {
@@ -1273,17 +1316,29 @@ onUnmounted(() => {
                   <span v-if="jobsLoading" class="processing-loading" role="status">同步中…</span>
                 </div>
                 <p class="processing-help">{{ processingHelp(selected.kind) }}</p>
-                <button type="button" class="secondary-button processing-trigger" :disabled="startingJob || !canProcess(selected.kind)" @click="startProcessingJob">
-                  {{ startingJob ? '提交中…' : selected.kind === 'image' ? '手动生成缩略图' : '手动提取文本' }}
-                </button>
+                <div class="processing-actions">
+                  <button type="button" class="secondary-button processing-trigger" :disabled="startingJob || !canProcess(selected.kind)" @click="startProcessingJob()">
+                    {{ startingJob ? '提交中…' : selected.kind === 'image' ? '手动生成缩略图' : '手动提取文本' }}
+                  </button>
+                  <button v-if="selected.kind === 'image' || selected.kind === 'pdf'" type="button" class="secondary-button processing-trigger" :disabled="startingJob" @click="startProcessingJob('ocr_text')">
+                    {{ startingJob ? '提交中…' : '手动识别 OCR' }}
+                  </button>
+                </div>
                 <p v-if="jobError" class="processing-error" role="alert">{{ jobError }}</p>
                 <ul v-if="jobs.length" class="processing-list" aria-label="处理记录">
-                  <li v-for="job in jobs" :key="job.id" class="processing-item">
+                  <li v-for="job in jobs" :key="job.id" class="processing-item" :class="{ 'processing-item-ocr': job.asset?.kind === 'ocr_text' }">
                     <div><strong>{{ jobStatusLabel(job.status) }}</strong><span>第 {{ job.attempts }}/{{ job.max_attempts }} 次尝试</span><p v-if="job.last_error" class="processing-error">{{ job.last_error }}</p></div>
                     <div v-if="job.status === 'succeeded' && job.asset" class="processing-result">
                       <img v-if="job.asset.kind === 'thumbnail'" class="thumbnail-result" :src="api.derivedPreviewURL(job.asset.id)" alt="生成的图片缩略图" />
                       <div class="processing-result-links">
                         <a class="text-link" :href="api.derivedDownloadURL(job.asset.id)">{{ jobOutputLabel(job) }}</a>
+                        <button v-if="job.asset.kind === 'ocr_text'" type="button" class="secondary-button" :aria-expanded="ocrPreviewId === job.asset.id" @click="toggleOCRPreview(job.asset.id)">{{ ocrPreviewId === job.asset.id ? '收起校对文本' : '查看并对照原件' }}</button>
+                        <span v-if="job.asset.kind === 'ocr_text'" class="processing-quality">识别页数 {{ job.asset.ocr_pages || 0 }}，平均置信度 {{ Math.round((job.asset.ocr_confidence || 0) * 10) / 10 }}；请对照原件校对</span>
+                      </div>
+                      <div v-if="job.asset.kind === 'ocr_text' && ocrPreviewId === job.asset.id" class="preview-frame text-preview" role="region" aria-label="OCR 识别文本（请对照上方原件）">
+                        <p v-if="ocrPreviewLoading" role="status">正在读取识别文本…</p>
+                        <p v-else-if="ocrPreviewError" role="alert">{{ ocrPreviewError }}</p>
+                        <pre v-else>{{ ocrPreviewText }}</pre>
                       </div>
                     </div>
                   </li>

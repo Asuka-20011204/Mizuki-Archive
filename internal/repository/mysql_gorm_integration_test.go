@@ -46,7 +46,7 @@ func TestMySQLSetFavorite(t *testing.T) {
 		t.Fatalf("重复执行迁移失败: %v", err)
 	}
 	var migrationCount int64
-	if err := database.Table("schema_migrations").Count(&migrationCount).Error; err != nil || migrationCount != 20 {
+	if err := database.Table("schema_migrations").Count(&migrationCount).Error; err != nil || migrationCount != 21 {
 		t.Fatalf("迁移记录数量 = %d, error=%v", migrationCount, err)
 	}
 	transaction := database.Begin()
@@ -173,5 +173,106 @@ func TestMySQLTextClaimSkipsImage(t *testing.T) {
 	imageJob, err := store.ClaimNextProcessingJob(ctx, time.Now().UTC())
 	if err != nil || imageJob.Type != model.ProcessingTypeGenerateThumbnail {
 		t.Fatalf("图片槽位领取 = %s, %v", imageJob.Type, err)
+	}
+}
+
+// TestMySQLOCRSearchIsPrivate 验证 OCR 正文能检索和持久化，但不能被其他账号读取。
+func TestMySQLOCRSearchIsPrivate(t *testing.T) {
+	dsn := os.Getenv("MIZUKI_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("仅在设置隔离测试库 DSN 时运行")
+	}
+	config, err := driver.ParseDSN(dsn)
+	if err != nil || !strings.HasPrefix(config.DBName, "mizuki_test_") {
+		t.Fatal("测试 DSN 必须指向 mizuki_test_ 前缀的独立数据库")
+	}
+	config.ParseTime, config.Loc = true, time.UTC
+	database, err := gorm.Open(mysql.Open(config.FormatDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := database.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	if err := NewMySQL(database).Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	transaction := database.Begin()
+	if transaction.Error != nil {
+		t.Fatal(transaction.Error)
+	}
+	t.Cleanup(func() { _ = transaction.Rollback().Error })
+	store := NewMySQL(transaction)
+	now := time.Now().UTC()
+	ownerID, err := newProcessingID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherID, err := newProcessingID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, userID := range []string{ownerID, otherID} {
+		if err := transaction.Table("users").Create(map[string]any{"id": userID, "username": "ocr_" + userID, "created_at": now}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	owner := WithUserID(context.Background(), ownerID)
+	other := WithUserID(context.Background(), otherID)
+	resourceID, err := newProcessingID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resource := model.Resource{ID: resourceID, Name: "scan.png", OriginalName: "scan.png", Kind: "image", MIME: "image/png", StorageKey: resourceID, SHA256: strings.Repeat("a", 64), CreatedAt: now}
+	if err := store.SaveResource(owner, resource); err != nil {
+		t.Fatal(err)
+	}
+	jobID, err := newProcessingID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := model.ProcessingJob{ID: jobID, ResourceID: resourceID, Type: model.ProcessingTypeOCR, SourceSHA256: resource.SHA256, Status: model.ProcessingStatusProcessing, MaxAttempts: 3, AvailableAt: now, CreatedAt: now}
+	if err := store.CreateProcessingJob(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	leaseToken, err := newProcessingID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transaction.Table("processing_jobs").Where("id = ?", jobID).Update("lease_token", leaseToken).Error; err != nil {
+		t.Fatal(err)
+	}
+	assetID, err := newProcessingID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset := model.DerivedAsset{ID: assetID, JobID: jobID, ResourceID: resourceID, Kind: model.DerivedAssetOCR, Name: "scan.ocr.txt", StorageKey: assetID, MIME: "text/plain; charset=utf-8", Size: 14, SHA256: strings.Repeat("b", 64), ContentText: "SILVERSCAN 123", OCRPages: 2, OCRConfidence: 87.5, CreatedAt: now}
+	if err := store.CompleteProcessingJob(context.Background(), jobID, leaseToken, asset); err != nil {
+		t.Fatal(err)
+	}
+	owned, err := store.SearchFiles(owner, model.SearchFilter{Query: "SILVERSCAN"}, 10, 0)
+	if err != nil || len(owned) != 1 || owned[0].ID != resourceID {
+		t.Fatalf("本人无法检索 OCR 正文: %#v, %v", owned, err)
+	}
+	foreign, err := store.SearchFiles(other, model.SearchFilter{Query: "SILVERSCAN"}, 10, 0)
+	if err != nil || len(foreign) != 0 {
+		t.Fatalf("OCR 正文泄漏给其他账号: %#v, %v", foreign, err)
+	}
+	listed, err := store.ListResources(owner, model.ListQuery{Search: "SILVERSCAN", Limit: 10})
+	if err != nil || len(listed) != 1 || listed[0].ID != resourceID {
+		t.Fatalf("资料列表未命中 OCR 正文: %#v, %v", listed, err)
+	}
+	listed, err = store.ListResources(other, model.ListQuery{Search: "SILVERSCAN", Limit: 10})
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("资料列表泄漏其他账号的 OCR 正文: %#v, %v", listed, err)
+	}
+	loaded, err := store.GetDerivedAsset(owner, assetID)
+	if err != nil || loaded.Kind != model.DerivedAssetOCR || loaded.OCRPages != 2 || loaded.OCRConfidence != 87.5 {
+		t.Fatalf("OCR 元数据持久化异常: %#v, %v", loaded, err)
+	}
+	if _, err := store.GetDerivedAsset(other, assetID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("其他账号读取 OCR 派生产物得到 %v", err)
 	}
 }

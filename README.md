@@ -87,7 +87,7 @@ V1 的资料管理闭环已经落地：兼容管理员密码登录/退出、私�
 - 浏览器验收已覆盖登录、空状态、浏览器文件选择上传、搜索/类型筛选、标签、收藏、详情焦点/Escape、文本/图片预览、原件与派生产物下载、名称编辑、删除、退出和窄屏布局；操作系统原生文件对话框的视觉行为不作为验收条件。
 - 已按 [备份恢复演练](docs/backup-restore.md) 完成一次隔离恢复：数据库 6 条资源、6 条任务、4 条派生产物，10 个文件的 SHA-256 和字节数全部匹配；隔离资源删除验证后已清理恢复库和目录。禁止把 `docker compose down -v` 当作备份。
 
-V1 不包含 OCR、自动分类或跨用户共享协作；V2 已加入持久任务和单进程 Worker。V3/V4 已验收可选 RabbitMQ 异步任务和 Redis 缓存/最近查看；默认使用数据库任务模式，不依赖可选组件完成基本资料操作。面向多实例 API、独立 Worker、共享 Redis/RabbitMQ 和 MySQL 高可用的生产部署仍需继续验证。
+V1 不包含自动分类或跨用户共享协作；后续已加入手动图片/扫描 PDF OCR，生成可检索、可下载、可对照原件的纯文本及识别质量摘要。OCR 的隔离 MySQL、真实浏览器和安全边界验证见[本轮记录](docs/changes/2026-10-04-manual-ocr.md)；它不是 V1 的退出条件。V2 已加入持久任务和独立 Worker。V3/V4 已验收可选 RabbitMQ 异步任务和 Redis 缓存/最近查看；默认使用数据库任务模式，不依赖可选组件完成基本资料操作。面向多实例 API、独立 Worker、共享 Redis/RabbitMQ 和 MySQL 高可用的生产部署仍需继续验证。
 
 本地资料、会话与数据库数据请自行备份；不要用真实私人文件做公开演示。
 ## V2 当前状态
@@ -100,4 +100,4 @@ V2 已完成处理闭环：在 PDF、TXT 或 Markdown 详情页手动创建 `ext
 go run ./cmd/worker
 ```
 
-API 和 Worker 必须使用同一份 `.env`、MySQL 和 `APP_DATA_DIR`。使用 V3 RabbitMQ 模式时，还需在 `.env` 设置独立消息队列凭据，并运行 `docker compose --profile v3 up -d rabbitmq`；V4 Redis 同理需配置密码与 URL，运行 `docker compose --profile v4 up -d redis`。V5 增加有界 Worker Pool 与全局待处理任务上限，满额返回 429；配置和边界见 [本地启动](docs/local-development.md)，验证见 [V5 记录](docs/changes/2026-09-29-v5-concurrency.md)。缺少密码时可选容器拒绝启动。OCR、自动分类与跨用户共享协作尚未实现。
+API 和 Worker 必须使用同一份 `.env`、MySQL 和 `APP_DATA_DIR`。使用 V3 RabbitMQ 模式时，还需在 `.env` 设置独立消息队列凭据，并运行 `docker compose --profile v3 up -d rabbitmq`；V4 Redis 同理需配置密码与 URL，运行 `docker compose --profile v4 up -d redis`。V5 增加有界 Worker Pool 与全局待处理任务上限，满额返回 429；配置和边界见 [本地启动](docs/local-development.md)，验证见 [V5 记录](docs/changes/2026-09-29-v5-concurrency.md)。缺少密码时可选容器拒绝启动。手动 OCR 依赖 Worker 上的 `tesseract`、`pdfinfo` 和 `pdftoppm` 及简体中文/英文识别数据，缺失时任务会明确失败；独立部署镜像的 `ocr-worker` 目标已包含这些依赖。自动分类与跨用户共享协作尚未实现。

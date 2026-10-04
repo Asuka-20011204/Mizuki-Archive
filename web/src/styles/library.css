@@ -330,6 +330,7 @@
 .processing-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .processing-heading h3 { margin: 3px 0 0; color: var(--ink); font-size: 15px; }
 .processing-help { margin: 12px 0 14px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.processing-actions { display: grid; gap: 8px; }
 .processing-trigger { width: 100%; }
 .processing-trigger:disabled { cursor: not-allowed; opacity: 0.55; }
 .processing-loading, .processing-item span { color: var(--subtle); font-size: 11px; }
@@ -342,6 +343,11 @@
 .processing-result { min-width: 120px; max-width: 180px; }
 .thumbnail-result { display: block; width: 100%; max-height: 112px; border: 1px solid var(--line); border-radius: 9px; background: #f5f9fa; object-fit: contain; }
 .processing-result-links { margin-top: 6px; text-align: right; }
+.processing-item-ocr { flex-direction: column; }
+.processing-item-ocr .processing-result { width: 100%; max-width: none; }
+.processing-item-ocr .processing-result-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; text-align: left; }
+.processing-item-ocr .processing-quality { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.processing-item-ocr .text-preview { margin-top: 10px; max-height: 360px; overflow: auto; }
 .text-link { flex: 0 0 auto; color: var(--accent); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
 .inspector-section { margin: 0 0 18px; border-bottom: 1px solid var(--line); padding-bottom: 18px; }
 .detail-tags { margin: 0; border: 0; border-radius: 0; background: transparent; padding: 0; }

@@ -239,7 +239,7 @@ func (store *MySQL) ListResources(ctx context.Context, query model.ListQuery) ([
 	// 筛选值始终作为参数绑定；稳定排序避免同一时间上传的资料翻页漂移。
 	database := scopeResources(store.db.WithContext(ctx).Table("resources"), ctx)
 	if query.Search != "" {
-		database = database.Where("LOCATE(?, name) > 0 OR LOCATE(?, original_name) > 0 OR EXISTS (SELECT 1 FROM derived_assets da WHERE da.resource_id = resources.id AND da.kind = ? AND LOCATE(?, da.content_text) > 0)", query.Search, query.Search, model.DerivedAssetText, query.Search)
+		database = database.Where("LOCATE(?, name) > 0 OR LOCATE(?, original_name) > 0 OR EXISTS (SELECT 1 FROM derived_assets da WHERE da.resource_id = resources.id AND da.kind IN ? AND LOCATE(?, da.content_text) > 0)", query.Search, query.Search, []string{model.DerivedAssetText, model.DerivedAssetOCR}, query.Search)
 	}
 	if query.Kind != "" {
 		database = database.Where("kind = ?", query.Kind)
@@ -358,6 +358,7 @@ func (store *MySQL) Migrate(ctx context.Context) error {
 		{version: 18, name: "resource_notes", sql: resourceNotesMigration},
 		{version: 19, name: "resource_relations", sql: resourceRelationsMigration},
 		{version: 20, name: "topics", sql: topicsMigration},
+		{version: 21, name: "ocr_metadata", prepare: ensureOCRMetadataSchema},
 	}
 	return store.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		var locked int

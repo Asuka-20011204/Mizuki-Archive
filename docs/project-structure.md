@@ -36,6 +36,7 @@ Mizuki Archive/
 │   ├── model/processing.go            # 任务与派生产物模型
 │   ├── processing/text.go             # PDF/TXT/Markdown 文本处理器
 │   ├── processing/thumbnail.go        # PNG/JPEG/WebP 缩略图处理器与像素边界
+│   ├── processing/ocr.go              # 图片/扫描 PDF 手动 OCR 与外部命令资源边界
 │   ├── cache/redis.go                 # Redis 短缓存、最近访问和共享限流
 │   ├── notification/smtp.go           # 强制 TLS 的验证码邮件发送适配器
 │   ├── queue/rabbitmq.go              # 持久消息、发布确认和消费 ACK
@@ -146,7 +147,7 @@ Mizuki Archive/
 ├── compose.deploy.yaml                # V6 独立单机编排：Web/API/Worker/MySQL
 ├── compose.tls.yaml                   # V14 可选 TLS 入口覆盖（证书只读挂载）
 ├── compose.secrets.yaml               # V14 可选 Docker Secrets 覆盖
-├── Dockerfile                         # Go API、Worker 与 migrate 的非 root 镜像
+├── Dockerfile                         # Go API/migrate 与含 OCR 工具的非 root Worker 分目标镜像
 ├── web/Dockerfile、web/nginx*.conf     # Vue 静态构建、HTTP/TLS 同源反向代理和入口限流
 ├── .env.example                       # 仅示例变量，真实 .env 不入库
 ├── scripts/generate-mailpit-cert.ps1   # 生成仓库外的本地 SMTP 测试证书
@@ -191,9 +192,9 @@ Mizuki Archive/
 详情页 → api.ts → processing_controller.go
                   → service/processing.go → repository/processing.go → MySQL processing_jobs
                                                                             ↓
-cmd/worker → service/processing.go → processing/text.go / thumbnail.go → data/files 原件
+cmd/worker → service/processing.go → processing/text.go / thumbnail.go / ocr.go → data/files 原件
                                              ↓
-                                     data/derived 派生文本/缩略图 + derived_assets 检索索引
+                                     data/derived 派生文本/缩略图/OCR 正文 + derived_assets 私有检索索引
 ```
 
 `cmd/server` 与 `cmd/worker` 是两个独立的 Go 程序入口，但共享 Model、Service、Repository 和迁移；它们必须指向同一个 MySQL 数据库和 `APP_DATA_DIR`。

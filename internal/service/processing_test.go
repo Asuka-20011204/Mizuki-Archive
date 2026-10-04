@@ -8,9 +8,16 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/image/draw"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/math/fixed"
 
 	"mizuki-archive/internal/model"
 	"mizuki-archive/internal/repository"
@@ -175,6 +182,57 @@ func TestRunOnceExtractsTextAndStoresDerivedAsset(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(dataDir, "derived", completed.Asset.ID))
 	if err != nil || string(content) != "# hello\nkeyword" {
 		t.Fatalf("asset content=%q error=%v", content, err)
+	}
+}
+
+// TestRunOnceOCRStoresDerivedAsset 用合成图片验证 Worker 保存可下载的纯文本与页数、置信度。
+func TestRunOnceOCRStoresDerivedAsset(t *testing.T) {
+	if _, err := exec.LookPath("tesseract"); err != nil {
+		t.Skip("当前环境未安装 Tesseract")
+	}
+	dataDir := t.TempDir()
+	resourceID := "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	resource := model.Resource{ID: resourceID, Kind: "image", Name: "scan.png", StorageKey: resourceID, SHA256: "source-hash"}
+	small := image.NewRGBA(image.Rect(0, 0, 230, 60))
+	draw.Draw(small, small.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+	face := font.Drawer{Dst: small, Src: image.NewUniform(color.Black), Face: basicfont.Face7x13, Dot: fixed.P(20, 34)}
+	face.DrawString("ARCHIVE 123")
+	large := image.NewRGBA(image.Rect(0, 0, 920, 240))
+	draw.NearestNeighbor.Scale(large, large.Bounds(), small, small.Bounds(), draw.Src, nil)
+	file, err := os.Create(filepath.Join(dataDir, resourceID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(file, large); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	resourceStore := newFakeStore()
+	resourceStore.resources[resourceID] = resource
+	jobs := &processingFakeStore{jobs: map[string]model.ProcessingJob{}, assets: map[string]model.DerivedAsset{}, resources: resourceStore.resources}
+	job := model.ProcessingJob{ID: "dddddddddddddddddddddddddddddddd", ResourceID: resourceID, Type: model.ProcessingTypeOCR, SourceSHA256: resource.SHA256, Status: model.ProcessingStatusPending, MaxAttempts: 3, AvailableAt: time.Now().UTC(), CreatedAt: time.Now().UTC()}
+	jobs.jobs[job.ID] = job
+	processor, err := NewProcessing(resourceStore, jobs, dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := processor.RunOnce(context.Background()); err != nil || !claimed {
+		t.Fatalf("OCR task claimed=%t, error=%v", claimed, err)
+	}
+	completed, err := jobs.GetProcessingJob(context.Background(), job.ID)
+	if err != nil || completed.Status != model.ProcessingStatusSucceeded || completed.Asset == nil {
+		t.Fatalf("OCR task result=%#v, error=%v", completed, err)
+	}
+	asset := completed.Asset
+	if asset.Kind != model.DerivedAssetOCR || asset.OCRPages != 1 || asset.OCRConfidence <= 0 {
+		t.Fatalf("OCR 派生元数据缺失: %#v", asset)
+	}
+	content, err := os.ReadFile(filepath.Join(dataDir, "derived", asset.ID))
+	if err != nil || !strings.Contains(strings.ToUpper(string(content)), "ARCHIVE") || asset.ContentText != string(content) {
+		t.Fatalf("OCR 纯文本未落盘或与检索正文不一致: content=%q, error=%v", content, err)
 	}
 }
 

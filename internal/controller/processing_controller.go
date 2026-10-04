@@ -43,6 +43,8 @@ func (handler *Controller) createProcessingJob(ctx *gin.Context) {
 		job, err = handler.config.Processing.CreateTextJob(ctx.Request.Context(), ctx.Param("id"))
 	case model.ProcessingTypeGenerateThumbnail:
 		job, err = handler.config.Processing.CreateThumbnailJob(ctx.Request.Context(), ctx.Param("id"))
+	case model.ProcessingTypeOCR:
+		job, err = handler.config.Processing.CreateOCRJob(ctx.Request.Context(), ctx.Param("id"))
 	default:
 		failure(ctx, http.StatusBadRequest, "unsupported_job", "当前处理类型未开放")
 		return
@@ -53,6 +55,8 @@ func (handler *Controller) createProcessingJob(ctx *gin.Context) {
 	case errors.Is(err, service.ErrProcessingResource):
 		if *input.Type == model.ProcessingTypeGenerateThumbnail {
 			failure(ctx, http.StatusUnprocessableEntity, "unsupported_resource", "当前资料格式不能生成缩略图")
+		} else if *input.Type == model.ProcessingTypeOCR {
+			failure(ctx, http.StatusUnprocessableEntity, "unsupported_resource", "当前资料格式不能执行 OCR")
 		} else {
 			failure(ctx, http.StatusUnprocessableEntity, "unsupported_resource", "当前资料格式不能执行文本提取")
 		}

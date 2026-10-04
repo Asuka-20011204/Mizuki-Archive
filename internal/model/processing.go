@@ -7,6 +7,8 @@ const (
 	ProcessingTypeExtractText = "extract_text"
 	// ProcessingTypeGenerateThumbnail 表示从图片生成受控尺寸的 PNG 缩略图。
 	ProcessingTypeGenerateThumbnail = "generate_thumbnail"
+	// ProcessingTypeOCR 表示从图片或扫描 PDF 生成带识别质量摘要的文本。
+	ProcessingTypeOCR = "ocr_text"
 
 	// ProcessingStatusPending 表示任务已创建但尚未被 Worker 领取。
 	ProcessingStatusPending = "pending"
@@ -21,6 +23,8 @@ const (
 	DerivedAssetText = "extracted_text"
 	// DerivedAssetThumbnail 表示由图片原件生成的 PNG 缩略图派生文件。
 	DerivedAssetThumbnail = "thumbnail"
+	// DerivedAssetOCR 表示由 OCR 生成的可检索文本派生文件。
+	DerivedAssetOCR = "ocr_text"
 
 	// OutboxStatusPending 表示任务事件等待发布到 RabbitMQ。
 	OutboxStatusPending = "pending"
@@ -53,17 +57,19 @@ type ProcessingJob struct {
 
 // DerivedAsset 描述从原件生成、可单独下载和检索的派生文件。
 type DerivedAsset struct {
-	ID          string    `json:"id"`
-	JobID       string    `json:"job_id"`
-	ResourceID  string    `json:"resource_id"`
-	Kind        string    `json:"kind"`
-	Name        string    `json:"name"`
-	StorageKey  string    `json:"-"`
-	MIME        string    `json:"mime"`
-	Size        int64     `json:"size"`
-	SHA256      string    `json:"sha256"`
-	CreatedAt   time.Time `json:"created_at"`
-	ContentText string    `json:"-"`
+	ID            string    `json:"id"`
+	JobID         string    `json:"job_id"`
+	ResourceID    string    `json:"resource_id"`
+	Kind          string    `json:"kind"`
+	Name          string    `json:"name"`
+	StorageKey    string    `json:"-"`
+	MIME          string    `json:"mime"`
+	Size          int64     `json:"size"`
+	SHA256        string    `json:"sha256"`
+	CreatedAt     time.Time `json:"created_at"`
+	ContentText   string    `json:"-"`
+	OCRPages      int       `json:"ocr_pages,omitempty"`
+	OCRConfidence float64   `json:"ocr_confidence,omitempty"`
 }
 
 // ProcessingSummary 是资料详情中用于显示的任务摘要，避免列表接口携带大字段。

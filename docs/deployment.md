@@ -36,6 +36,8 @@ Invoke-WebRequest http://localhost:18080/readyz
 
 镜像中 Go 程序和 Nginx 均以非 root 身份运行；API/Worker 只读根文件系统，仅 `/srv/data` 命名卷和 `/tmp` 可写，并限制内存、进程数及容器权限。启动时由 `db-access-bootstrap` 创建独立迁移账号并收窄运行账号为 `SELECT/INSERT/UPDATE/DELETE`，一次性 `migrate` 容器使用迁移账号执行 DDL 和管理员归属初始化，API/Worker 不再自动迁移。Nginx 已对认证和 API 入口增加边缘限流，并覆盖 `X-Real-IP`；API 只有在此受控编排中才开启 `APP_TRUST_PROXY_HEADERS=true`。SMTP 配置只注入 API，Worker 不接收邮箱用户名、密码或验证码密钥。V14 通过可选覆盖补齐 TLS 和 Secrets 文件注入；镜像漏洞扫描需在安装 Trivy 的发布环境执行，不要将本机绑定改成公网地址直接公开。
 
+升级至 OCR 版本时，API/migrate 使用 `api` 构建目标，Worker 使用安装 Poppler、Tesseract 和中英语言包的 `ocr-worker` 目标；Worker 的 `/tmp` 受 256 MiB 临时卷限制。正式升级 `021_ocr_metadata.sql` 前应冻结写入并成对备份数据库和原件，再运行独立迁移服务并切换 API/Worker 镜像；单机镜像测试不代表峰值资源已经达标。
+
 ## 1.1 TLS 入口覆盖
 
 `compose.tls.yaml` 将 Web 切换到独立 TLS 配置，默认只把宿主机环回端口 `18443` 映射到容器 `8443`；HTTP 端口在覆盖中移除，容器内部的 8080 仅用于把受控入口重定向到 HTTPS。先准备仓库外的证书和私钥，再设置 `TLS_CERT_FILE`、`TLS_KEY_FILE`、`DEPLOY_TLS_PORT`，并将 `DEPLOY_APP_ORIGIN` 改为相同的 `https://` 地址：

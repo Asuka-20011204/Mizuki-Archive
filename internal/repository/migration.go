@@ -85,3 +85,8 @@ var resourceRelationsMigration string
 //
 //go:embed migrations/020_topics.sql
 var topicsMigration string
+
+// OCR 结果元数据用于展示页数和识别器置信度，不把置信度当成内容正确性证明。
+//
+//go:embed migrations/021_ocr_metadata.sql
+var ocrMetadataMigration string
