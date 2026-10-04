@@ -151,15 +151,25 @@ func (store *multiUserHTTPStore) EnsureAdminUser(_ context.Context, username str
 }
 
 // CreateUser 提供测试身份创建能力，并复用邮箱唯一约束语义。
-func (store *multiUserHTTPStore) CreateUser(_ context.Context, email string) (model.User, error) {
+func (store *multiUserHTTPStore) CreateUser(_ context.Context, email, username string, hash []byte) (model.User, error) {
 	for _, user := range store.users {
 		if user.Email == email {
 			return model.User{}, repository.ErrUserExists
 		}
 	}
-	user := model.User{ID: "user-" + email, Username: email, Email: email}
+	user := model.User{ID: "user-" + email, Username: username, Email: email, PasswordHash: hash}
 	store.users[user.ID] = user
 	return user, nil
+}
+
+// GetUserByUsername 让 HTTP 测试按唯一用户名核验密码和归属。
+func (store *multiUserHTTPStore) GetUserByUsername(_ context.Context, username string) (model.User, error) {
+	for _, user := range store.users {
+		if user.Username == username {
+			return user, nil
+		}
+	}
+	return model.User{}, repository.ErrNotFound
 }
 
 // GetUserByEmail 按邮箱读取测试用户。

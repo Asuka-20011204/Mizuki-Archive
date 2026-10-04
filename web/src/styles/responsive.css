@@ -61,6 +61,7 @@
   .detail-main-column, .detail-side-column { overflow: visible; padding: 22px 20px 26px; }
   .detail-main-column { border-right: 0; border-bottom: 1px solid var(--line); }
   .detail-side-column { flex: none; }
+  .ocr-comparison { grid-template-columns: 1fr; }
   .detail-icon { width: 46px; height: 52px; }
   .close-button { top: 16px; right: 16px; }
   .tag-filter { margin-left: 0; }

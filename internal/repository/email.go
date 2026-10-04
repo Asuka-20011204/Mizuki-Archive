@@ -88,14 +88,17 @@ func (store *MySQL) EnsureAdminUser(ctx context.Context, username string, passwo
 	return userFromRow(row), nil
 }
 
-// CreateUser 创建一个已通过邮箱验证码验证的新用户；重复邮箱由唯一约束拒绝。
-func (store *MySQL) CreateUser(ctx context.Context, email string) (model.User, error) {
+// CreateUser 原子保存已验证邮箱、唯一用户名和密码哈希；重复身份由唯一约束拒绝。
+func (store *MySQL) CreateUser(ctx context.Context, email, username string, passwordHash []byte) (model.User, error) {
 	id, err := newUserID()
 	if err != nil {
 		return model.User{}, err
 	}
-	row := userRow{ID: id, Username: email, Email: &email, CreatedAt: time.Now().UTC()}
+	row := userRow{ID: id, Username: username, Email: &email, PasswordHash: append([]byte(nil), passwordHash...), CreatedAt: time.Now().UTC()}
 	if err := store.db.WithContext(ctx).Table("users").Create(&row).Error; err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "uq_users_username") {
+			return model.User{}, ErrUsernameTaken
+		}
 		if strings.Contains(strings.ToLower(err.Error()), "duplicate") {
 			return model.User{}, ErrUserExists
 		}
@@ -104,7 +107,7 @@ func (store *MySQL) CreateUser(ctx context.Context, email string) (model.User, e
 	return userFromRow(row), nil
 }
 
-// GetUserByUsername 只读取已由迁移命令创建的管理员身份，运行时 API 不再尝试写入用户表。
+// GetUserByUsername 按持久用户名查询管理员或普通用户，运行时 API 不创建管理员。
 func (store *MySQL) GetUserByUsername(ctx context.Context, username string) (model.User, error) {
 	var row userRow
 	err := store.db.WithContext(ctx).Table("users").Where("username = ?", username).Take(&row).Error

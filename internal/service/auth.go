@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -126,15 +125,12 @@ func (auth *Auth) ValidateUser(ctx context.Context, token string) (string, bool,
 	return auth.username, true, nil
 }
 
-// LabelForContext 返回当前会话的邮箱或兼容账号名，只用于界面展示，不参与权限判断。
+// LabelForContext 返回当前会话的持久用户名，只用于界面展示，不参与权限判断。
 func (auth *Auth) LabelForContext(ctx context.Context) string {
 	userID, ok := repository.UserIDFromContext(ctx)
 	if ok {
 		if identityStore, identityOK := auth.store.(repository.IdentityStore); identityOK {
 			if user, err := identityStore.GetUserByID(ctx, userID); err == nil {
-				if user.Email != "" && !strings.HasSuffix(user.Email, "@local.invalid") {
-					return user.Email
-				}
 				return user.Username
 			}
 		}

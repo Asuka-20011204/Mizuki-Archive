@@ -285,7 +285,7 @@ export const api = {
   authCapabilities: () => request<AuthCapabilities>('/auth/capabilities'),
   // me 由服务端会话确认当前身份，不读取浏览器可伪造的本地用户名。
   me: () => request<{ username: string }>('/me'),
-  // login 使用 JSON 提交凭据；会话 Cookie 由浏览器按同源策略保存。
+  // login 支持管理员或普通账号以用户名、邮箱或大陆手机号和密码登录。
   login: (username: string, password: string) =>
     request<{ username: string }>('/login', {
       method: 'POST',
@@ -299,12 +299,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     }),
-  // registerWithEmailCode 完成一次性验证码注册并接收服务端会话 Cookie。
-  registerWithEmailCode: (email: string, code: string) =>
+  // registerWithEmailCode 经已验证邮箱创建带用户名及密码哈希的持久账号。
+  registerWithEmailCode: (email: string, code: string, username: string, password: string) =>
     request<{ username: string }>('/email/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, code }),
+      body: JSON.stringify({ email, code, username, password }),
     }),
   // requestEmailLoginCode 向已注册邮箱请求短时验证码。
   requestEmailLoginCode: (email: string) =>
@@ -325,10 +325,10 @@ export const api = {
     request<{ message: string }>('/phone/register/request', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }),
     }),
-  // registerWithPhoneCode 核验短信验证码并使用服务端签发的会话。
-  registerWithPhoneCode: (phone: string, code: string) =>
+  // registerWithPhoneCode 核验短信并创建包含用户名、密码哈希的独立账号。
+  registerWithPhoneCode: (phone: string, code: string, username: string, password: string) =>
     request<{ username: string }>('/phone/register', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code, username, password }),
     }),
   // requestPhoneLoginCode 对未知号码也保持与服务端相同的统一受理行为。
   requestPhoneLoginCode: (phone: string) =>

@@ -22,11 +22,11 @@ func TestPhoneMySQLIdentityAndChallenge(t *testing.T) {
 		t.Fatalf("resume phone migration: %v", err)
 	}
 	phone := "+8613800138000"
-	user, err := store.CreatePhoneUser(ctx, phone)
+	user, err := store.CreatePhoneUser(ctx, phone, "phoneuser", []byte("testhash"))
 	if err != nil || user.Phone != phone || user.Email != "" {
 		t.Fatalf("phone user=%#v err=%v", user, err)
 	}
-	if _, err := store.CreatePhoneUser(ctx, phone); !errors.Is(err, ErrUserExists) {
+	if _, err := store.CreatePhoneUser(ctx, phone, "phoneuser", []byte("testhash")); !errors.Is(err, ErrUserExists) {
 		t.Fatalf("duplicate phone: %v", err)
 	}
 	found, err := store.GetUserByPhone(ctx, phone)

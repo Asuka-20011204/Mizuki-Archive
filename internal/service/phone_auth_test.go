@@ -18,11 +18,11 @@ type phoneIdentityFake struct {
 }
 
 // CreatePhoneUser 模拟手机号唯一约束，不复用邮箱身份。
-func (store *phoneIdentityFake) CreatePhoneUser(_ context.Context, phone string) (model.User, error) {
+func (store *phoneIdentityFake) CreatePhoneUser(_ context.Context, phone, username string, hash []byte) (model.User, error) {
 	if _, exists := store.phones[phone]; exists {
 		return model.User{}, repository.ErrUserExists
 	}
-	user := model.User{ID: "phone-user-" + phone, Username: phone, Phone: phone}
+	user := model.User{ID: "phone-user-" + phone, Username: username, Phone: phone, PasswordHash: hash}
 	store.phones[phone] = user
 	store.users[user.ID] = user
 	return user, nil
@@ -110,17 +110,17 @@ func TestPhoneRegistrationAndLogin(t *testing.T) {
 	if err := phoneAuth.RequestRegistrationCode(ctx, "+8613800138000"); !errors.Is(err, ErrPhoneCodeTooSoon) {
 		t.Fatalf("cooldown: %v", err)
 	}
-	token, err := phoneAuth.RegisterWithCode(ctx, "+8613800138000", sender.code)
+	token, err := phoneAuth.RegisterWithCode(ctx, "+8613800138000", sender.code, "phoneuser", "correct horse battery staple")
 	if err != nil || token == "" {
 		t.Fatalf("register: token=%q err=%v", token, err)
 	}
-	if _, err := phoneAuth.RegisterWithCode(ctx, "13800138000", sender.code); !errors.Is(err, ErrPhoneCodeInvalid) {
+	if _, err := phoneAuth.RegisterWithCode(ctx, "13800138000", sender.code, "phoneuser", "correct horse battery staple"); !errors.Is(err, ErrPhoneCodeInvalid) {
 		t.Fatalf("replayed code: %v", err)
 	}
 	if err := phoneAuth.RequestLoginCode(ctx, "13800138000"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := phoneAuth.LoginWithCode(ctx, "13800138000", sender.code); err != nil {
+	if _, _, err := phoneAuth.LoginWithCode(ctx, "13800138000", sender.code); err != nil {
 		t.Fatalf("login: %v", err)
 	}
 	if err := phoneAuth.RequestRegistrationCode(ctx, "13800138000"); !errors.Is(err, ErrPhoneAlreadyRegistered) {

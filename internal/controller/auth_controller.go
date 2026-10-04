@@ -11,10 +11,12 @@ import (
 	"mizuki-archive/internal/service"
 )
 
-// emailCodeInput 是邮箱验证码接口共用的最小请求结构，不接受账号、角色或资料 ID。
+// emailCodeInput 兼容请求码与核验接口；用户名和密码仅在注册核验时使用，不接受角色或资料 ID。
 type emailCodeInput struct {
-	Email string `json:"email"`
-	Code  string `json:"code"`
+	Email    string `json:"email"`
+	Code     string `json:"code"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 // login 限制登录体积和失败次数，成功后只把随机会话令牌放入 HttpOnly Cookie。
@@ -52,7 +54,7 @@ func (handler *Controller) login(ctx *gin.Context) {
 		failure(ctx, http.StatusBadRequest, "invalid_input", "登录信息格式不正确")
 		return
 	}
-	token, err := handler.config.Auth.Login(ctx.Request.Context(), input.Username, input.Password)
+	token, accountName, err := handler.config.Auth.LoginWithPassword(ctx.Request.Context(), input.Username, input.Password)
 	if errors.Is(err, service.ErrInvalidCredentials) {
 		handler.limiter.failed(address)
 		failure(ctx, http.StatusUnauthorized, "invalid_credentials", "账号或密码不正确")
@@ -65,7 +67,7 @@ func (handler *Controller) login(ctx *gin.Context) {
 	handler.limiter.succeeded(address)
 	// 浏览器只保存随机会话令牌；密码哈希和会话验证留在服务端。
 	handler.setSessionCookie(ctx, token)
-	ctx.JSON(http.StatusOK, gin.H{"username": handler.config.Auth.Username()})
+	ctx.JSON(http.StatusOK, gin.H{"username": accountName})
 }
 
 // requestEmailRegistrationCode 为新用户发送注册验证码；未知或已注册邮箱使用统一响应避免枚举。
@@ -101,7 +103,15 @@ func (handler *Controller) registerWithEmailCode(ctx *gin.Context) {
 	if !handler.allowEmailCodeAttempt(ctx, "register", input.Email) {
 		return
 	}
-	token, err := handler.config.EmailAuth.RegisterWithCode(ctx.Request.Context(), input.Email, input.Code)
+	token, err := handler.config.EmailAuth.RegisterWithCode(ctx.Request.Context(), input.Email, input.Code, input.Username, input.Password)
+	if errors.Is(err, service.ErrAccountInput) {
+		failure(ctx, http.StatusBadRequest, "invalid_account", "用户名需以字母开头且为 3–32 位英文字母、数字或 _ -，密码需至少 15 个字符且不超过 72 字节")
+		return
+	}
+	if errors.Is(err, repository.ErrUsernameTaken) {
+		failure(ctx, http.StatusConflict, "username_taken", "用户名已被使用，请重新获取注册码后更换用户名")
+		return
+	}
 	if errors.Is(err, service.ErrEmailCodeInvalid) {
 		failure(ctx, http.StatusUnauthorized, "invalid_code", "验证码不正确或已过期")
 		return
@@ -115,7 +125,7 @@ func (handler *Controller) registerWithEmailCode(ctx *gin.Context) {
 		return
 	}
 	handler.setSessionCookie(ctx, token)
-	ctx.JSON(http.StatusOK, gin.H{"username": input.Email})
+	ctx.JSON(http.StatusOK, gin.H{"username": input.Username})
 }
 
 // requestEmailLoginCode 请求已绑定 owner 的邮箱验证码；未知邮箱统一返回已受理，减少账号枚举。
@@ -170,7 +180,7 @@ func (handler *Controller) loginWithEmailCode(ctx *gin.Context) {
 	if !handler.allowEmailCodeAttempt(ctx, "login", input.Email) {
 		return
 	}
-	token, err := handler.config.EmailAuth.LoginWithCode(ctx.Request.Context(), input.Email, input.Code)
+	token, accountName, err := handler.config.EmailAuth.LoginWithCode(ctx.Request.Context(), input.Email, input.Code)
 	if errors.Is(err, service.ErrEmailCodeInvalid) {
 		failure(ctx, http.StatusUnauthorized, "invalid_code", "验证码不正确或已过期")
 		return
@@ -180,7 +190,7 @@ func (handler *Controller) loginWithEmailCode(ctx *gin.Context) {
 		return
 	}
 	handler.setSessionCookie(ctx, token)
-	ctx.JSON(http.StatusOK, gin.H{"username": handler.config.Auth.Username()})
+	ctx.JSON(http.StatusOK, gin.H{"username": accountName})
 }
 
 // allowEmailCodeAttempt 限制验证码核验次数，覆盖多实例 Redis 和单进程降级两条路径。

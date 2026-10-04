@@ -75,14 +75,17 @@ func ensurePhoneIdentitySchema(connection *gorm.DB) error {
 	return nil
 }
 
-// CreatePhoneUser 使用数据库唯一索引限制同号多次注册，并将手机号设为展示用户名。
-func (store *MySQL) CreatePhoneUser(ctx context.Context, phone string) (model.User, error) {
+// CreatePhoneUser 原子保存已验证手机号、唯一用户名和密码哈希，避免半成品账号。
+func (store *MySQL) CreatePhoneUser(ctx context.Context, phone, username string, passwordHash []byte) (model.User, error) {
 	id, err := newUserID()
 	if err != nil {
 		return model.User{}, err
 	}
-	row := userRow{ID: id, Username: phone, Phone: &phone, CreatedAt: time.Now().UTC()}
+	row := userRow{ID: id, Username: username, Phone: &phone, PasswordHash: append([]byte(nil), passwordHash...), CreatedAt: time.Now().UTC()}
 	if err := store.db.WithContext(ctx).Table("users").Create(&row).Error; err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "uq_users_username") {
+			return model.User{}, ErrUsernameTaken
+		}
 		if strings.Contains(strings.ToLower(err.Error()), "duplicate") {
 			return model.User{}, ErrUserExists
 		}

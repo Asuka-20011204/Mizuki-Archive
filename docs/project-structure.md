@@ -59,8 +59,9 @@ Mizuki Archive/
 │   │   ├── saved_search_controller.go # 私有检索视图 CRUD HTTP 边界
 │   │   └── processing_controller.go   # 任务创建、任务查看和派生文件下载
 │   ├── service/
-│   │   ├── auth.go                    # 兼容密码校验、用户会话和身份上下文
-│   │   ├── email_auth.go              # 邮箱验证码注册/登录
+│   │   ├── auth.go                    # 管理员兼容密码、用户会话和身份上下文
+│   │   ├── account_password.go        # 普通账号字段校验、哈希与密码登录
+│   │   ├── email_auth.go              # 邮箱验证码注册/登录（注册含用户名与密码）
 │   │   ├── phone_auth.go              # 大陆手机号验证码业务；发送器未接入
 │   │   ├── resource.go                # 文件校验、存储、元数据流程
 │   │   ├── resource_note.go           # 笔记内容、页码与文件归属校验
@@ -169,7 +170,7 @@ Mizuki Archive/
 
 **以上传为例：** `web/src/App.vue` 接受文件，`web/src/api.ts` 发送 `POST /api/resources`；`router.go` 的私有路由先检查会话，`resource_controller.go` 解析 multipart 和 HTTP 错误，`service/resource.go` 校验格式/大小、流式落盘、生成 ID 和哈希，再通过 `repository/mysql_gorm.go` 写入资料元数据。数据库写入失败时 Service 尝试删除已移动的文件。由于文件系统和 MySQL 不是同一个事务，异常崩溃后的孤儿文件巡检仍是后续工作；备份与恢复必须同时覆盖两者，具体步骤见 [备份恢复演练](backup-restore.md)。
 
-**以登录为例：** `auth_controller.go` 限制请求体和尝试次数，`service/auth.go` 验证密码并生成随机令牌，Repository 只保存令牌哈希；浏览器通过 HttpOnly Cookie 携带原令牌。`router.go` 对需要认证的路由检查会话和请求来源。
+**以登录为例：** `auth_controller.go` 限制请求体和尝试次数，`service/account_password.go` 核验普通用户的持久密码哈希，`service/auth.go` 保留兼容管理员密码与随机会话；Repository 只保存会话令牌哈希。浏览器通过 HttpOnly Cookie 携带原令牌，`router.go` 对需要认证的路由检查会话和请求来源。
 
 ## 开发时从哪里改
 

@@ -19,7 +19,7 @@ const (
 	// EmailPurposeRegister 表示新用户注册验证码。
 	EmailPurposeRegister = "register"
 	// EmailPurposeLogin 表示已有用户登录验证码。
-	EmailPurposeLogin = "login"
+	EmailPurposeLogin        = "login"
 	verificationCodeLifetime = 10 * time.Minute
 	verificationResendDelay  = time.Minute
 )
@@ -37,9 +37,9 @@ type EmailSender interface {
 	SendCode(context.Context, string, string) error
 }
 
-// EmailAuth 管理多用户邮箱验证码注册和登录，每个成功会话都绑定服务端用户 ID。
+// EmailAuth 管理邮箱验证码注册与登录；注册还需创建用户名和密码哈希，会话始终绑定用户 ID。
 type EmailAuth struct {
-	identity repository.IdentityStore
+	identity  repository.IdentityStore
 	challenge repository.EmailChallengeStore
 	auth      *Auth
 	sender    EmailSender
@@ -81,11 +81,15 @@ func (auth *EmailAuth) RequestRegistrationCode(ctx context.Context, email string
 	return auth.issueCode(ctx, normalized, EmailPurposeRegister)
 }
 
-// RegisterWithCode 原子消费注册验证码后创建新用户并立即签发会话。
-func (auth *EmailAuth) RegisterWithCode(ctx context.Context, email, code string) (string, error) {
+// RegisterWithCode 先校验账号字段，再消费注册码并创建带密码哈希的独立用户。
+func (auth *EmailAuth) RegisterWithCode(ctx context.Context, email, code, username, password string) (string, error) {
 	normalized, err := NormalizeEmail(email)
 	if err != nil || !validCode(code) {
 		return "", ErrEmailCodeInvalid
+	}
+	username, passwordHash, err := HashAccountPassword(username, password)
+	if err != nil {
+		return "", err
 	}
 	digest := auth.digest(normalized, EmailPurposeRegister, code)
 	accepted, err := auth.challenge.ConsumeEmailChallenge(ctx, normalized, EmailPurposeRegister, digest, time.Now().UTC())
@@ -95,7 +99,7 @@ func (auth *EmailAuth) RegisterWithCode(ctx context.Context, email, code string)
 	if !accepted {
 		return "", ErrEmailCodeInvalid
 	}
-	user, err := auth.identity.CreateUser(ctx, normalized)
+	user, err := auth.identity.CreateUser(ctx, normalized, username, passwordHash)
 	if err != nil {
 		if errors.Is(err, repository.ErrUserExists) {
 			return "", ErrEmailAlreadyRegister
@@ -119,27 +123,28 @@ func (auth *EmailAuth) RequestLoginCode(ctx context.Context, email string) error
 	return auth.issueCode(ctx, normalized, EmailPurposeLogin)
 }
 
-// LoginWithCode 校验并消费已有用户的一次性验证码，再签发带用户归属的数据库会话。
-func (auth *EmailAuth) LoginWithCode(ctx context.Context, email, code string) (string, error) {
+// LoginWithCode 校验已有用户的一次性验证码，返回绑定该用户的会话和展示用户名。
+func (auth *EmailAuth) LoginWithCode(ctx context.Context, email, code string) (string, string, error) {
 	normalized, err := NormalizeEmail(email)
 	if err != nil || !validCode(code) {
-		return "", ErrEmailCodeInvalid
+		return "", "", ErrEmailCodeInvalid
 	}
 	user, err := auth.identity.GetUserByEmail(ctx, normalized)
 	if errors.Is(err, repository.ErrNotFound) {
-		return "", ErrEmailCodeInvalid
+		return "", "", ErrEmailCodeInvalid
 	}
 	if err != nil {
-		return "", fmt.Errorf("get login user: %w", err)
+		return "", "", fmt.Errorf("get login user: %w", err)
 	}
 	accepted, err := auth.challenge.ConsumeEmailChallenge(ctx, normalized, EmailPurposeLogin, auth.digest(normalized, EmailPurposeLogin, code), time.Now().UTC())
 	if err != nil {
-		return "", fmt.Errorf("consume login code: %w", err)
+		return "", "", fmt.Errorf("consume login code: %w", err)
 	}
 	if !accepted {
-		return "", ErrEmailCodeInvalid
+		return "", "", ErrEmailCodeInvalid
 	}
-	return auth.auth.CreateSessionForUser(ctx, user.ID)
+	token, err := auth.auth.CreateSessionForUser(ctx, user.ID)
+	return token, user.Username, err
 }
 
 // issueCode 先持久化摘要再发送；发送失败时只删除仍属于本次请求的摘要，避免误删新验证码。

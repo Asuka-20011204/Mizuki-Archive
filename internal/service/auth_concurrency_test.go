@@ -25,7 +25,12 @@ func (store *concurrentSessionStore) EnsureAdminUser(context.Context, string, []
 }
 
 // CreateUser 提供并发会话测试所需的注册接口，但不参与本用例断言。
-func (store *concurrentSessionStore) CreateUser(context.Context, string) (model.User, error) {
+func (store *concurrentSessionStore) CreateUser(context.Context, string, string, []byte) (model.User, error) {
+	return model.User{}, repository.ErrNotFound
+}
+
+// GetUserByUsername 为并发会话测试补齐只读身份接口，不参与本用例。
+func (store *concurrentSessionStore) GetUserByUsername(context.Context, string) (model.User, error) {
 	return model.User{}, repository.ErrNotFound
 }
 

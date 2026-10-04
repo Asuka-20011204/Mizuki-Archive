@@ -15,6 +15,7 @@ var ErrJobLeaseLost = errors.New("processing job lease lost")
 var ErrProcessingJobExists = errors.New("processing job already exists")
 var ErrProcessingQueueFull = errors.New("processing queue is full")
 var ErrUserExists = errors.New("user already exists")
+var ErrUsernameTaken = errors.New("username already exists")
 var ErrSavedSearchConflict = errors.New("saved search name already exists")
 var ErrSavedSearchLimit = errors.New("saved search view limit reached")
 var ErrBatchTagLimit = errors.New("resource tag limit reached")
@@ -145,8 +146,9 @@ type Store interface {
 // IdentityStore 提供多用户身份和按用户归属的会话持久化；MySQL 实现必须保证唯一约束与原子绑定。
 type IdentityStore interface {
 	EnsureAdminUser(context.Context, string, []byte) (model.User, error)
-	CreateUser(context.Context, string) (model.User, error)
+	CreateUser(context.Context, string, string, []byte) (model.User, error)
 	GetUserByEmail(context.Context, string) (model.User, error)
+	GetUserByUsername(context.Context, string) (model.User, error)
 	GetUserByID(context.Context, string) (model.User, error)
 	SaveUserSession(context.Context, string, string, time.Time) error
 	GetSessionUser(context.Context, string) (string, bool, error)
@@ -156,7 +158,7 @@ type IdentityStore interface {
 // PhoneIdentityStore 在既有会话身份之上提供独立、唯一的手机号创建和查找。
 type PhoneIdentityStore interface {
 	IdentityStore
-	CreatePhoneUser(context.Context, string) (model.User, error)
+	CreatePhoneUser(context.Context, string, string, []byte) (model.User, error)
 	GetUserByPhone(context.Context, string) (model.User, error)
 }
 

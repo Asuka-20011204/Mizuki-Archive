@@ -7,13 +7,16 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"mizuki-archive/internal/repository"
 	"mizuki-archive/internal/service"
 )
 
-// phoneCodeInput 仅允许提供手机号和一次性验证码，不接受客户端传入用户归属。
+// phoneCodeInput 在注册核验时附带用户名和密码；不接受客户端传入用户归属。
 type phoneCodeInput struct {
-	Phone string `json:"phone"`
-	Code  string `json:"code"`
+	Phone    string `json:"phone"`
+	Code     string `json:"code"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 // decodePhoneCodeInput 沿用验证码接口的 JSON、Content-Type 和 8KB 体积限制。
@@ -128,7 +131,15 @@ func (handler *Controller) registerWithPhoneCode(ctx *gin.Context) {
 	if !handler.allowPhoneAttempt(ctx, input.Phone) {
 		return
 	}
-	token, err := handler.config.PhoneAuth.RegisterWithCode(ctx.Request.Context(), input.Phone, input.Code)
+	token, err := handler.config.PhoneAuth.RegisterWithCode(ctx.Request.Context(), input.Phone, input.Code, input.Username, input.Password)
+	if errors.Is(err, service.ErrAccountInput) {
+		failure(ctx, http.StatusBadRequest, "invalid_account", "用户名需以字母开头且为 3–32 位英文字母、数字或 _ -，密码需至少 15 个字符且不超过 72 字节")
+		return
+	}
+	if errors.Is(err, repository.ErrUsernameTaken) {
+		failure(ctx, http.StatusConflict, "username_taken", "用户名已被使用，请重新获取注册码后更换用户名")
+		return
+	}
 	if errors.Is(err, service.ErrPhoneCodeInvalid) {
 		failure(ctx, http.StatusUnauthorized, "invalid_code", "验证码不正确或已过期")
 		return
@@ -142,8 +153,7 @@ func (handler *Controller) registerWithPhoneCode(ctx *gin.Context) {
 		return
 	}
 	handler.setSessionCookie(ctx, token)
-	phone, _ := service.NormalizeMainlandPhone(input.Phone)
-	ctx.JSON(http.StatusOK, gin.H{"username": phone})
+	ctx.JSON(http.StatusOK, gin.H{"username": input.Username})
 }
 
 // requestPhoneLoginCode 为已注册号码请求验证码；未知号码返回相同的受理响应。
@@ -173,7 +183,7 @@ func (handler *Controller) loginWithPhoneCode(ctx *gin.Context) {
 	if !handler.allowPhoneAttempt(ctx, input.Phone) {
 		return
 	}
-	token, err := handler.config.PhoneAuth.LoginWithCode(ctx.Request.Context(), input.Phone, input.Code)
+	token, accountName, err := handler.config.PhoneAuth.LoginWithCode(ctx.Request.Context(), input.Phone, input.Code)
 	if errors.Is(err, service.ErrPhoneCodeInvalid) {
 		failure(ctx, http.StatusUnauthorized, "invalid_code", "验证码不正确或已过期")
 		return
@@ -183,6 +193,5 @@ func (handler *Controller) loginWithPhoneCode(ctx *gin.Context) {
 		return
 	}
 	handler.setSessionCookie(ctx, token)
-	phone, _ := service.NormalizeMainlandPhone(input.Phone)
-	ctx.JSON(http.StatusOK, gin.H{"username": phone})
+	ctx.JSON(http.StatusOK, gin.H{"username": accountName})
 }

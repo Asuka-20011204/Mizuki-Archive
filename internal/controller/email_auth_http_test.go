@@ -135,16 +135,38 @@ func TestEmailAuthenticationHTTPFlow(t *testing.T) {
 	if requestResponse.Code != http.StatusAccepted || sender.code == "" {
 		t.Fatalf("register code request failed: status=%d body=%s", requestResponse.Code, requestResponse.Body.String())
 	}
-	registerResponse := emailHTTPJSONRequest(t, server, http.MethodPost, "/api/email/register", `{"email":"`+email+`","code":"`+sender.code+`"}`, nil)
+	// 注册码不能在用户创建前当作登录码使用，且失败不得写入会话。
+	beforeRegistration := emailHTTPJSONRequest(t, server, http.MethodPost, "/api/email/login", `{"email":"`+email+`","code":"`+sender.code+`"}`, nil)
+	if beforeRegistration.Code != http.StatusUnauthorized || len(beforeRegistration.Result().Cookies()) != 0 {
+		t.Fatalf("registration code logged in before signup: %d %s", beforeRegistration.Code, beforeRegistration.Body.String())
+	}
+	invalidAccount := emailHTTPJSONRequest(t, server, http.MethodPost, "/api/email/register", `{"email":"`+email+`","code":"`+sender.code+`","username":"bad@name","password":"correct horse battery staple"}`, nil)
+	if invalidAccount.Code != http.StatusBadRequest {
+		t.Fatalf("invalid username accepted: %d %s", invalidAccount.Code, invalidAccount.Body.String())
+	}
+	registerResponse := emailHTTPJSONRequest(t, server, http.MethodPost, "/api/email/register", `{"email":"`+email+`","code":"`+sender.code+`","username":"emailuser","password":"correct horse battery staple"}`, nil)
 	if registerResponse.Code != http.StatusOK {
 		t.Fatalf("email registration failed: status=%d body=%s", registerResponse.Code, registerResponse.Body.String())
 	}
 	session := sessionCookieFromResponse(t, registerResponse)
 	meResponse := emailHTTPJSONRequest(t, server, http.MethodGet, "/api/me", "", session)
-	if meResponse.Code != http.StatusOK || !strings.Contains(meResponse.Body.String(), "user@example.com") {
+	if meResponse.Code != http.StatusOK || !strings.Contains(meResponse.Body.String(), "emailuser") {
 		t.Fatalf("registered session identity incorrect: status=%d body=%s", meResponse.Code, meResponse.Body.String())
 	}
-	reusedResponse := emailHTTPJSONRequest(t, server, http.MethodPost, "/api/email/register", `{"email":"`+email+`","code":"`+sender.code+`"}`, nil)
+	passwordLogin := emailHTTPJSONRequest(t, server, http.MethodPost, "/api/login", `{"username":"emailuser","password":"correct horse battery staple"}`, nil)
+	if passwordLogin.Code != http.StatusOK || len(passwordLogin.Result().Cookies()) == 0 {
+		t.Fatalf("ordinary user password login failed: %d %s", passwordLogin.Code, passwordLogin.Body.String())
+	}
+	if identity := emailHTTPJSONRequest(t, server, http.MethodGet, "/api/me", "", sessionCookieFromResponse(t, passwordLogin)); identity.Code != http.StatusOK || !strings.Contains(identity.Body.String(), "emailuser") {
+		t.Fatalf("password session lost owner: %d %s", identity.Code, identity.Body.String())
+	}
+	if wrong := emailHTTPJSONRequest(t, server, http.MethodPost, "/api/login", `{"username":"emailuser","password":"wrong password"}`, nil); wrong.Code != http.StatusUnauthorized || len(wrong.Result().Cookies()) != 0 {
+		t.Fatalf("wrong password acquired session: %d", wrong.Code)
+	}
+	if unknown := emailHTTPJSONRequest(t, server, http.MethodPost, "/api/login", `{"username":"unknownuser","password":"correct horse battery staple"}`, nil); unknown.Code != http.StatusUnauthorized || len(unknown.Result().Cookies()) != 0 {
+		t.Fatalf("unknown password account acquired session: %d", unknown.Code)
+	}
+	reusedResponse := emailHTTPJSONRequest(t, server, http.MethodPost, "/api/email/register", `{"email":"`+email+`","code":"`+sender.code+`","username":"emailuser","password":"correct horse battery staple"}`, nil)
 	if reusedResponse.Code != http.StatusUnauthorized || !strings.Contains(reusedResponse.Body.String(), "invalid_code") {
 		t.Fatalf("reused registration code was accepted: status=%d body=%s", reusedResponse.Code, reusedResponse.Body.String())
 	}
@@ -175,5 +197,13 @@ func TestEmailAuthenticationHTTPFlow(t *testing.T) {
 	unknownResponse := emailHTTPJSONRequest(t, server, http.MethodPost, "/api/email/login/request", `{"email":"unknown@example.com"}`, nil)
 	if unknownResponse.Code != http.StatusAccepted {
 		t.Fatalf("unknown email exposed login state: status=%d body=%s", unknownResponse.Code, unknownResponse.Body.String())
+	}
+	// 未注册地址即使拿到其他流程的验证码，也不能获取会话或私有资料。
+	unknownLogin := emailHTTPJSONRequest(t, server, http.MethodPost, "/api/email/login", `{"email":"unknown@example.com","code":"`+sender.code+`"}`, nil)
+	if unknownLogin.Code != http.StatusUnauthorized || len(unknownLogin.Result().Cookies()) != 0 {
+		t.Fatalf("unknown email acquired a session: status=%d body=%s", unknownLogin.Code, unknownLogin.Body.String())
+	}
+	if anonymous := emailHTTPJSONRequest(t, server, http.MethodGet, "/api/me", "", nil); anonymous.Code != http.StatusUnauthorized {
+		t.Fatalf("unknown email reached private profile: %d", anonymous.Code)
 	}
 }

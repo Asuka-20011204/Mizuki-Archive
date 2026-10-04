@@ -74,11 +74,15 @@ func (auth *PhoneAuth) RequestRegistrationCode(ctx context.Context, input string
 	return auth.issueCode(ctx, phone, EmailPurposeRegister)
 }
 
-// RegisterWithCode 原子消费注册验证码后创建独立用户，依赖数据库唯一索引处理并发注册。
-func (auth *PhoneAuth) RegisterWithCode(ctx context.Context, input, code string) (string, error) {
+// RegisterWithCode 先校验账号字段，再消费注册码并创建带密码哈希的独立用户。
+func (auth *PhoneAuth) RegisterWithCode(ctx context.Context, input, code, username, password string) (string, error) {
 	phone, err := NormalizeMainlandPhone(input)
 	if err != nil || !validCode(code) {
 		return "", ErrPhoneCodeInvalid
+	}
+	username, passwordHash, err := HashAccountPassword(username, password)
+	if err != nil {
+		return "", err
 	}
 	accepted, err := auth.challenge.ConsumePhoneChallenge(ctx, phone, EmailPurposeRegister, auth.digest(phone, EmailPurposeRegister, code), time.Now().UTC())
 	if err != nil {
@@ -87,7 +91,7 @@ func (auth *PhoneAuth) RegisterWithCode(ctx context.Context, input, code string)
 	if !accepted {
 		return "", ErrPhoneCodeInvalid
 	}
-	user, err := auth.identity.CreatePhoneUser(ctx, phone)
+	user, err := auth.identity.CreatePhoneUser(ctx, phone, username, passwordHash)
 	if errors.Is(err, repository.ErrUserExists) {
 		return "", ErrPhoneAlreadyRegistered
 	}
@@ -111,27 +115,28 @@ func (auth *PhoneAuth) RequestLoginCode(ctx context.Context, input string) error
 	return auth.issueCode(ctx, phone, EmailPurposeLogin)
 }
 
-// LoginWithCode 核验一次性验证码，并为查得的用户签发服务端归属会话。
-func (auth *PhoneAuth) LoginWithCode(ctx context.Context, input, code string) (string, error) {
+// LoginWithCode 核验一次性验证码，并返回归属会话和持久用户名。
+func (auth *PhoneAuth) LoginWithCode(ctx context.Context, input, code string) (string, string, error) {
 	phone, err := NormalizeMainlandPhone(input)
 	if err != nil || !validCode(code) {
-		return "", ErrPhoneCodeInvalid
+		return "", "", ErrPhoneCodeInvalid
 	}
 	user, err := auth.identity.GetUserByPhone(ctx, phone)
 	if errors.Is(err, repository.ErrNotFound) {
-		return "", ErrPhoneCodeInvalid
+		return "", "", ErrPhoneCodeInvalid
 	}
 	if err != nil {
-		return "", fmt.Errorf("get phone user: %w", err)
+		return "", "", fmt.Errorf("get phone user: %w", err)
 	}
 	accepted, err := auth.challenge.ConsumePhoneChallenge(ctx, phone, EmailPurposeLogin, auth.digest(phone, EmailPurposeLogin, code), time.Now().UTC())
 	if err != nil {
-		return "", fmt.Errorf("consume phone login code: %w", err)
+		return "", "", fmt.Errorf("consume phone login code: %w", err)
 	}
 	if !accepted {
-		return "", ErrPhoneCodeInvalid
+		return "", "", ErrPhoneCodeInvalid
 	}
-	return auth.auth.CreateSessionForUser(ctx, user.ID)
+	token, err := auth.auth.CreateSessionForUser(ctx, user.ID)
+	return token, user.Username, err
 }
 
 // issueCode 先原子保留摘要再发送；失败只清除当前挑战，避免并发覆盖新验证码。

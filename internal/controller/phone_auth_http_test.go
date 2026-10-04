@@ -20,13 +20,13 @@ type phoneHTTPStore struct {
 }
 
 // CreatePhoneUser 在 HTTP 测试中模拟手机号唯一用户，不共享其他用户的资料。
-func (store *phoneHTTPStore) CreatePhoneUser(_ context.Context, phone string) (model.User, error) {
+func (store *phoneHTTPStore) CreatePhoneUser(_ context.Context, phone, username string, hash []byte) (model.User, error) {
 	for _, user := range store.users {
 		if user.Phone == phone {
 			return model.User{}, repository.ErrUserExists
 		}
 	}
-	user := model.User{ID: "phone-owner", Username: phone, Phone: phone}
+	user := model.User{ID: "phone-owner", Username: username, Phone: phone, PasswordHash: hash}
 	store.users[user.ID] = user
 	return user, nil
 }
@@ -118,15 +118,23 @@ func TestPhoneAuthHTTPFlow(t *testing.T) {
 	if requestCode.Code != http.StatusAccepted || sender.code == "" {
 		t.Fatalf("register request: %d", requestCode.Code)
 	}
-	register := post("/api/phone/register", `{"phone":"+8613800138000","code":"`+sender.code+`"}`)
+	// 注册码不得用于未注册号码的登录，避免跳过明确的账号创建流程。
+	if beforeRegistration := post("/api/phone/login", `{"phone":"13800138000","code":"`+sender.code+`"}`); beforeRegistration.Code != http.StatusUnauthorized || len(beforeRegistration.Result().Cookies()) != 0 {
+		t.Fatalf("registration code logged in before signup: %d %s", beforeRegistration.Code, beforeRegistration.Body.String())
+	}
+	register := post("/api/phone/register", `{"phone":"+8613800138000","code":"`+sender.code+`","username":"phoneuser","password":"correct horse battery staple"}`)
 	if register.Code != http.StatusOK || len(register.Result().Cookies()) == 0 {
 		t.Fatalf("register: %d %s", register.Code, register.Body.String())
 	}
-	if replay := post("/api/phone/register", `{"phone":"13800138000","code":"`+sender.code+`"}`); replay.Code != http.StatusUnauthorized {
+	if replay := post("/api/phone/register", `{"phone":"13800138000","code":"`+sender.code+`","username":"phoneuser","password":"correct horse battery staple"}`); replay.Code != http.StatusUnauthorized {
 		t.Fatalf("replay: %d", replay.Code)
 	}
 	if unknown := post("/api/phone/login/request", `{"phone":"13900139000"}`); unknown.Code != http.StatusAccepted {
 		t.Fatalf("unknown phone: %d", unknown.Code)
+	}
+	// 未注册号码的受理响应只为防止账号枚举，不代表可以创建登录会话。
+	if unknownLogin := post("/api/phone/login", `{"phone":"13900139000","code":"`+sender.code+`"}`); unknownLogin.Code != http.StatusUnauthorized || len(unknownLogin.Result().Cookies()) != 0 {
+		t.Fatalf("unknown phone acquired a session: %d %s", unknownLogin.Code, unknownLogin.Body.String())
 	}
 	if result := post("/api/phone/login/request", `{"phone":"13800138000"}`); result.Code != http.StatusAccepted {
 		t.Fatalf("login request: %d", result.Code)
@@ -139,7 +147,11 @@ func TestPhoneAuthHTTPFlow(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/me", nil)
 	request.AddCookie(login.Result().Cookies()[0])
 	server.ServeHTTP(me, request)
-	if me.Code != http.StatusOK || !strings.Contains(me.Body.String(), "+8613800138000") {
+	if me.Code != http.StatusOK || !strings.Contains(me.Body.String(), "phoneuser") {
 		t.Fatalf("owner: %d %s", me.Code, me.Body.String())
+	}
+	passwordLogin := post("/api/login", `{"username":"13800138000","password":"correct horse battery staple"}`)
+	if passwordLogin.Code != http.StatusOK || len(passwordLogin.Result().Cookies()) == 0 {
+		t.Fatalf("phone user password login: %d %s", passwordLogin.Code, passwordLogin.Body.String())
 	}
 }

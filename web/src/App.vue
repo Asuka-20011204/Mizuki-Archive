@@ -16,13 +16,25 @@ import { api, type ExternalResource, type InboxSelection, type ProcessingJob, ty
 const username = ref('')
 const loginName = ref('')
 const password = ref('')
-const emailAddress = ref('')
-const phoneNumber = ref('')
+const identity = ref('')
 const verificationCode = ref('')
-type EmailAuthMode = 'login' | 'register' | 'phone-login' | 'phone-register' | 'password'
-const emailAuthMode = ref<EmailAuthMode>('password')
+const registrationName = ref('')
+const registrationPassword = ref('')
+const registrationPasswordConfirm = ref('')
+type AuthMode = 'login' | 'register' | 'password'
+const authMode = ref<AuthMode>('password')
 const emailVerificationAvailable = ref(false)
 const phoneVerificationAvailable = ref(false)
+// 身份类型仅用于选择对应接口，账号是否存在始终由服务端判断。
+const identityType = computed(() => {
+  const value = identity.value.trim()
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'email'
+  if (/^(?:1[3-9][0-9]{9}|\+861[3-9][0-9]{9})$/.test(value)) return 'phone'
+  return null
+})
+// 未配置发送器时不允许提交该类型的验证码请求。
+const identityAvailable = computed(() => identityType.value === 'email'
+  ? emailVerificationAvailable.value : identityType.value === 'phone' && phoneVerificationAvailable.value)
 const requestingCode = ref(false)
 const codeRequested = ref(false)
 // 各操作分别记录忙碌状态：上传不应让搜索和退出按钮无故禁用。
@@ -46,6 +58,8 @@ const archiveRefreshKey = ref(0)
 const externalPanel = ref<InstanceType<typeof ExternalResourcePanel> | null>(null)
 const recentResources = ref<Resource[]>([])
 const selected = ref<Resource | null>(null)
+type DetailSection = 'preview' | 'organize' | 'processing'
+const detailSection = ref<DetailSection>('preview')
 const detailNavigationItems = ref<Resource[]>([])
 const navigatingDetail = ref(false)
 // 搜索条件与页码交给 API 查询，不在浏览器里模拟 MySQL 的筛选和分页。
@@ -170,6 +184,11 @@ function showWorkspaceView(view: WorkspaceView) {
 // showPublicView 用浏览器历史记录切换视图，保留查询参数和可分享地址。
 function showPublicView(view: PublicView) {
   if (publicView.value === view) return
+  if (publicView.value === 'login') {
+    password.value = ''
+    registrationPassword.value = ''
+    registrationPasswordConfirm.value = ''
+  }
   window.history.pushState(null, '', `${window.location.pathname}${window.location.search}${view === 'home' ? '' : `#${view}`}`)
   publicView.value = view
   qqCopyStatus.value = ''
@@ -264,12 +283,11 @@ async function checkSession() {
     const capabilities = await api.authCapabilities()
     emailVerificationAvailable.value = capabilities.email_verification
     phoneVerificationAvailable.value = capabilities.phone_verification
-    if (emailVerificationAvailable.value) emailAuthMode.value = 'login'
-    else if (phoneVerificationAvailable.value) emailAuthMode.value = 'phone-login'
+    if (emailVerificationAvailable.value || phoneVerificationAvailable.value) authMode.value = 'login'
   } catch {
     emailVerificationAvailable.value = false
     phoneVerificationAvailable.value = false
-    emailAuthMode.value = 'password'
+    authMode.value = 'password'
   }
   // 页面刷新后先确认 HttpOnly Cookie 是否仍有效；不能从本地存储推断登录身份。
   try {
@@ -303,87 +321,84 @@ async function login() {
   }
 }
 
-// requestEmailCode 发送邮箱验证码；服务端会统一处理未知邮箱，前端不据此判断账号是否存在。
-async function requestEmailCode() {
+// requestIdentityCode 按输入格式选择邮箱或手机号接口；统一受理不代表账号已存在或验证码已发送。
+async function requestIdentityCode() {
+  if (!identityAvailable.value || authMode.value === 'password') return
+  const requestedIdentity = identity.value.trim()
+  const requestedMode = authMode.value
+  const requestedType = identityType.value
   requestingCode.value = true
   error.value = ''
   try {
-    if (emailAuthMode.value === 'register') {
-      await api.requestEmailRegistrationCode(emailAddress.value)
-    } else {
-      await api.requestEmailLoginCode(emailAddress.value)
-    }
+    if (requestedType === 'email') {
+      if (requestedMode === 'register') await api.requestEmailRegistrationCode(requestedIdentity)
+      else await api.requestEmailLoginCode(requestedIdentity)
+    } else if (requestedMode === 'register') await api.requestPhoneRegistrationCode(requestedIdentity)
+    else await api.requestPhoneLoginCode(requestedIdentity)
+    if (identity.value.trim() !== requestedIdentity || authMode.value !== requestedMode) return
     codeRequested.value = true
-    notice.value = '如果邮箱符合当前流程且邮件服务可用，验证码会发送到邮箱。'
+    notice.value = requestedMode === 'login'
+      ? '请求已受理。仅已注册账号会收到登录验证码；未注册请先切换到注册。'
+      : '请求已受理。仅未注册账号会收到注册验证码；请查看对应邮箱或手机。'
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '验证码请求失败'
+    if (identity.value.trim() === requestedIdentity && authMode.value === requestedMode) {
+      error.value = reason instanceof Error ? reason.message : '验证码请求失败'
+    }
   } finally {
     requestingCode.value = false
   }
 }
 
-// loginWithEmail 使用一次性邮箱验证码注册或登录，并沿用密码登录后的私有资料加载流程。
-async function loginWithEmail() {
+// authenticateWithCode 按明确选择的注册或登录流程核验验证码，不自动创建或切换账号。
+async function authenticateWithCode() {
+  if (!identityAvailable.value || authMode.value === 'password') return
+  if (authMode.value === 'register' && registrationPassword.value !== registrationPasswordConfirm.value) {
+    error.value = '两次输入的密码不一致'
+    return
+  }
   loggingIn.value = true
   error.value = ''
+  notice.value = ''
   try {
-    const result = emailAuthMode.value === 'register'
-      ? await api.registerWithEmailCode(emailAddress.value, verificationCode.value)
-      : await api.loginWithEmailCode(emailAddress.value, verificationCode.value)
+    const value = identity.value.trim()
+    const result = identityType.value === 'email'
+      ? authMode.value === 'register'
+        ? await api.registerWithEmailCode(value, verificationCode.value, registrationName.value, registrationPassword.value)
+        : await api.loginWithEmailCode(value, verificationCode.value)
+      : authMode.value === 'register'
+        ? await api.registerWithPhoneCode(value, verificationCode.value, registrationName.value, registrationPassword.value)
+        : await api.loginWithPhoneCode(value, verificationCode.value)
     username.value = result.username
     verificationCode.value = ''
+    registrationPassword.value = ''
+    registrationPasswordConfirm.value = ''
     activateWorkspaceFromURL()
     await Promise.all([loadResources(), loadTagSuggestions(), loadRecent()])
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '邮箱登录失败'
+    error.value = reason instanceof Error ? reason.message : '验证失败，请检查验证码及注册/登录流程'
   } finally {
     loggingIn.value = false
   }
 }
 
-// switchEmailAuthMode 清理上一种流程的验证码状态，避免把注册验证码误提交到登录接口。
-function switchEmailAuthMode(mode: EmailAuthMode) {
-  emailAuthMode.value = mode
+// switchAuthMode 清理旧流程验证码，防止将注册码提交到登录接口。
+function switchAuthMode(mode: AuthMode) {
+  authMode.value = mode
   verificationCode.value = ''
+  password.value = ''
+  registrationPassword.value = ''
+  registrationPasswordConfirm.value = ''
   codeRequested.value = false
   error.value = ''
   notice.value = ''
 }
 
-// requestPhoneCode 在功能开启时按当前注册或登录模式请求短信，保留统一响应避免枚举。
-async function requestPhoneCode() {
-  requestingCode.value = true
-  error.value = ''
-  try {
-    if (emailAuthMode.value === 'phone-register') await api.requestPhoneRegistrationCode(phoneNumber.value)
-    else await api.requestPhoneLoginCode(phoneNumber.value)
-    codeRequested.value = true
-    notice.value = '如果手机号符合当前流程且短信服务可用，验证码会发送到手机。'
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '验证码请求失败'
-  } finally {
-    requestingCode.value = false
-  }
-}
-
-// loginWithPhone 在验证码验证成功后使用原有的私有资料加载流程。
-async function loginWithPhone() {
-  loggingIn.value = true
-  error.value = ''
-  try {
-    const result = emailAuthMode.value === 'phone-register'
-      ? await api.registerWithPhoneCode(phoneNumber.value, verificationCode.value)
-      : await api.loginWithPhoneCode(phoneNumber.value, verificationCode.value)
-    username.value = result.username
-    verificationCode.value = ''
-    activateWorkspaceFromURL()
-    await Promise.all([loadResources(), loadTagSuggestions(), loadRecent()])
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '手机号验证失败'
-  } finally {
-    loggingIn.value = false
-  }
-}
+// 身份输入改变时使旧验证码失效，避免把 A 的验证码提交给 B 的身份。
+watch(identity, () => {
+  verificationCode.value = ''
+  codeRequested.value = false
+  notice.value = ''
+})
 
 // logout 先让服务端撤销会话，再清理页面上的个人资料状态。
 async function logout() {
@@ -694,6 +709,7 @@ async function selectResource(resource: Resource, siblings: Resource[] = resourc
     if (requestId !== detailRequestId) return false
     detailNavigationItems.value = siblings.some((item) => item.id === detail.id) ? [...siblings] : [detail]
     selected.value = detail
+    detailSection.value = 'preview'
     void loadRecent()
     nameDraft.value = selected.value.name
     draftTags.value = [...(selected.value.tags || [])]
@@ -1033,41 +1049,33 @@ onUnmounted(() => {
             <div class="login-card-intro"><span class="login-card-kicker">YOUR PRIVATE INDEX</span><span class="login-card-count">MIZUKI / 01</span></div>
             <div class="brand"><span class="brand-mark">水</span><span>Mizuki Archive</span></div>
             <p class="eyebrow">PRIVATE ARCHIVE</p>
-            <h1 id="login-heading" tabindex="-1">欢迎回来</h1>
-            <p class="login-description">每个账号都有自己的资料空间，登录后才能访问。</p>
-            <div class="auth-mode-tabs" role="tablist" aria-label="身份验证方式">
-              <template v-if="emailVerificationAvailable">
-                <button type="button" :class="{ active: emailAuthMode === 'login' }" role="tab" :aria-selected="emailAuthMode === 'login'" @click="switchEmailAuthMode('login')">邮箱登录</button>
-                <button type="button" :class="{ active: emailAuthMode === 'register' }" role="tab" :aria-selected="emailAuthMode === 'register'" @click="switchEmailAuthMode('register')">邮箱注册</button>
-              </template>
-              <template v-if="phoneVerificationAvailable">
-                <button type="button" :class="{ active: emailAuthMode === 'phone-login' }" role="tab" :aria-selected="emailAuthMode === 'phone-login'" @click="switchEmailAuthMode('phone-login')">手机登录</button>
-                <button type="button" :class="{ active: emailAuthMode === 'phone-register' }" role="tab" :aria-selected="emailAuthMode === 'phone-register'" @click="switchEmailAuthMode('phone-register')">手机注册</button>
-              </template>
-              <button type="button" :class="{ active: emailAuthMode === 'password' }" role="tab" :aria-selected="emailAuthMode === 'password'" @click="switchEmailAuthMode('password')">密码登录</button>
+            <h1 id="login-heading" tabindex="-1">{{ authMode === 'register' ? '创建资料空间' : '欢迎回来' }}</h1>
+            <p class="login-description">先注册账号建立独立资料空间；已注册账号才可使用验证码登录。</p>
+            <div v-if="emailVerificationAvailable || phoneVerificationAvailable" class="auth-mode-tabs" role="group" aria-label="账号操作">
+              <button type="button" :disabled="loggingIn" :class="{ active: authMode === 'login' }" :aria-pressed="authMode === 'login'" @click="switchAuthMode('login')">验证码登录</button>
+              <button type="button" :disabled="loggingIn" :class="{ active: authMode === 'register' }" :aria-pressed="authMode === 'register'" @click="switchAuthMode('register')">注册新账号</button>
             </div>
-            <form v-if="emailAuthMode === 'password'" class="login-form" @submit.prevent="login">
-              <label for="username">兼容账号</label><input id="username" v-model="loginName" autocomplete="username" required placeholder="输入管理员账号" />
+            <form v-if="authMode === 'password'" class="login-form" @submit.prevent="login">
+              <label for="username">用户名 / 邮箱 / 大陆手机号</label><input id="username" v-model="loginName" autocomplete="username" required placeholder="输入已注册账号" />
               <label for="password">密码</label><input id="password" v-model="password" type="password" autocomplete="current-password" required placeholder="输入密码" />
               <p v-if="error" class="form-error" role="alert">{{ error }}</p>
               <button class="primary-button" type="submit" :disabled="loggingIn">{{ loggingIn ? '正在进入…' : '进入资料库' }} <span aria-hidden="true">↗</span></button>
             </form>
-            <form v-else-if="phoneVerificationAvailable && (emailAuthMode === 'phone-login' || emailAuthMode === 'phone-register')" class="login-form" @submit.prevent="loginWithPhone">
-              <label for="phone">中国大陆手机号</label><input id="phone" v-model="phoneNumber" type="tel" inputmode="tel" autocomplete="tel-national" pattern="(?:1[3-9][0-9]{9}|\+861[3-9][0-9]{9})" maxlength="14" required placeholder="13800138000" />
-              <div class="code-field"><label for="phone-verification-code">短信验证码</label><button type="button" class="code-button" :disabled="requestingCode || !phoneNumber" @click="requestPhoneCode">{{ requestingCode ? '发送中…' : codeRequested ? '重新获取' : '获取验证码' }}</button></div>
-              <input id="phone-verification-code" v-model="verificationCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="输入 6 位验证码" />
-              <p class="form-hint">{{ emailAuthMode === 'phone-register' ? '验证成功后创建独立的私有资料空间。' : '验证码短时有效，且只能使用一次。' }}</p>
+            <form v-else class="login-form" @submit.prevent="authenticateWithCode">
+              <label for="identity">邮箱或中国大陆手机号</label><input id="identity" v-model="identity" type="text" autocomplete="username" maxlength="254" required :disabled="loggingIn" aria-describedby="identity-hint" placeholder="name@example.com / 13800138000" />
+              <p id="identity-hint" class="form-hint">{{ identityType === 'phone' && !phoneVerificationAvailable ? '当前未接入短信发送，请使用邮箱。' : identityType === 'email' && !emailVerificationAvailable ? '当前未开启邮箱验证码，请使用手机号。' : '自动识别邮箱或大陆手机号；验证码只用于当前选择的流程。' }}</p>
+              <div class="code-field"><label for="verification-code">{{ identityType === 'phone' ? '短信验证码' : '邮箱验证码' }}</label><button type="button" class="code-button" :disabled="requestingCode || loggingIn || !identityAvailable" @click="requestIdentityCode">{{ requestingCode ? '请求中…' : codeRequested ? '再次请求' : '获取验证码' }}</button></div>
+              <input id="verification-code" v-model="verificationCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required :disabled="loggingIn" placeholder="输入 6 位验证码" />
+              <template v-if="authMode === 'register'">
+                <label for="registration-name">用户名</label><input id="registration-name" v-model="registrationName" autocomplete="username" minlength="3" maxlength="32" pattern="[A-Za-z][A-Za-z0-9_-]{2,31}" required :disabled="loggingIn" placeholder="以字母开头，3–32 位" />
+                <label for="registration-password">设置密码</label><input id="registration-password" v-model="registrationPassword" type="password" autocomplete="new-password" minlength="15" required :disabled="loggingIn" placeholder="至少 15 个字符，最多 72 字节" />
+                <label for="registration-password-confirm">确认密码</label><input id="registration-password-confirm" v-model="registrationPasswordConfirm" type="password" autocomplete="new-password" minlength="15" required :disabled="loggingIn" placeholder="再次输入密码" />
+              </template>
+              <p class="form-hint">{{ authMode === 'register' ? '验证联系方式并设置密码后创建独立账号；密码只保存安全哈希。' : '未注册账号不能登录；如尚无账号，请先选择“注册新账号”。' }}</p>
               <p v-if="error" class="form-error" role="alert">{{ error }}</p><p v-if="notice" class="form-notice" role="status">{{ notice }}</p>
-              <button class="primary-button" type="submit" :disabled="loggingIn">{{ loggingIn ? '验证中…' : emailAuthMode === 'phone-register' ? '注册并进入' : '验证并进入' }} <span aria-hidden="true">↗</span></button>
+              <button class="primary-button" type="submit" :disabled="loggingIn || !identityAvailable">{{ loggingIn ? '验证中…' : authMode === 'register' ? '注册并进入' : '登录资料库' }} <span aria-hidden="true">↗</span></button>
             </form>
-            <form v-else-if="emailVerificationAvailable" class="login-form" @submit.prevent="loginWithEmail">
-              <label for="email">邮箱</label><input id="email" v-model="emailAddress" type="email" autocomplete="email" required placeholder="name@example.com" />
-              <div class="code-field"><label for="verification-code">验证码</label><button type="button" class="code-button" :disabled="requestingCode || !emailAddress" @click="requestEmailCode">{{ requestingCode ? '发送中…' : codeRequested ? '重新获取' : '获取验证码' }}</button></div>
-              <input id="verification-code" v-model="verificationCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="输入 6 位验证码" />
-              <p class="form-hint">{{ emailAuthMode === 'register' ? '验证成功后会创建独立的私有资料空间。' : '验证码短时有效，且只能使用一次。' }}</p>
-              <p v-if="error" class="form-error" role="alert">{{ error }}</p><p v-if="notice" class="form-notice" role="status">{{ notice }}</p>
-              <button class="primary-button" type="submit" :disabled="loggingIn">{{ loggingIn ? '验证中…' : emailAuthMode === 'register' ? '注册并进入' : '验证并进入' }} <span aria-hidden="true">↗</span></button>
-            </form>
+            <button v-if="emailVerificationAvailable || phoneVerificationAvailable" type="button" class="auth-secondary" :disabled="loggingIn" @click="switchAuthMode(authMode === 'password' ? 'login' : 'password')">{{ authMode === 'password' ? '改用验证码登录' : '使用密码登录' }}</button>
             <p class="login-footnote">资料按账号隔离 · 请勿在共享设备上保持登录</p>
           </section>
           <button class="view-back-link" type="button" @click="showPublicView('home')">← 返回首页</button>
@@ -1261,17 +1269,11 @@ onUnmounted(() => {
         >
           <button ref="closeButton" type="button" class="close-button" aria-label="关闭资料详情" @click="closeDetail()">×</button>
           <header class="detail-header">
-            <h2 id="detail-title" class="visually-hidden">{{ selected.name }}的详情</h2>
             <p class="eyebrow">资料检查器 · {{ kindLabel(selected.kind) }}</p>
             <div class="detail-title-row">
               <div class="detail-icon" :class="selected.kind">{{ selected.kind === 'image' ? '◈' : kindLabel(selected.kind) }}</div>
               <div class="detail-title-content">
-                <form class="name-editor" aria-labelledby="detail-title" @submit.prevent="saveName">
-                  <label class="visually-hidden" for="resource-name">资料展示名称</label>
-                  <input id="resource-name" v-model="nameDraft" maxlength="180" aria-describedby="name-help" />
-                  <button type="submit" class="secondary-button" :aria-disabled="savingName">{{ savingName ? '保存中…' : '保存' }}</button>
-                </form>
-                <p id="name-help" class="detail-name-help">展示名称可修改，原始上传名称保持不变。</p>
+                <h2 id="detail-title" class="detail-display-name">{{ selected.name }}</h2>
               </div>
             </div>
             <p class="detail-description">私有资料 · 仅当前登录会话可访问</p>
@@ -1282,9 +1284,14 @@ onUnmounted(() => {
               <small>← / → 切换 · Esc 关闭 · D 下载；输入区保留编辑按键，PDF 内请用按钮</small>
             </nav>
           </header>
-          <div class="detail-body">
+          <nav class="detail-section-nav" role="group" aria-label="资料详情分区">
+            <button type="button" :class="{ active: detailSection === 'preview' }" :aria-pressed="detailSection === 'preview'" @click="detailSection = 'preview'">预览与获取</button>
+            <button type="button" :class="{ active: detailSection === 'organize' }" :aria-pressed="detailSection === 'organize'" @click="detailSection = 'organize'">整理与关联</button>
+            <button type="button" :class="{ active: detailSection === 'processing' }" :aria-pressed="detailSection === 'processing'" @click="detailSection = 'processing'">按需处理 <span v-if="jobs.length">({{ jobs.length }})</span></button>
+          </nav>
+          <div class="detail-body" :class="{ 'detail-body-full': detailSection === 'processing' }">
             <div class="detail-main-column">
-              <section class="preview-section" aria-labelledby="preview-title">
+              <section v-show="detailSection === 'preview'" class="preview-section" aria-labelledby="preview-title">
                 <div class="detail-section-heading">
                   <div><p class="eyebrow">内容</p><h3 id="preview-title">预览</h3></div>
                   <span class="preview-format">{{ selected.mime }}</span>
@@ -1310,7 +1317,7 @@ onUnmounted(() => {
                 </div>
                 <p v-else class="preview-note">此格式暂不在线预览，请下载原文件查看。</p>
               </section>
-              <section class="processing-panel" aria-labelledby="processing-title">
+              <section v-show="detailSection === 'processing'" class="processing-panel" aria-labelledby="processing-title">
                 <div class="processing-heading">
                   <div><p class="eyebrow">按需处理</p><h3 id="processing-title">{{ processingTitle(selected.kind) }}</h3></div>
                   <span v-if="jobsLoading" class="processing-loading" role="status">同步中…</span>
@@ -1335,37 +1342,54 @@ onUnmounted(() => {
                         <button v-if="job.asset.kind === 'ocr_text'" type="button" class="secondary-button" :aria-expanded="ocrPreviewId === job.asset.id" @click="toggleOCRPreview(job.asset.id)">{{ ocrPreviewId === job.asset.id ? '收起校对文本' : '查看并对照原件' }}</button>
                         <span v-if="job.asset.kind === 'ocr_text'" class="processing-quality">识别页数 {{ job.asset.ocr_pages || 0 }}，平均置信度 {{ Math.round((job.asset.ocr_confidence || 0) * 10) / 10 }}；请对照原件校对</span>
                       </div>
-                      <div v-if="job.asset.kind === 'ocr_text' && ocrPreviewId === job.asset.id" class="preview-frame text-preview" role="region" aria-label="OCR 识别文本（请对照上方原件）">
-                        <p v-if="ocrPreviewLoading" role="status">正在读取识别文本…</p>
-                        <p v-else-if="ocrPreviewError" role="alert">{{ ocrPreviewError }}</p>
-                        <pre v-else>{{ ocrPreviewText }}</pre>
+                      <div v-if="job.asset.kind === 'ocr_text' && ocrPreviewId === job.asset.id" class="ocr-comparison">
+                        <div class="ocr-source" aria-label="OCR 原件对照">
+                          <img v-if="selected.kind === 'image'" :src="previewURL(selected.id)" :alt="`OCR 原件：${selected.name}`" />
+                          <iframe v-else :src="previewURL(selected.id)" :title="`OCR 原件：${selected.name}`"></iframe>
+                        </div>
+                        <div class="preview-frame text-preview" role="region" aria-label="OCR 识别文本（请对照原件）">
+                          <p v-if="ocrPreviewLoading" role="status">正在读取识别文本…</p>
+                          <p v-else-if="ocrPreviewError" role="alert">{{ ocrPreviewError }}</p>
+                          <pre v-else>{{ ocrPreviewText }}</pre>
+                        </div>
                       </div>
                     </div>
                   </li>
                 </ul>
                 <p v-else-if="!jobsLoading" class="processing-empty">还没有处理记录</p>
               </section>
-              <ResourceNotes ref="notesPanel" :key="selected.id" :resource-id="selected.id" :kind="selected.kind" />
+              <div v-show="detailSection === 'organize'" class="detail-organize-main">
+                <section class="inspector-section" aria-labelledby="rename-title">
+                  <h3 id="rename-title">展示名称</h3>
+                  <form class="name-editor" @submit.prevent="saveName">
+                    <label class="visually-hidden" for="resource-name">资料展示名称</label>
+                    <input id="resource-name" v-model="nameDraft" maxlength="180" aria-describedby="name-help" />
+                    <button type="submit" class="secondary-button" :aria-disabled="savingName">{{ savingName ? '保存中…' : '保存名称' }}</button>
+                  </form>
+                  <p id="name-help" class="detail-name-help">只改变展示名称，原始上传名称保持不变。</p>
+                </section>
+                <ResourceNotes ref="notesPanel" :key="selected.id" :resource-id="selected.id" :kind="selected.kind" />
+              </div>
             </div>
-            <aside class="detail-side-column" aria-label="资料属性与操作">
-              <section class="inspector-section" aria-labelledby="properties-title">
+            <aside v-show="detailSection !== 'processing'" class="detail-side-column" aria-label="资料属性与操作">
+              <section v-show="detailSection === 'preview'" class="inspector-section" aria-labelledby="properties-title">
                  <div class="detail-section-heading"><div><p class="eyebrow">属性检查器</p><h3 id="properties-title">属性</h3></div></div>
                 <dl class="detail-meta"><div><dt>类型</dt><dd>{{ kindLabel(selected.kind) }}</dd></div><div><dt>大小</dt><dd>{{ formatSize(selected.size) }}</dd></div><div><dt>加入时间</dt><dd>{{ formatDate(selected.created_at) }}</dd></div><div><dt>文件指纹</dt><dd class="hash">{{ selected.sha256.slice(0, 18) }}…</dd></div></dl>
               </section>
-              <section class="detail-tags inspector-section" aria-labelledby="detail-tags-title">
+              <section v-show="detailSection === 'organize'" class="detail-tags inspector-section" aria-labelledby="detail-tags-title">
                 <div class="detail-tags-heading"><h3 id="detail-tags-title">标签</h3><span>{{ draftTags.length }}/10</span></div>
                 <div v-if="draftTags.length" class="tag-list" aria-label="当前标签"><span v-for="tag in draftTags" :key="tag" class="tag-chip">#{{ tag }}<button type="button" :aria-label="`移除标签 ${tag}`" @click="removeTag(tag)">×</button></span></div>
                 <form class="tag-editor" @submit.prevent="addTag"><label class="visually-hidden" for="tag-input">添加标签</label><input id="tag-input" v-model="tagInput" list="tag-suggestions" maxlength="24" placeholder="输入标签后按回车" /><datalist id="tag-suggestions"><option v-for="tag in tagSuggestions" :key="`suggestion-${tag}`" :value="tag" /></datalist><button type="submit" class="secondary-button">添加</button></form>
                 <button type="button" class="primary-button save-tags-button" :aria-disabled="savingTags" @click="saveTags">{{ savingTags ? '正在保存…' : '保存标签' }}</button>
               </section>
-              <RelationsPanel source="file" :id="selected.id" @open="openRelated" />
-              <div class="detail-actions">
+              <div v-show="detailSection === 'organize'"><RelationsPanel source="file" :id="selected.id" @open="openRelated" /></div>
+              <div v-show="detailSection === 'preview'" class="detail-actions">
                 <button type="button" class="secondary-button favorite-button" :aria-pressed="selected.favorite" :aria-disabled="savingFavorite" @click="setFavorite"><span aria-hidden="true">{{ selected.favorite ? '★' : '☆' }}</span>{{ savingFavorite ? '正在保存…' : selected.favorite ? '已收藏' : '加入收藏' }}</button>
                 <a ref="downloadLink" class="primary-button download-button" :href="`/api/resources/${selected.id}/download`">下载原文件 <span aria-hidden="true">↗</span></a>
-                <button type="button" class="danger-button" :aria-disabled="deleting" @click="deleteResource">{{ deleting ? '正在删除…' : '删除资料' }}</button>
+                <details class="detail-danger-zone"><summary>更多操作</summary><button type="button" class="danger-button" :aria-disabled="deleting" @click="deleteResource">{{ deleting ? '正在删除…' : '删除资料' }}</button></details>
               </div>
               <p v-if="detailError" class="message error" role="alert">{{ detailError }}</p>
-              <p class="detail-footnote">处理结果会保留在原件之外，并可单独下载。</p>
+              <p v-if="detailSection === 'preview'" class="detail-footnote">需要标签、笔记或关联？切换到“整理与关联”；提取文本或缩略图在“按需处理”。</p>
             </aside>
           </div>
         </section>

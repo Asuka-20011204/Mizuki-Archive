@@ -27,13 +27,23 @@ func (store *emailIdentityFake) EnsureAdminUser(_ context.Context, username stri
 }
 
 // CreateUser 模拟邮箱唯一约束和新用户生成。
-func (store *emailIdentityFake) CreateUser(_ context.Context, email string) (model.User, error) {
+func (store *emailIdentityFake) CreateUser(_ context.Context, email, username string, hash []byte) (model.User, error) {
 	if _, exists := store.users[email]; exists {
 		return model.User{}, repository.ErrUserExists
 	}
-	user := model.User{ID: "user-" + email, Username: email, Email: email}
+	user := model.User{ID: "user-" + email, Username: username, Email: email, PasswordHash: hash}
 	store.users[email] = user
 	return user, nil
+}
+
+// GetUserByUsername 模拟普通账号密码登录按用户名查找。
+func (store *emailIdentityFake) GetUserByUsername(_ context.Context, username string) (model.User, error) {
+	for _, user := range store.users {
+		if user.Username == username {
+			return user, nil
+		}
+	}
+	return model.User{}, repository.ErrNotFound
 }
 
 // GetUserByEmail 模拟按规范化邮箱查找用户。
@@ -140,17 +150,17 @@ func TestEmailRegistrationAndLogin(t *testing.T) {
 	if err := emailAuth.RequestRegistrationCode(context.Background(), "user@example.com"); !errors.Is(err, ErrEmailCodeTooSoon) {
 		t.Fatalf("expected resend cooldown, got %v", err)
 	}
-	token, err := emailAuth.RegisterWithCode(context.Background(), "user@example.com", sender.code)
+	token, err := emailAuth.RegisterWithCode(context.Background(), "user@example.com", sender.code, "emailuser", "correct horse battery staple")
 	if err != nil || token == "" {
 		t.Fatalf("registration failed: token=%q err=%v", token, err)
 	}
-	if _, err := emailAuth.RegisterWithCode(context.Background(), "user@example.com", sender.code); !errors.Is(err, ErrEmailCodeInvalid) {
+	if _, err := emailAuth.RegisterWithCode(context.Background(), "user@example.com", sender.code, "emailuser", "correct horse battery staple"); !errors.Is(err, ErrEmailCodeInvalid) {
 		t.Fatalf("expected one-time rejection, got %v", err)
 	}
 	if err := emailAuth.RequestLoginCode(context.Background(), "user@example.com"); err != nil {
 		t.Fatal(err)
 	}
-	loginToken, err := emailAuth.LoginWithCode(context.Background(), "user@example.com", sender.code)
+	loginToken, _, err := emailAuth.LoginWithCode(context.Background(), "user@example.com", sender.code)
 	if err != nil || loginToken == "" {
 		t.Fatalf("email login failed: token=%q err=%v", loginToken, err)
 	}
