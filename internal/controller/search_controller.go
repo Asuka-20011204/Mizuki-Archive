@@ -27,14 +27,14 @@ func (handler *Controller) searchAll(ctx *gin.Context) {
 	// 搜索可能扫描已提取正文：优先使用共享限流器，Redis 故障时仍保留单实例限流。
 	owner, _ := repository.UserIDFromContext(ctx.Request.Context())
 	key := "search:" + owner
-	if handler.config.RateLimiter != nil {
+	if !handler.config.BenchmarkMode && handler.config.RateLimiter != nil {
 		allowed, err := handler.config.RateLimiter.Allow(ctx.Request.Context(), key, 30, time.Minute)
 		if err == nil && !allowed {
 			failure(ctx, http.StatusTooManyRequests, "rate_limited", "搜索过于频繁，请稍后再试")
 			return
 		}
 	}
-	if !handler.searchLimiter.allowedRequests(key, 30, time.Minute) {
+	if !handler.config.BenchmarkMode && !handler.searchLimiter.allowedRequests(key, 30, time.Minute) {
 		failure(ctx, http.StatusTooManyRequests, "rate_limited", "搜索过于频繁，请稍后再试")
 		return
 	}

@@ -148,6 +148,7 @@ Mizuki Archive/
 ├── docs/                              # 产品、架构、安全、设计和变更记录
 ├── compose.yaml                       # MySQL 与可选 RabbitMQ/Redis 容器
 ├── compose.deploy.yaml                # V6 独立单机编排：Web/API/Worker/MySQL
+├── compose.bench.yaml                 # 仅本地压测放宽入口/业务限流的覆盖
 ├── compose.tls.yaml                   # V14 可选 TLS 入口覆盖（证书只读挂载）
 ├── compose.secrets.yaml               # V14 可选 Docker Secrets 覆盖
 ├── Dockerfile                         # Go API/migrate 与含 OCR 工具的非 root Worker 分目标镜像

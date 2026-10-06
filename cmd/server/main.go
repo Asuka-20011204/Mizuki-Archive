@@ -82,8 +82,12 @@ func main() {
 	if err != nil || (parsedOrigin.Scheme != "http" && parsedOrigin.Scheme != "https") || parsedOrigin.Host == "" || parsedOrigin.Path != "" || parsedOrigin.RawQuery != "" || parsedOrigin.Fragment != "" {
 		log.Fatal("APP_ORIGIN must be a scheme and host only")
 	}
-	if parsedOrigin.Scheme == "http" && !strings.HasPrefix(parsedOrigin.Host, "localhost:") && !strings.HasPrefix(parsedOrigin.Host, "127.0.0.1:") {
+	if parsedOrigin.Scheme == "http" && !isLocalOrigin(parsedOrigin) {
 		log.Fatal("non-local APP_ORIGIN requires HTTPS")
+	}
+	benchmarkMode := os.Getenv("APP_BENCHMARK_MODE") == "true"
+	if benchmarkMode && !isLocalOrigin(parsedOrigin) {
+		log.Fatal("APP_BENCHMARK_MODE requires a local APP_ORIGIN")
 	}
 	dataDir := required("APP_DATA_DIR")
 	// 只解析 DSN 再交给 GORM，不在日志中输出可能包含数据库密码的原始字符串。
@@ -243,7 +247,7 @@ func main() {
 	if err != nil {
 		log.Fatal("cannot prepare portable export")
 	}
-	router, err := controller.New(controller.Config{Resources: resources, Notes: notes, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, BatchTags: batchTags, BatchFavorites: batchFavorites, Archive: archive, BatchDelete: batchDelete, Relations: relations, Topics: topics, Export: exporter, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), RateLimiter: sharedLimiter, Ready: connection.PingContext})
+	router, err := controller.New(controller.Config{Resources: resources, Notes: notes, ExternalResources: externalResources, Inbox: inbox, Search: search, SavedSearches: savedSearches, BatchTags: batchTags, BatchFavorites: batchFavorites, Archive: archive, BatchDelete: batchDelete, Relations: relations, Topics: topics, Export: exporter, Processing: processingService, Auth: auth, EmailAuth: emailAuth, Origin: origin, SecureCookie: parsedOrigin.Scheme == "https", TrustProxyHeaders: trustProxyHeadersEnabled(), BenchmarkMode: benchmarkMode, RateLimiter: sharedLimiter, Ready: connection.PingContext})
 	if err != nil {
 		log.Fatal("cannot initialize HTTP server")
 	}
@@ -296,6 +300,12 @@ func main() {
 	if err := server.Shutdown(shutdown); err != nil {
 		log.Printf("HTTP shutdown: %v", err)
 	}
+}
+
+// isLocalOrigin 精确判断来源主机是否为本机地址，避免用字符串前缀接受畸形主机名。
+func isLocalOrigin(origin *url.URL) bool {
+	hostname := strings.ToLower(origin.Hostname())
+	return hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1"
 }
 
 // autoMigrateEnabled 保留本地开发的开箱即用体验，并允许生产 API/Worker 关闭启动时 DDL。

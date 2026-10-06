@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -36,8 +37,10 @@ type Config struct {
 	SecureCookie      bool
 	// TrustProxyHeaders 仅应在 API 不直接暴露、且前置代理会覆盖 X-Real-IP 时开启。
 	TrustProxyHeaders bool
-	RateLimiter       cache.RateLimiter
-	Ready             func(context.Context) error
+	// BenchmarkMode 仅用于隔离本地压测环境，允许压测提交接口跳过业务限流；生产配置必须保持 false。
+	BenchmarkMode bool
+	RateLimiter   cache.RateLimiter
+	Ready         func(context.Context) error
 }
 
 type Controller struct {
@@ -189,7 +192,11 @@ func (handler *Controller) headersAndOrigin(ctx *gin.Context) {
 		ctx.Abort()
 		return
 	}
-	if handler.config.RateLimiter != nil && ctx.Request.Method == http.MethodPost && ctx.Request.URL.Path != "/api/login" {
+	shouldLimitPost := ctx.Request.Method == http.MethodPost && ctx.Request.URL.Path != "/api/login"
+	if handler.config.BenchmarkMode {
+		shouldLimitPost = shouldLimitPost && !benchmarkPostRateLimitExempt(ctx.Request.URL.Path)
+	}
+	if handler.config.RateLimiter != nil && shouldLimitPost {
 		allowed, err := handler.config.RateLimiter.Allow(ctx.Request.Context(), clientAddress(ctx.Request, handler.config.TrustProxyHeaders)+":"+ctx.Request.URL.Path, 60, time.Minute)
 		if err == nil && !allowed {
 			failure(ctx, http.StatusTooManyRequests, "rate_limited", "请求过于频繁，请稍后再试")
@@ -198,6 +205,11 @@ func (handler *Controller) headersAndOrigin(ctx *gin.Context) {
 		}
 	}
 	ctx.Next()
+}
+
+// benchmarkPostRateLimitExempt 只放开混合压测实际提交的上传和处理任务接口。
+func benchmarkPostRateLimitExempt(path string) bool {
+	return path == "/api/resources" || (strings.HasPrefix(path, "/api/resources/") && strings.HasSuffix(path, "/jobs"))
 }
 
 // failure 统一输出不含内部错误细节的 HTTP 错误结构，供前端稳定展示。

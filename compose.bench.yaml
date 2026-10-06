@@ -1,0 +1,8 @@
+services:
+  api:
+    environment:
+      APP_BENCHMARK_MODE: "true"
+
+  web:
+    volumes:
+      - ./web/nginx.bench.conf:/etc/nginx/conf.d/default.conf:ro

@@ -10,6 +10,7 @@
 - 输出 `http.csv`、`tasks.csv`、`summary.json`。HTTP 汇总包含请求数、请求吞吐、p50/p95/p99、5xx、超时以及预期/非预期 429；任务记录保留任务、资料和派生产物 ID及服务端时间戳，并记录实际成功创建任务数/速率。
 - 任务轮询使用有界队列和固定轮询 Worker，避免慢 OCR 让客户端创建无限 goroutine；负载窗口和排空窗口分开计算。
 - `scripts/sample-bench.ps1` 只采集指定 Compose 项目的容器，输出 Docker CPU/cgroup 内存、容器主进程 `VmRSS`、容器状态、MySQL `Threads_connected` 和 `processing_jobs` 状态；同时保存启动时的队列基线。
+- `compose.bench.yaml` 仅对本地隔离项目启用 benchmark profile：Nginx 入口限流提高，API 只对上传/创建处理任务跳过业务限流并跳过搜索限流；默认部署编排和生产限流不改变。
 - Worker 停止、崩溃、重启和“恢复到积压清零”的时间仍由操作者在确认项目名后手动执行，避免压测程序误操作其他项目；`container-state.csv` 可用于对齐停止/恢复时间。
 
 ## 验证结果
@@ -17,7 +18,7 @@
 - 已通过 `go test ./cmd/mixed-load`、`go vet ./cmd/mixed-load`、`go run ./cmd/mixed-load -h`。
 - 已通过 PowerShell AST 解析和 `pwsh -NoProfile -File .\scripts\sample-bench.ps1 -?`。
 - 已通过 `git diff --check`；已有 Mailpit 证书脚本的工作区修改保留。
-- `mizuki-bench` 当前已通过 `/readyz`，三个合成 fixture 已存在；真实短时压测尚未在本轮执行，因为当前终端没有 `MIZUKI_BENCH_PASSWORD`。
+- `mizuki-bench` 当前已通过 `/readyz`，三个合成 fixture 已存在；默认限流基线和 benchmark profile 短时压测均已实际执行。
 
 ## 运行记录模板
 
@@ -49,5 +50,7 @@ go run ./cmd/mixed-load -base-url http://localhost:18082 -username benchowner `
 | `run-01` | 0.2/s | 1 | 0.0033/s | 2858 | 2224 | 0 | 1 succeeded | 0 |
 | `run-02` | 0.5/s | 7 | 0.0233/s | 994 | 505 | 0 | 7 succeeded | 0 |
 | `run-03` | 1.0/s | 8 | 0.0267/s | 1246 | 751 | 0 | 8 succeeded | 0 |
+| `run-04` benchmark profile | 0.5/s | 60 | 0.5000/s | 520 | 0 | 0 | 60 succeeded | 0 |
+| `run-05` benchmark profile | 1.0/s | 120 | 1.0000/s | 763 | 0 | 0 | 120 succeeded | 0 |
 
-三档都没有超时；采样文件记录了 Docker CPU/cgroup 内存、PID1 RSS、MySQL 连接数、队列状态和容器状态。`run-01` 中隔离的 `worker-1` 被 `docker kill` 后退出码为 137，之后已手动启动并核对两个 Worker 均运行。由于三档均受到大量非预期 429 影响，当前证据只能说明入口限流和任务幂等/恢复后的结果，不能作为系统吞吐或公网容量结论。
+五档都没有超时；采样文件记录了 Docker CPU/cgroup 内存、PID1 RSS、MySQL 连接数、队列状态和容器状态。`run-01` 中隔离的 `worker-1` 被 `docker kill` 后退出码为 137，之后已手动启动并核对两个 Worker 均运行。默认 profile 的三档受到大量非预期 429 影响，说明正式安全限流先于处理能力成为瓶颈；benchmark profile 的两档在 0.5/s 和 1.0/s 下全部成功且无 429，但它不代表正式入口限流策略，也不能外推公网容量。

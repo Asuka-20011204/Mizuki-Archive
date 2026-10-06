@@ -1,10 +1,35 @@
 package main
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+// TestIsLocalOriginRequiresExactHostname 验证 benchmark 只能接受明确的本机主机名。
+func TestIsLocalOriginRequiresExactHostname(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		origin string
+		want   bool
+	}{
+		{name: "localhost", origin: "http://localhost:18080", want: true},
+		{name: "ipv4", origin: "http://127.0.0.1:18080", want: true},
+		{name: "ipv6", origin: "http://[::1]:18080", want: true},
+		{name: "lookalike", origin: "http://localhost.example:18080", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := url.Parse(test.origin)
+			if err != nil {
+				t.Fatalf("parse origin: %v", err)
+			}
+			if got := isLocalOrigin(parsed); got != test.want {
+				t.Fatalf("isLocalOrigin(%q) = %v, want %v", test.origin, got, test.want)
+			}
+		})
+	}
+}
 
 // TestLoadEnvironmentLoadsFileWithoutOverwritingProcessEnvironment 验证文件值可读且不会覆盖进程已有配置。
 func TestLoadEnvironmentLoadsFileWithoutOverwritingProcessEnvironment(t *testing.T) {

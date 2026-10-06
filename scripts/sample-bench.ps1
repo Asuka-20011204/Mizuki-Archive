@@ -3,6 +3,7 @@ param(
     [string]$ComposeEnvFile,
     [string]$ProjectName = 'mizuki-bench',
     [string]$ComposeFile = 'compose.deploy.yaml',
+    [string]$ComposeOverrideFile = '',
     [string]$OutputDirectory = (Join-Path $env:TEMP ('mizuki-bench-results-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))),
     [int]$DurationSeconds = 300,
     [int]$IntervalSeconds = 1
@@ -34,7 +35,11 @@ function Write-Row {
 
 # read-queue-counts 查询任务状态数量；查询失败会终止采样，避免产生不完整报告。
 function Read-QueueCounts {
-    $result = & docker compose -p $ProjectName --env-file $ComposeEnvFile -f $ComposeFile exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -B "$MYSQL_DATABASE" -e "SELECT status, COUNT(*) FROM processing_jobs GROUP BY status ORDER BY status; SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = ''Threads_connected'';"'
+    $composeFiles = @('-f', $ComposeFile)
+    if ($ComposeOverrideFile) {
+        $composeFiles += @('-f', $ComposeOverrideFile)
+    }
+    $result = & docker compose -p $ProjectName --env-file $ComposeEnvFile @composeFiles exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -B "$MYSQL_DATABASE" -e "SELECT status, COUNT(*) FROM processing_jobs GROUP BY status ORDER BY status; SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = ''Threads_connected'';"'
     if ($LASTEXITCODE -ne 0) {
         throw '读取 processing_jobs 状态失败'
     }

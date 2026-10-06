@@ -121,10 +121,13 @@ docker compose --env-file $config -f compose.deploy.yaml down
 
 ## 持续混合压测与 Worker 恢复演练
 
-压测必须使用独立的 `mizuki-bench` 项目、变量文件、卷和合成 fixture，不要连接开发或正式资料库。先确认项目和入口：
+压测必须使用独立的 `mizuki-bench` 项目、变量文件、卷和合成 fixture，不要连接开发或正式资料库。`compose.bench.yaml` 只在本地压测项目启用较宽的入口/业务限流，生产默认限流配置不变。先用两个文件重建隔离 API/Web：
 
 ```powershell
 $config = (Resolve-Path '..\mizuki-bench.env').Path
+docker compose -p mizuki-bench --env-file $config `
+  -f compose.deploy.yaml -f compose.bench.yaml up --build -d
+
 docker compose -p mizuki-bench --env-file $config -f compose.deploy.yaml ps
 (Invoke-WebRequest -UseBasicParsing http://localhost:18082/readyz).StatusCode
 Get-ChildItem (Join-Path $env:TEMP 'mizuki-bench-fixtures')
@@ -134,6 +137,7 @@ Get-ChildItem (Join-Path $env:TEMP 'mizuki-bench-fixtures')
 
 ```powershell
 pwsh -NoProfile -File .\scripts\sample-bench.ps1 -ComposeEnvFile $config `
+  -ComposeFile compose.deploy.yaml -ComposeOverrideFile compose.bench.yaml `
   -ProjectName mizuki-bench -OutputDirectory "$env:TEMP\mizuki-bench-results\run-01" `
   -DurationSeconds 420 -IntervalSeconds 1
 
