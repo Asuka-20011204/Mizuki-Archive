@@ -136,7 +136,7 @@ Get-ChildItem (Join-Path $env:TEMP 'mizuki-bench-fixtures')
 在一个终端启动每秒采样器，在另一个终端设置本机环境变量 `MIZUKI_BENCH_PASSWORD` 后启动负载；密码不放在命令行、日志或结果文件中：
 
 ```powershell
-pwsh -NoProfile -File .\scripts\sample-bench.ps1 -ComposeEnvFile $config `
+powershell -NoProfile -File .\scripts\sample-bench.ps1 -ComposeEnvFile $config `
   -ComposeFile compose.deploy.yaml -ComposeOverrideFile compose.bench.yaml `
   -ProjectName mizuki-bench -OutputDirectory "$env:TEMP\mizuki-bench-results\run-01" `
   -DurationSeconds 420 -IntervalSeconds 1

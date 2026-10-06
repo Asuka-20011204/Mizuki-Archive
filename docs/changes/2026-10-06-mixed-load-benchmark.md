@@ -16,7 +16,7 @@
 ## 验证结果
 
 - 已通过 `go test ./cmd/mixed-load`、`go vet ./cmd/mixed-load`、`go run ./cmd/mixed-load -h`。
-- 已通过 PowerShell AST 解析和 `pwsh -NoProfile -File .\scripts\sample-bench.ps1 -?`。
+- 已通过 PowerShell AST 解析和 Windows PowerShell `powershell -NoProfile -File .\scripts\sample-bench.ps1 -?`；PowerShell 7 也可使用 `pwsh`。
 - 已通过 `git diff --check`；已有 Mailpit 证书脚本的工作区修改保留。
 - `mizuki-bench` 当前已通过 `/readyz`，三个合成 fixture 已存在；默认限流基线和 benchmark profile 短时压测均已实际执行。
 
