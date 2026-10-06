@@ -119,6 +119,48 @@ docker compose --env-file $config -f compose.deploy.yaml down
 
 对比资料条数、元数据、每份文件的 SHA-256、下载字节和派生文件/关键词检索；失败时不要删原备份。演练结束后确认目标项目名，再执行 `docker compose -p mizuki-v6-restore --env-file $config -f compose.deploy.yaml down -v` **仅删除隔离恢复的卷**。绝不可对原部署项目使用 `down -v`。删除演练环境变量：`Remove-Item Env:DEPLOY_WEB_PORT,Env:DEPLOY_APP_ORIGIN -ErrorAction SilentlyContinue`。
 
+## 持续混合压测与 Worker 恢复演练
+
+压测必须使用独立的 `mizuki-bench` 项目、变量文件、卷和合成 fixture，不要连接开发或正式资料库。先确认项目和入口：
+
+```powershell
+$config = (Resolve-Path '..\mizuki-bench.env').Path
+docker compose -p mizuki-bench --env-file $config -f compose.deploy.yaml ps
+(Invoke-WebRequest -UseBasicParsing http://localhost:18082/readyz).StatusCode
+Get-ChildItem (Join-Path $env:TEMP 'mizuki-bench-fixtures')
+```
+
+在一个终端启动每秒采样器，在另一个终端设置本机环境变量 `MIZUKI_BENCH_PASSWORD` 后启动负载；密码不放在命令行、日志或结果文件中：
+
+```powershell
+pwsh -NoProfile -File .\scripts\sample-bench.ps1 -ComposeEnvFile $config `
+  -ProjectName mizuki-bench -OutputDirectory "$env:TEMP\mizuki-bench-results\run-01" `
+  -DurationSeconds 420 -IntervalSeconds 1
+
+go run ./cmd/mixed-load -base-url http://localhost:18082 -username benchowner `
+  -fixture-dir "$env:TEMP\mizuki-bench-fixtures" -duration 5m `
+  -arrival-rate 0.2 -read-workers 4 `
+  -output-dir "$env:TEMP\mizuki-bench-results\run-01"
+```
+
+先做低速预热，再逐档提高 `-arrival-rate`，每档使用新结果目录。`summary.json` 的 `http_total` 是负载窗口吞吐，`http_drain_total` 单独记录排空请求；`tasks.csv` 的任务 ID 才是本轮任务成功/失败归因依据。
+
+故障演练只对已核对的隔离项目执行，并把时间写入记录：
+
+```powershell
+$workers = @(docker compose -p mizuki-bench --env-file $config -f compose.deploy.yaml ps -q worker)
+if ($workers.Count -lt 1) { throw '没有找到隔离 Worker' }
+$stoppedWorker = $workers[0]
+$failureStarted = Get-Date
+docker stop --time 30 $stoppedWorker
+# 继续观察 queue-stats.csv 和 container-state.csv
+$restartStarted = Get-Date
+docker start $stoppedWorker
+# 记录 container-state.csv 中 running=true 后到 pending/processing 清零的时间
+```
+
+优雅停止和崩溃分别跑独立档位；崩溃档位将 `docker stop` 换成 `docker kill`。核对每个已接受任务最终为 `succeeded` 或明确 `failed`，并按 `asset_id` 检查没有重复产物。`docker-stats.csv` 的 `pid1_rss_kib` 是主进程 RSS，不能替代容器 cgroup 内存；本机结果也不能外推公网容量。
+
 ## 4. 回滚与界限
 
 新版本升级前暂停写入、创建数据库+文件一致的备份并保存旧镜像。升级 `013` 链接摘要迁移时，必须先停止旧版 API 的卡片写入；新旧实例并行写入会留下 `location_key` 空值，导致重复提醒漏报。切换后在维护窗口核查同一迁移范围内 `location_key IS NULL` 的卡片并按迁移回填逻辑修复，不删除卡片数据。若只改镜像且没有不可逆的迁移，可回退旧镜像并在恢复验证后开放访问；若迁移不兼容，必须隔离恢复数据库**及同一时点的文件目录**，不能只回退程序。数据库模式 Worker 和 RabbitMQ 模式 Worker 不得同时消费同一任务。本编排中的 `mysql_data` 与 `archive_data` 是长期数据，`docker compose down` 不会删除它们，`down -v` 会删除。

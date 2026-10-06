@@ -8,6 +8,7 @@
 - **任务 Worker 入口：** `cmd/worker/main.go` 中的 `func main()`；数据库或 RabbitMQ 模式由环境配置决定。
 - **数据库迁移入口：** `cmd/migrate/main.go` 中的 `func main()`；使用 `MIGRATION_DSN` 执行版本化 SQL、初始化管理员并回填旧数据归属，完成后退出，不接收 HTTP 请求。
 - **密码辅助命令：** `cmd/hash-password/main.go` 中另一个 `func main()`。执行 `go run ./cmd/hash-password` 只生成管理员密码的 bcrypt 哈希，**不会启动服务**。
+- **持续混合压测入口：** `cmd/mixed-load/main.go` 登录隔离压测账号，按固定到达速率提交 TXT/PDF/图片并记录 HTTP、任务和派生产物指标；密码只从 `MIZUKI_BENCH_PASSWORD` 环境变量读取。
 - **浏览器入口：** `web/src/main.ts` 创建 Vue 应用并挂载 `App.vue`，不是 Go 的 `main` 函数。
 
 Go 允许每个 `cmd/子目录` 各自作为一个可执行程序；因此根目录没有 `main.go`。运行命令时选择具体子目录即可。
@@ -20,6 +21,7 @@ Mizuki Archive/
 │   ├── server/main.go                 # API 程序入口与依赖装配
 │   ├── worker/main.go                 # 单进程持久任务 Worker 入口
 │   ├── hash-password/main.go          # 交互式生成密码哈希
+│   ├── mixed-load/main.go             # 持续混合资料负载与指标输出
 │   └── migrate/main.go                # 使用独立账号执行生产数据库迁移
 ├── internal/
 │   ├── model/resource.go              # 资料模型、用户归属与列表筛选条件
@@ -152,6 +154,7 @@ Mizuki Archive/
 ├── web/Dockerfile、web/nginx*.conf     # Vue 静态构建、HTTP/TLS 同源反向代理和入口限流
 ├── .env.example                       # 仅示例变量，真实 .env 不入库
 ├── scripts/generate-mailpit-cert.ps1   # 生成仓库外的本地 SMTP 测试证书
+├── scripts/sample-bench.ps1             # 独立 Compose 项目的 CPU/内存/RSS/队列采样
 ├── scripts/scan-images.ps1             # Trivy 镜像漏洞门禁
 └── go.mod / go.sum                    # Go 模块与依赖校验
 ```
